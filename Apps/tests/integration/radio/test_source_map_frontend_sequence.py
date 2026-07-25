@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import numpy as np
@@ -93,6 +96,44 @@ def test_sequence_worker_preserves_discovery_ordinals(
     assert [item["sequence"] for item in result["artifacts"]] == [2, 3]
     assert progress[-1]["completed"] == 2
     assert progress[-1]["total"] == 2
+
+
+def test_in_process_worker_serializes_matplotlib_rendering(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    start = threading.Barrier(2)
+    state_lock = threading.Lock()
+    active = 0
+    maximum_active = 0
+
+    def fake_render(cfg, candidate, *, sequence):
+        del cfg, sequence
+        nonlocal active, maximum_active
+        with state_lock:
+            active += 1
+            maximum_active = max(maximum_active, active)
+        time.sleep(0.04)
+        with state_lock:
+            active -= 1
+        return {"ok": True, "candidate_id": candidate["id"]}
+
+    monkeypatch.setattr(worker, "_render_candidate", fake_render)
+
+    def invoke(candidate_id: str):
+        start.wait(timeout=2.0)
+        return worker.run_job(
+            {
+                "config": {"output_dir": "unused"},
+                "candidate": {"id": candidate_id},
+                "sequence": 1,
+            }
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(executor.map(invoke, ("one", "two")))
+
+    assert {result["candidate_id"] for result in results} == {"one", "two"}
+    assert maximum_active == 1
 
 
 def test_sequence_api_freezes_requested_discovery_range(

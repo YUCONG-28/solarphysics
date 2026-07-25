@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 import time
 
+import matplotlib.pyplot as plt
 import numpy as np
 from astropy.io import fits
 
@@ -12,10 +13,16 @@ from solar_apps.frontends.radio.source_map.jobs import ArtifactRegistry, JobRegi
 from solar_apps.frontends.radio.source_map.service import PathPolicy
 
 
-def _write_map(path: Path, *, frequency: float, bunit: str = "K") -> None:
+def _write_map(
+    path: Path,
+    *,
+    frequency: float,
+    bunit: str = "K",
+    scale: float = 1.0,
+) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     y, x = np.mgrid[-1:1:48j, -1:1:48j]
-    data = 10.0 + 200.0 * np.exp(-((x - 0.2) ** 2 + (y + 0.1) ** 2) / 0.08)
+    data = scale * (10.0 + 200.0 * np.exp(-((x - 0.2) ** 2 + (y + 0.1) ** 2) / 0.08))
     header = fits.Header()
     header["DATE-OBS"] = "2025-01-24T04:48:30"
     header["FREQ"] = frequency
@@ -74,6 +81,69 @@ def test_single_band_workflow_emits_linear_unit_sidecar(tmp_path: Path) -> None:
     assert metadata["panels"][0]["colorbar_label"] == "Intensity [K]"
     assert metadata["panels"][0]["tick_notation"] == "scientific_offset"
     assert metadata["panels"][0]["unit"]["source"] == "fits_bunit"
+
+
+def test_sequence_single_band_layout_is_fixed_across_titles_and_color_scales(
+    tmp_path: Path,
+) -> None:
+    first = tmp_path / "149MHz" / "RR" / "short.fits"
+    second = (
+        tmp_path
+        / "149MHz"
+        / "RR"
+        / "a_very_long_source_map_filename_for_layout_regression.fits"
+    )
+    _write_map(first, frequency=149.0, scale=1.0)
+    _write_map(second, frequency=149.0, scale=1e12)
+    cfg = _config()
+    cfg.update(
+        {
+            "_artifact_bbox_inches": None,
+            "_artifact_pad_inches": 0.0,
+            "_artifact_fixed_panel_layout": True,
+        }
+    )
+
+    first_output = workflow.plot_single_band(
+        str(first), str(tmp_path / "first-output"), cfg, write_sidecar=True
+    )
+    second_output = workflow.plot_single_band(
+        str(second), str(tmp_path / "second-output"), cfg, write_sidecar=True
+    )
+    first_metadata = validate_source_map_artifact(first_output)
+    second_metadata = validate_source_map_artifact(second_output)
+
+    assert first_metadata["image"]["width"] == second_metadata["image"]["width"]
+    assert first_metadata["image"]["height"] == second_metadata["image"]["height"]
+    np.testing.assert_allclose(
+        first_metadata["panels"][0]["bbox_normalized"],
+        second_metadata["panels"][0]["bbox_normalized"],
+        rtol=0.0,
+        atol=1e-9,
+    )
+
+
+def test_sequence_colorbar_has_fixed_intensity_unit_and_visible_values() -> None:
+    fig, axis = plt.subplots(figsize=(5, 4), dpi=80)
+    image = axis.imshow(np.arange(100, dtype=float).reshape(10, 10))
+    colorbar = fig.colorbar(image, ax=axis)
+    colorbar.ax.tick_params(colors="white")
+
+    workflow._apply_fixed_single_band_artifact_layout(
+        fig,
+        axis,
+        colorbar,
+        intensity_unit="K",
+        cfg={"tick_fontsize": 18, "label_fontsize": 22},
+    )
+    fig.canvas.draw()
+
+    assert colorbar.ax.get_ylabel() == "Intensity [K]"
+    assert [tick.get_text() for tick in colorbar.ax.get_yticklabels()]
+    assert all(tick.get_color() == "black" for tick in colorbar.ax.get_yticklabels())
+    assert colorbar.ax.yaxis.label.get_color() == "black"
+    assert colorbar.ax.yaxis.get_offset_text().get_color() == "black"
+    plt.close(fig)
 
 
 def test_multi_band_workflow_emits_log_unit_for_each_panel(tmp_path: Path) -> None:

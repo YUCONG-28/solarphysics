@@ -145,15 +145,19 @@ def main(argv: list[str] | None = None) -> int:
     print(f"Radio ROI light-curve app: {url}")
     if args.browser:
         webbrowser.open(url)
+    stopped_for_idle = False
     try:
         if args.auto_stop:
-            _wait_with_auto_stop(
+            stopped_for_idle = _wait_with_auto_stop(
                 process, port=port, idle_seconds=args.auto_stop_idle_sec
             )
         else:
             process.wait()
     except KeyboardInterrupt:
         _terminate_process(process)
+        return 0
+    if stopped_for_idle:
+        return 0
     return int(process.returncode or 0)
 
 
@@ -181,7 +185,7 @@ def _wait_with_auto_stop(
     *,
     port: int,
     idle_seconds: float,
-) -> None:
+) -> bool:
     last_seen = time.monotonic()
     grace = max(5.0, float(idle_seconds))
     while process.poll() is None:
@@ -190,8 +194,9 @@ def _wait_with_auto_stop(
         elapsed = time.monotonic() - last_seen
         if elapsed >= max(1.0, float(idle_seconds)) and elapsed >= grace:
             _terminate_process(process)
-            break
+            return True
         time.sleep(1.0)
+    return False
 
 
 def _has_browser_connection(port: int) -> bool:
@@ -199,15 +204,17 @@ def _has_browser_connection(port: int) -> bool:
         result = subprocess.run(
             ["netstat", "-ano"],
             text=True,
+            encoding="utf-8",
+            errors="replace",
             capture_output=True,
             check=False,
             timeout=3,
         )
-    except OSError, subprocess.SubprocessError:
+    except (OSError, subprocess.SubprocessError):
         return False
     marker_v4 = f":{int(port)} "
     marker_v6 = f":{int(port)}]"
-    for line in result.stdout.splitlines():
+    for line in (result.stdout or "").splitlines():
         if "ESTABLISHED" not in line.upper():
             continue
         if marker_v4 in line or marker_v6 in line:

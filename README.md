@@ -1,23 +1,51 @@
 # Solar Physics Toolkit
 
-This repository separates reusable solar-physics software, research evidence,
-interactive applications, and private runtime state. The installable library
-is `solar-physics-toolkit`; its Python import namespace is `solar_toolkit`.
+[![CI](https://github.com/YUCONG-28/solarphysics/actions/workflows/ci.yml/badge.svg)](https://github.com/YUCONG-28/solarphysics/actions/workflows/ci.yml)
+
+`solarphysics` is a research-oriented workspace built around the reusable
+`solar-physics-toolkit` Python library. The distribution installs the
+`solar_toolkit` import namespace and provides focused building blocks for
+solar-observation analysis.
+
+> This repository is not an out-of-the-box data product. Scientific choices,
+> event configuration, and local data paths remain explicit so analyses can be
+> reviewed and reproduced.
+
+## Install the library
+
+From the repository root, install the reusable package in the primary
+Miniforge environment:
+
+```powershell
+$Conda = "<miniforge-root>\Scripts\conda.exe"
+& $Conda run -n solarphysics_env_latest python -m pip install -e ".\Python[dev]"
+```
+
+`solarphysics_env` is retained as an explicit compatibility environment. The
+workspace does not automatically fall back to another Python installation.
+
+## Library capabilities
 
 The toolkit provides focused components for observation discovery, FITS and
 map processing, coordinates, time series, radio-source analysis, X-ray/DEM
 workflows, visualization, and media export. Scientific choices and local data
 locations remain explicit rather than being hidden in package defaults.
 
-## Python library
+The public package covers:
 
-The [`Python`](Python) partition contains the reusable package. It has no GUI,
-Web server, event-specific paths, or application runtime state.
+- observation discovery, download helpers, and FITS I/O;
+- solar maps, coordinates, time matching, and time-series utilities;
+- radio imaging, source fitting, trajectories, spectrograms, and frame quality;
+- AIA, HMI, CME, X-ray, and differential-emission-measure workflows;
+- scientific visualization, deterministic image naming, and media export.
 
-```powershell
-$Conda = "<miniforge-root>\Scripts\conda.exe"
-& $Conda run -n solarphysics_env_latest python -m pip install -e ".\Python[dev]"
-```
+The library contains no GUI, Web server, event-specific path, or application
+runtime state. See the [Python package reference](Python/README.md),
+[quickstart](Python/docs/quickstart.md), and
+[package organization](Python/CODE_ORGANIZATION_MANIFEST.md) for the detailed
+API and dependency boundaries.
+
+## Minimal example
 
 ```python
 from solar_toolkit.time import extract_time_from_filename, nearest_by_time
@@ -38,39 +66,49 @@ nearest = nearest_by_time(
 print(nearest[0] if nearest else "no match")
 ```
 
-See the [quickstart](Python/docs/quickstart.md),
-[package organization](Python/CODE_ORGANIZATION_MANIFEST.md), and
-[Python package reference](Python/README.md).
-
-## Frontend applications
+## Applications and research evidence
 
 The versioned [`Apps`](Apps) partition contains the Miniforge-launched desktop,
-Web, and Streamlit applications. Its nine launchable applications expose ten
-interfaces, including the shared Workbench and Radio Workspace server.
+Web, and Streamlit applications. It depends on the reusable library while
+keeping workflow orchestration and user-interface code outside the package.
 
-From an activated Miniforge Prompt whose current directory is `Python`, launch
-the all-in-one radio composite frontend with:
+After following the [Apps manual](Apps/README.md), launch the stable native
+Solar Physics App 1.0 from the repository root with:
 
 ```powershell
-# (solarphysics_env_latest) <repo>\Python>
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File ..\Apps\run.ps1 frontend radio-composite
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Apps\run.ps1 frontend app-v1
 ```
 
-Installation, commands, theme behavior, state and path memory, scientific
-display controls, privacy rules, and troubleshooting are documented in the
-[Apps manual](Apps/README.md).
+App 1.0 provides ten English PyQt6 interfaces for the Workbench, radio
+workflows, image viewing and composition, time synchronization, projects,
+presets, batch processing, and recoverable subprocess tasks. The
+`app-v1-preview` command remains a one-release compatibility alias to the same
+implementation. Earlier Flask, Streamlit, and PySide6 entry points remain
+available as deprecated compatibility surfaces.
 
-## Research evidence and tools
+The [integration plan](Apps/docs/app-v1-integration-plan.md),
+[capability matrix](Apps/docs/app-v1-capability-matrix.md), and
+[interface-equivalence audit](Apps/docs/app-v1-equivalence-audit.md) document
+the application boundary and release gates.
 
 The [`Paper`](Paper) partition is the static literature-evidence layer.
 Catalog retrieval and validation live under
 [`tools/literature`](tools/literature). These components are kept separate from
-both the Python library and application orchestration.
+both the Python library and application orchestration. Private configuration,
+state, workspaces, and generated outputs remain under the ignored `Local/`
+runtime tree.
 
-The complete dependency and data boundary is described in
-[Repository architecture](ARCHITECTURE.md).
+See the [repository architecture](ARCHITECTURE.md) for the complete source,
+dependency, data, and runtime boundaries.
 
 ## Development
+
+Run the complete application test suite with the primary Miniforge
+interpreter:
+
+```powershell
+& $Conda run -n solarphysics_env_latest python -m pytest .\Apps\tests -q
+```
 
 Run public-package checks in the primary Miniforge environment:
 

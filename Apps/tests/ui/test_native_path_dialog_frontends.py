@@ -108,7 +108,6 @@ def test_shared_native_dialog_client_keeps_cancel_empty_and_deduplicates_windows
         "solar_apps/frontends/workbench/static/main.js",
         "solar_apps/frontends/workbench/static/radio.js",
         "solar_apps/frontends/image_viewer/static/main.js",
-        "solar_apps/frontends/radio_bad_frame_review/static/app.js",
         "solar_apps/frontends/radio/source_map/static/app.js",
     ],
 )
@@ -123,3 +122,34 @@ def test_flask_path_buttons_use_native_selection_without_automatic_browser_fallb
     assert "operation:" in native_block[:catch_index]
     assert "field:" in native_block[:catch_index]
     assert "/api/files/list" not in native_block[: catch_index + 200]
+
+
+def test_bad_frame_review_root_picker_uses_shared_native_directory_contract() -> None:
+    source = (
+        APPS_ROOT
+        / "solar_apps"
+        / "frontends"
+        / "radio_bad_frame_review"
+        / "static"
+        / "app.js"
+    ).read_text(encoding="utf-8")
+    start = source.index("async function openNativeRootDialog()")
+    end = source.index("\nasync function loadDirectories", start)
+    native_picker = source[start:end]
+
+    assert 'mode: "select_directory"' in native_picker
+    assert 'initialPath: $("#root-input").value' in native_picker
+    assert 'operation: "scan-observation"' in native_picker
+    assert 'field: "root-input"' in native_picker
+    cancel_index = native_picker.index("if (!paths.length)")
+    update_index = native_picker.index('$("#root-input").value = paths[0]')
+    assert cancel_index < update_index
+    assert native_picker.index("await discoverBands()") > update_index
+    assert "await openInAppRootDialog(error)" in native_picker
+
+    fallback_start = source.index("async function openInAppRootDialog(error)")
+    fallback_end = source.index("\nasync function loadDirectories", fallback_start)
+    fallback = source[fallback_start:fallback_end]
+    assert "Windows folder dialog unavailable:" in fallback
+    assert "dialog.showModal()" in fallback
+    assert 'await loadDirectories($("#root-input").value.trim())' in fallback

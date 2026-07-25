@@ -814,7 +814,13 @@ def _process_single_worker(
         fig.subplots_adjust(left=0.13, right=0.95, top=0.93, bottom=0.11)
 
         if cfg.save_image:
-            save_dir = file_path.parent / cfg.single_band_output_subdir
+            output_root = Path(cfg.output_dir or cfg.data_path)
+            output_band = (
+                output_root / str(_unused_wave_val)
+                if cfg.use_band_subdirs
+                else output_root
+            )
+            save_dir = output_band / cfg.single_band_output_subdir
             save_dir.mkdir(parents=True, exist_ok=True)
             batch_time = generated_at or dt.datetime.now(dt.UTC)
             observation_time = _observation_datetime(current_map)
@@ -1061,15 +1067,15 @@ def _mosaic_save_prefix(cfg: AIAConfig) -> str:
 
 
 def _mosaic_save_dir(cfg: AIAConfig) -> Path:
-    data_path = Path(cfg.data_path)
+    output_root = Path(cfg.output_dir or cfg.data_path)
 
     if cfg.draw_difference and cfg.mosaic_difference_inline and not cfg.draw_original:
-        return data_path / cfg.mosaic_difference_output_subdir
+        return output_root / cfg.mosaic_difference_output_subdir
 
     if cfg.draw_difference and cfg.mosaic_difference_inline and cfg.draw_original:
-        return data_path / cfg.mosaic_original_plus_difference_output_subdir
+        return output_root / cfg.mosaic_original_plus_difference_output_subdir
 
-    return data_path / cfg.mosaic_output_subdir
+    return output_root / cfg.mosaic_output_subdir
 
 
 def _base_difference_reference_path(wave: int, cfg: AIAConfig) -> Path:
@@ -1342,10 +1348,11 @@ def _process_multi_band_worker(
 
 
 def _difference_save_dir(data_path: Path, wave: int, cfg: AIAConfig) -> Path:
+    output_root = Path(cfg.output_dir) if cfg.output_dir else data_path
     method_dir = f"{cfg.difference_method}_difference"
     if cfg.use_band_subdirs:
-        return data_path / str(wave) / cfg.difference_output_subdir / method_dir
-    return data_path / cfg.difference_output_subdir / str(wave) / method_dir
+        return output_root / str(wave) / cfg.difference_output_subdir / method_dir
+    return output_root / cfg.difference_output_subdir / str(wave) / method_dir
 
 
 # Difference image meaning:

@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import json
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 import pytest
+from matplotlib.figure import Figure
+from PIL import Image
 
 from solar_apps.workflows.radio.artifacts import (
     apply_colorbar_tick_notation,
@@ -142,6 +145,105 @@ def test_tight_sidecar_pixel_coordinate_roundtrip(
         left, top, right, bottom = panel["bbox_normalized"]
         assert 0 <= left < right <= 1
         assert 0 <= top < bottom <= 1
+
+
+def test_artifact_save_attaches_renderer_to_base_canvas(tmp_path: Path) -> None:
+    figure = Figure(figsize=(3, 2))
+    axis = figure.add_subplot()
+    axis.imshow(np.ones((3, 3)), extent=[0, 3, 0, 3])
+    assert not callable(getattr(figure.canvas, "get_renderer", None))
+
+    image_path = tmp_path / "base-canvas-map.png"
+    saved_image, saved_sidecar = save_figure_artifact(
+        figure,
+        image_path,
+        dpi=80,
+        radio_axes=[axis],
+        panel_metadata=[{"id": "radio-1"}],
+        mode="single_band",
+        polarization="RR",
+        source_files=["input.fits"],
+        write_sidecar=True,
+    )
+
+    assert saved_image == image_path
+    assert saved_sidecar == sidecar_path_for(image_path)
+    assert callable(getattr(figure.canvas, "get_renderer", None))
+    validate_source_map_artifact(image_path)
+
+
+def test_fixed_canvas_artifact_writes_the_measured_final_dpi_buffer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    figure = Figure(figsize=(4, 3), dpi=75, facecolor="white")
+    axis = figure.add_axes([0.2, 0.2, 0.5, 0.5])
+    axis.imshow(np.zeros((12, 12)), cmap="gray", vmin=0.0, vmax=1.0)
+    axis.set_axis_off()
+
+    def fail_second_render(*_args, **_kwargs):
+        raise AssertionError("fixed-canvas artifacts must not call Figure.savefig")
+
+    monkeypatch.setattr(figure, "savefig", fail_second_render)
+    image_path = tmp_path / "fixed-canvas-map.png"
+    save_figure_artifact(
+        figure,
+        image_path,
+        dpi=200,
+        radio_axes=[axis],
+        panel_metadata=[{"id": "radio-1"}],
+        mode="single_band",
+        polarization="RR",
+        source_files=["input.fits"],
+        write_sidecar=True,
+        bbox_inches=None,
+        pad_inches=0.0,
+    )
+
+    payload = validate_source_map_artifact(image_path)
+    with Image.open(image_path) as source:
+        rgb = np.asarray(source.convert("RGB"))
+    assert (rgb.shape[1], rgb.shape[0]) == (800, 600)
+    ys, xs = np.where(np.max(rgb, axis=2) < 16)
+    actual = (int(xs.min()), int(ys.min()), int(xs.max() + 1), int(ys.max() + 1))
+    left, top, right, bottom = payload["panels"][0]["bbox_normalized"]
+    expected = (
+        int(round(left * rgb.shape[1])),
+        int(round(top * rgb.shape[0])),
+        int(round(right * rgb.shape[1])),
+        int(round(bottom * rgb.shape[0])),
+    )
+    assert actual == pytest.approx(expected, abs=1)
+
+
+def test_fixed_canvas_worker_renders_keep_final_dpi_pixels(tmp_path: Path) -> None:
+    def render(index: int) -> tuple[tuple[int, int], float]:
+        figure = Figure(figsize=(3, 2), dpi=75, facecolor="white")
+        axis = figure.add_axes([0.15, 0.15, 0.65, 0.7])
+        axis.imshow(np.arange(100).reshape(10, 10), cmap="inferno")
+        path = tmp_path / f"worker-{index}.png"
+        save_figure_artifact(
+            figure,
+            path,
+            dpi=120,
+            radio_axes=[axis],
+            panel_metadata=[{"id": "radio-1"}],
+            mode="single_band",
+            polarization="RR",
+            source_files=["input.fits"],
+            write_sidecar=False,
+            bbox_inches=None,
+            pad_inches=0.0,
+        )
+        with Image.open(path) as opened:
+            rgb = np.asarray(opened.convert("RGB"))
+            size = opened.size
+        return size, float(rgb.std())
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(executor.map(render, range(6)))
+
+    assert {size for size, _std in results} == {(360, 240)}
+    assert all(std > 1.0 for _size, std in results)
 
 
 def test_artifact_hash_mismatch_is_rejected(tmp_path: Path) -> None:

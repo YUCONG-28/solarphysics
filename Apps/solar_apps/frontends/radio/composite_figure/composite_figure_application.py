@@ -29,6 +29,15 @@ from solar_toolkit.radio.roi_lightcurve import RadioRoi
 COMPOSITE_SCHEMA_VERSION = "radio-composite-v1"
 MAP_TIME_COLOR = "#c2410c"
 ROI_COLOR = "#00d4ff"
+_DART_BAND_COLORS = (
+    "#ff9f1c",
+    "#7bd389",
+    "#c77dff",
+    "#ff5d8f",
+    "#ffd166",
+    "#4cc9f0",
+    "#f28482",
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,6 +97,55 @@ class FrequencyBand:
         }
 
 
+def centered_frequency_band(
+    center_frequency_mhz: float,
+    bandwidth_mhz: float,
+) -> FrequencyBand:
+    """Return one symmetric DART band locked to a radio frequency."""
+
+    center = float(center_frequency_mhz)
+    bandwidth = float(bandwidth_mhz)
+    if not math.isfinite(center):
+        raise ValueError("Radio frequency must be finite")
+    if not math.isfinite(bandwidth) or bandwidth <= 0:
+        raise ValueError("DART bandwidth must be a finite value greater than zero")
+    half_width = bandwidth / 2.0
+    return FrequencyBand(center - half_width, center + half_width)
+
+
+def build_centered_frequency_bands(
+    frequencies_mhz: Sequence[float],
+    default_bandwidth_mhz: float,
+    bandwidth_overrides_mhz: Mapping[float | str, float] | None = None,
+) -> dict[float, FrequencyBand]:
+    """Build one symmetric DART band per unique selected radio frequency."""
+
+    frequencies = sorted(
+        {float(value) for value in frequencies_mhz if math.isfinite(float(value))}
+    )
+    if not frequencies:
+        raise ValueError("Select at least one radio frequency for DART bands")
+    default_width = float(default_bandwidth_mhz)
+    if not math.isfinite(default_width) or default_width <= 0:
+        raise ValueError("Default DART bandwidth must be greater than zero")
+    overrides = dict(bandwidth_overrides_mhz or {})
+    result: dict[float, FrequencyBand] = {}
+    for frequency in frequencies:
+        width = default_width
+        for raw_key, raw_width in overrides.items():
+            try:
+                matches = math.isclose(
+                    float(raw_key), frequency, rel_tol=0.0, abs_tol=1e-6
+                )
+            except (TypeError, ValueError):
+                continue
+            if matches:
+                width = float(raw_width)
+                break
+        result[frequency] = centered_frequency_band(frequency, width)
+    return result
+
+
 @dataclass(frozen=True, slots=True)
 class CompositeArtifactBundle:
     """In-memory composite products and their public filenames."""
@@ -97,6 +155,70 @@ class CompositeArtifactBundle:
     zip_bytes: bytes
     zip_filename: str
     metadata: Mapping[str, Any]
+    curve_template: CompositeFrameTemplate | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class CompositeFigureLayout:
+    """Pixel-stable layout reused by every frame in one frequency sequence."""
+
+    canvas_size_pixels: tuple[int, int]
+    map_size_pixels: tuple[int, int]
+    height_ratios: tuple[float, float, float]
+    radio_ylim: tuple[float, float]
+    dart_ylim: tuple[float, float]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "canvas_size_pixels": list(self.canvas_size_pixels),
+            "map_size_pixels": list(self.map_size_pixels),
+            "height_ratios": list(self.height_ratios),
+            "radio_ylim": list(self.radio_ylim),
+            "dart_ylim": list(self.dart_ylim),
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class CompositeFrameRender:
+    """One RGB frame plus optional PNG bytes and measured panel bounds."""
+
+    rgb: np.ndarray
+    png_bytes: bytes | None
+    panel_bounds_pixels: Mapping[str, tuple[int, int, int, int]]
+    marker_x_pixels: Mapping[str, int] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class CompositeFrameTemplate:
+    """Marker-free composite canvas reused by one frequency sequence."""
+
+    base_rgb: np.ndarray
+    layout: CompositeFigureLayout
+    source_map_bounds_pixels: tuple[int, int, int, int]
+    panel_bounds_pixels: Mapping[str, tuple[int, int, int, int]]
+    time_start_utc: datetime
+    time_end_utc: datetime
+    dpi: int
+    cache_signature: str
+    radio_curve_png: bytes
+    dart_curve_png: bytes
+
+    def to_metadata(self) -> dict[str, Any]:
+        return {
+            "cache_signature": self.cache_signature,
+            "canvas_size_pixels": list(self.layout.canvas_size_pixels),
+            "source_map_bounds_pixels": list(self.source_map_bounds_pixels),
+            "panel_bounds_pixels": {
+                key: list(value) for key, value in self.panel_bounds_pixels.items()
+            },
+            "time_start_utc": self.time_start_utc.isoformat(),
+            "time_end_utc": self.time_end_utc.isoformat(),
+            "marker": {
+                "color": MAP_TIME_COLOR,
+                "line_width_points": 0.9,
+                "line_style": "dashed",
+            },
+        }
 
 
 def build_request_signature(
@@ -181,8 +303,10 @@ def build_dart_selection_figure(
     window: DartSpectrogramWindow,
     *,
     band: FrequencyBand | None = None,
+    bands: Mapping[float, FrequencyBand] | None = None,
+    active_frequency_mhz: float | None = None,
 ):
-    """Build a downsampled DART spectrum with a box-selectable frequency grid."""
+    """Build a downsampled DART spectrum with selectable per-radio bands."""
 
     import plotly.graph_objects as go
 
@@ -223,15 +347,36 @@ def build_dart_selection_figure(
             name="Frequency selection grid",
         )
     )
-    if band is not None:
+    displayed_bands = dict(bands or {})
+    if band is not None and not displayed_bands:
+        displayed_bands[band.center_mhz] = band
+    for index, (frequency, frequency_band) in enumerate(
+        sorted(displayed_bands.items())
+    ):
+        active = active_frequency_mhz is not None and math.isclose(
+            float(active_frequency_mhz),
+            float(frequency),
+            rel_tol=0.0,
+            abs_tol=1e-6,
+        )
+        color = (
+            ROI_COLOR if active else _DART_BAND_COLORS[index % len(_DART_BAND_COLORS)]
+        )
         figure.add_hrect(
-            y0=band.low_mhz,
-            y1=band.high_mhz,
-            line={"color": ROI_COLOR, "width": 2},
-            fillcolor="rgba(0, 212, 255, 0.16)",
+            y0=frequency_band.low_mhz,
+            y1=frequency_band.high_mhz,
+            line={"color": color, "width": 3 if active else 1.5},
+            fillcolor=(
+                "rgba(0, 212, 255, 0.22)" if active else "rgba(255, 255, 255, 0.06)"
+            ),
+            annotation_text=f"{float(frequency):g} MHz",
+            annotation_position="top left",
         )
     figure.update_layout(
-        title="DART dynamic spectrum — drag a horizontal frequency band",
+        title=(
+            "DART dynamic spectrum — drag a horizontal width for the active "
+            "radio frequency"
+        ),
         xaxis_title="Time (UTC)",
         yaxis_title="Frequency (MHz)",
         dragmode="select",
@@ -331,6 +476,26 @@ def annotate_source_map_png(
 ) -> bytes:
     """Draw a confirmed HPLN/HPLT ROI on the exact Source Map PNG bytes."""
 
+    image = annotate_source_map_image(
+        image_png,
+        metadata,
+        roi,
+        color=color,
+    )
+    output = io.BytesIO()
+    image.save(output, format="PNG")
+    return output.getvalue()
+
+
+def annotate_source_map_image(
+    image_png: bytes,
+    metadata: Mapping[str, Any],
+    roi: RadioRoi,
+    *,
+    color: str = ROI_COLOR,
+) -> Image.Image:
+    """Return an annotated RGBA map without an intermediate PNG encode."""
+
     panel = _single_panel(metadata)
     panel_id = str(panel["id"])
     with Image.open(io.BytesIO(image_png)) as source:
@@ -362,9 +527,76 @@ def annotate_source_map_png(
         stroke_width=1,
         stroke_fill="black",
     )
-    output = io.BytesIO()
-    image.save(output, format="PNG")
-    return output.getvalue()
+    return image
+
+
+def _padded_limits(values: Sequence[float] | np.ndarray) -> tuple[float, float]:
+    finite = np.asarray(values, dtype=float)
+    finite = finite[np.isfinite(finite)]
+    if not finite.size:
+        raise ValueError("Composite curve contains no finite samples")
+    low = float(np.min(finite))
+    high = float(np.max(finite))
+    if math.isclose(low, high, rel_tol=0.0, abs_tol=1e-12):
+        padding = max(1.0, abs(low) * 0.05)
+    else:
+        padding = (high - low) * 0.05
+    return low - padding, high + padding
+
+
+def _validate_source_map_aspect_ratio(
+    expected: tuple[int, int], actual: tuple[int, int]
+) -> None:
+    """Allow resolution changes while rejecting a real canvas-shape drift."""
+
+    expected_width, expected_height = (int(value) for value in expected)
+    actual_width, actual_height = (int(value) for value in actual)
+    if (actual_width, actual_height) == (expected_width, expected_height):
+        return
+    if expected_width * actual_height == actual_width * expected_height:
+        return
+    raise ValueError(
+        "Source Map frame aspect ratio changed after the sequence layout was fixed: "
+        f"expected {expected_width}x{expected_height}, got "
+        f"{actual_width}x{actual_height}"
+    )
+
+
+def build_composite_layout(
+    annotated_map_png: bytes | Image.Image,
+    radio_df: pd.DataFrame,
+    dart_result: DartNarrowbandResult,
+    *,
+    map_frequency_mhz: float,
+    dpi: int = 160,
+) -> CompositeFigureLayout:
+    """Freeze the pixel geometry and curve limits for one frequency sequence."""
+
+    requested_dpi = int(dpi)
+    if requested_dpi < 1:
+        raise ValueError("Composite DPI must be positive")
+    if isinstance(annotated_map_png, Image.Image):
+        map_size = tuple(int(value) for value in annotated_map_png.size)
+    else:
+        with Image.open(io.BytesIO(annotated_map_png)) as source:
+            map_size = tuple(int(value) for value in source.size)
+    aspect = map_size[1] / max(1, map_size[0])
+    map_ratio = min(2.5, max(1.45, aspect * 2.25))
+    canvas_width = int(round(12.0 * requested_dpi))
+    canvas_height = int(round((11.2 + 2.0 * aspect) * requested_dpi))
+    canvas_width += canvas_width % 2
+    canvas_height += canvas_height % 2
+    radio_plot = _radio_plot_frame(radio_df, float(map_frequency_mhz))
+    if not dart_result.curves:
+        raise ValueError("DART narrowband extraction returned no curve")
+    dart_values = np.asarray(dart_result.curves[0].stokes_i_db, dtype=float)
+    return CompositeFigureLayout(
+        canvas_size_pixels=(canvas_width, canvas_height),
+        map_size_pixels=map_size,
+        height_ratios=(map_ratio, 1.0, 1.0),
+        radio_ylim=_padded_limits(radio_plot["raw_sum"].to_numpy(dtype=float)),
+        dart_ylim=_padded_limits(dart_values),
+    )
 
 
 def build_composite_figure(
@@ -378,6 +610,10 @@ def build_composite_figure(
     polarization: str,
     time_start: datetime | str,
     time_end: datetime | str,
+    layout: CompositeFigureLayout | None = None,
+    dpi: int = 160,
+    show_time_marker: bool = True,
+    validate_map_size: bool = True,
 ):
     """Create the publication-style three-row composite with shared UTC axes."""
 
@@ -409,14 +645,27 @@ def build_composite_figure(
 
     with Image.open(io.BytesIO(annotated_map_png)) as source:
         map_image = np.asarray(source.convert("RGBA"))
-    aspect = map_image.shape[0] / max(1, map_image.shape[1])
-    map_ratio = min(2.5, max(1.45, aspect * 2.25))
-    figure = Figure(figsize=(12.0, 11.2 + 2.0 * aspect), dpi=160, facecolor="white")
+    map_size = (int(map_image.shape[1]), int(map_image.shape[0]))
+    if layout is None:
+        aspect = map_image.shape[0] / max(1, map_image.shape[1])
+        height_ratios = (min(2.5, max(1.45, aspect * 2.25)), 1.0, 1.0)
+        figure_size = (12.0, 11.2 + 2.0 * aspect)
+        figure_dpi = 160
+    else:
+        if validate_map_size:
+            _validate_source_map_aspect_ratio(layout.map_size_pixels, map_size)
+        figure_dpi = int(dpi)
+        figure_size = (
+            layout.canvas_size_pixels[0] / figure_dpi,
+            layout.canvas_size_pixels[1] / figure_dpi,
+        )
+        height_ratios = layout.height_ratios
+    figure = Figure(figsize=figure_size, dpi=figure_dpi, facecolor="white")
     FigureCanvasAgg(figure)
     grid = figure.add_gridspec(
         3,
         1,
-        height_ratios=[map_ratio, 1.0, 1.0],
+        height_ratios=height_ratios,
         hspace=0.08,
         left=0.10,
         right=0.97,
@@ -463,15 +712,20 @@ def build_composite_figure(
     )
     dart_axis.set_ylabel("Stokes I intensity (dB)")
     dart_axis.set_xlabel("Time (UTC)")
+    if layout is not None:
+        radio_axis.set_ylim(*layout.radio_ylim)
+        dart_axis.set_ylim(*layout.dart_ylim)
 
     for axis in (radio_axis, dart_axis):
-        axis.axvline(
-            marker,
-            color=MAP_TIME_COLOR,
-            linewidth=0.9,
-            alpha=0.95,
-            zorder=4,
-        )
+        if show_time_marker:
+            axis.axvline(
+                marker,
+                color=MAP_TIME_COLOR,
+                linewidth=0.9,
+                linestyle="--",
+                alpha=0.95,
+                zorder=4,
+            )
         axis.grid(alpha=0.25, linestyle=":", linewidth=0.65)
         axis.set_xlim(start, end)
     radio_axis.tick_params(axis="x", which="both", labelbottom=False)
@@ -482,14 +736,326 @@ def build_composite_figure(
     return figure
 
 
+def render_composite_frame(
+    *args: Any,
+    dpi: int = 160,
+    layout: CompositeFigureLayout | None = None,
+    include_png: bool = True,
+    **kwargs: Any,
+) -> CompositeFrameRender:
+    """Render one RGB frame and optional PNG without a disk round trip."""
+
+    from matplotlib.backends.backend_agg import FigureCanvasAgg
+
+    figure = build_composite_figure(*args, layout=layout, dpi=dpi, **kwargs)
+    if layout is None:
+        figure.set_dpi(int(dpi))
+    canvas = FigureCanvasAgg(figure)
+    canvas.draw()
+    rgba = np.asarray(canvas.buffer_rgba())
+    rgb = np.ascontiguousarray(rgba[:, :, :3])
+    actual_size = (int(rgb.shape[1]), int(rgb.shape[0]))
+    if layout is not None and actual_size != layout.canvas_size_pixels:
+        figure.clear()
+        raise ValueError(
+            "Composite canvas size changed after the sequence layout was fixed: "
+            f"expected {layout.canvas_size_pixels[0]}x{layout.canvas_size_pixels[1]}, "
+            f"got {actual_size[0]}x{actual_size[1]}"
+        )
+    canvas_height = int(rgb.shape[0])
+    renderer = canvas.get_renderer()
+    panel_bounds: dict[str, tuple[int, int, int, int]] = {}
+    for name, axis in zip(("source_map", "radio_curve", "dart_curve"), figure.axes):
+        bounds = axis.get_window_extent(renderer)
+        panel_bounds[name] = (
+            int(round(bounds.x0)),
+            int(round(canvas_height - bounds.y1)),
+            int(round(bounds.x1)),
+            int(round(canvas_height - bounds.y0)),
+        )
+    png_bytes: bytes | None = None
+    if include_png:
+        output = io.BytesIO()
+        canvas.print_png(output)
+        png_bytes = output.getvalue()
+    figure.clear()
+    return CompositeFrameRender(
+        rgb=rgb,
+        png_bytes=png_bytes,
+        panel_bounds_pixels=panel_bounds,
+    )
+
+
+def build_curve_template_signature(
+    radio_df: pd.DataFrame,
+    dart_result: DartNarrowbandResult,
+    *,
+    map_size_pixels: tuple[int, int],
+    map_frequency_mhz: float,
+    polarization: str,
+    time_start: datetime | str,
+    time_end: datetime | str,
+    dpi: int,
+) -> str:
+    """Hash every input that changes a cached curve canvas."""
+
+    radio_plot = _radio_plot_frame(radio_df, float(map_frequency_mhz))
+    radio_rows = [
+        {
+            "obs_time": _utc_datetime(row.obs_time_dt).isoformat(),
+            "raw_sum": float(row.raw_sum),
+            "polarization": str(row.polarization),
+            "bunit": str(getattr(row, "bunit", "") or ""),
+        }
+        for row in radio_plot.itertuples(index=False)
+    ]
+    dart_rows = [
+        {
+            "center_frequency_mhz": float(curve.center_frequency_mhz),
+            "requested_frequency_range_mhz": [
+                float(value) for value in curve.requested_frequency_range_mhz
+            ],
+            "values": [float(value) for value in curve.stokes_i_db],
+        }
+        for curve in dart_result.curves
+    ]
+    payload = {
+        "schema": "radio-composite-curve-template-v1",
+        "map_size_pixels": [int(value) for value in map_size_pixels],
+        "map_frequency_mhz": float(map_frequency_mhz),
+        "polarization": str(polarization),
+        "time_start_utc": _utc_datetime(time_start).isoformat(),
+        "time_end_utc": _utc_datetime(time_end).isoformat(),
+        "dpi": int(dpi),
+        "radio": radio_rows,
+        "dart_time_utc": [
+            _utc_datetime(value).isoformat() for value in dart_result.time_utc
+        ],
+        "dart": dart_rows,
+    }
+    encoded = json.dumps(
+        payload,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=True,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def build_composite_frame_template(
+    annotated_map_png: bytes | Image.Image,
+    radio_df: pd.DataFrame,
+    dart_result: DartNarrowbandResult,
+    *,
+    roi: RadioRoi,
+    map_frequency_mhz: float,
+    polarization: str,
+    time_start: datetime | str,
+    time_end: datetime | str,
+    dpi: int = 160,
+    layout: CompositeFigureLayout | None = None,
+) -> CompositeFrameTemplate:
+    """Render one marker-free curve canvas for repeated raster composition."""
+
+    from matplotlib.backends.backend_agg import FigureCanvasAgg
+
+    start = _utc_datetime(time_start)
+    end = _utc_datetime(time_end)
+    if start >= end:
+        raise ValueError("Shared time range must have positive duration")
+    if layout is None:
+        layout = build_composite_layout(
+            annotated_map_png,
+            radio_df,
+            dart_result,
+            map_frequency_mhz=map_frequency_mhz,
+            dpi=dpi,
+        )
+    signature = build_curve_template_signature(
+        radio_df,
+        dart_result,
+        map_size_pixels=layout.map_size_pixels,
+        map_frequency_mhz=map_frequency_mhz,
+        polarization=polarization,
+        time_start=start,
+        time_end=end,
+        dpi=dpi,
+    )
+    map_width, map_height = layout.map_size_pixels
+    divisor = math.gcd(map_width, map_height)
+    placeholder_size = (
+        max(1, map_width // divisor),
+        max(1, map_height // divisor),
+    )
+    if max(placeholder_size) > 256:
+        scale = 256.0 / max(placeholder_size)
+        placeholder_size = (
+            max(1, int(round(placeholder_size[0] * scale))),
+            max(1, int(round(placeholder_size[1] * scale))),
+        )
+    placeholder = Image.new("RGB", placeholder_size, "white")
+    placeholder_output = io.BytesIO()
+    placeholder.save(placeholder_output, format="PNG")
+    figure = build_composite_figure(
+        placeholder_output.getvalue(),
+        radio_df,
+        dart_result,
+        roi=roi,
+        map_time=start,
+        map_frequency_mhz=map_frequency_mhz,
+        polarization=polarization,
+        time_start=start,
+        time_end=end,
+        layout=layout,
+        dpi=dpi,
+        show_time_marker=False,
+        validate_map_size=False,
+    )
+    canvas = FigureCanvasAgg(figure)
+    canvas.draw()
+    renderer = canvas.get_renderer()
+    rgba = np.asarray(canvas.buffer_rgba())
+    rgb = np.ascontiguousarray(rgba[:, :, :3])
+    canvas_height = int(rgb.shape[0])
+    panel_bounds: dict[str, tuple[int, int, int, int]] = {}
+    for name, axis in zip(("source_map", "radio_curve", "dart_curve"), figure.axes):
+        bounds = axis.get_window_extent(renderer)
+        panel_bounds[name] = _display_bbox_to_pixels(bounds, canvas_height)
+    map_artist = figure.axes[0].images[0]
+    source_map_bounds = _display_bbox_to_pixels(
+        map_artist.get_window_extent(renderer), canvas_height
+    )
+    base_rgb = rgb.copy()
+    left, top, right, bottom = source_map_bounds
+    base_rgb[top:bottom, left:right, :] = 255
+    radio_png = _axis_tight_crop_png(rgb, figure.axes[1], renderer, canvas_height)
+    dart_png = _axis_tight_crop_png(rgb, figure.axes[2], renderer, canvas_height)
+    figure.clear()
+    return CompositeFrameTemplate(
+        base_rgb=base_rgb,
+        layout=layout,
+        source_map_bounds_pixels=source_map_bounds,
+        panel_bounds_pixels=panel_bounds,
+        time_start_utc=start,
+        time_end_utc=end,
+        dpi=int(dpi),
+        cache_signature=signature,
+        radio_curve_png=radio_png,
+        dart_curve_png=dart_png,
+    )
+
+
+def render_cached_composite_frame(
+    template: CompositeFrameTemplate,
+    annotated_map_png: bytes | Image.Image,
+    *,
+    map_time: datetime | str,
+    include_png: bool = True,
+) -> CompositeFrameRender:
+    """Insert one map and dashed UTC markers into a cached curve canvas."""
+
+    marker = _utc_datetime(map_time)
+    start = template.time_start_utc
+    end = template.time_end_utc
+    if not start <= marker <= end:
+        raise ValueError("Selected Source Map time is outside the shared radio range")
+    if isinstance(annotated_map_png, Image.Image):
+        map_image = annotated_map_png.convert("RGBA")
+    else:
+        with Image.open(io.BytesIO(annotated_map_png)) as source:
+            map_image = source.convert("RGBA")
+    _validate_source_map_aspect_ratio(
+        template.layout.map_size_pixels,
+        tuple(int(value) for value in map_image.size),
+    )
+    left, top, right, bottom = template.source_map_bounds_pixels
+    target_size = (right - left, bottom - top)
+    resample = (
+        Image.Resampling.BOX
+        if map_image.width >= target_size[0] and map_image.height >= target_size[1]
+        else Image.Resampling.BICUBIC
+    )
+    resized = map_image.resize(target_size, resample=resample)
+    frame = Image.fromarray(template.base_rgb.copy(), mode="RGB").convert("RGBA")
+    frame.alpha_composite(resized, dest=(left, top))
+    fraction = (marker - start).total_seconds() / (end - start).total_seconds()
+    marker_pixels: dict[str, int] = {}
+    overlay = Image.new("RGBA", frame.size, (0, 0, 0, 0))
+    draw = ImageDraw.Draw(overlay)
+    marker_color = (*_hex_rgb(MAP_TIME_COLOR), int(round(255 * 0.95)))
+    line_width = max(1, int(round(0.9 * template.dpi / 72.0)))
+    dash = max(3, int(round(4.0 * template.dpi / 72.0)))
+    gap = max(2, int(round(3.0 * template.dpi / 72.0)))
+    for name in ("radio_curve", "dart_curve"):
+        axis_left, axis_top, axis_right, axis_bottom = template.panel_bounds_pixels[
+            name
+        ]
+        x = int(round(axis_left + fraction * (axis_right - axis_left)))
+        marker_pixels[name] = x
+        y = axis_top
+        while y < axis_bottom:
+            y_end = min(axis_bottom, y + dash)
+            draw.line((x, y, x, y_end), fill=marker_color, width=line_width)
+            y = y_end + gap
+    frame = Image.alpha_composite(frame, overlay).convert("RGB")
+    rgb = np.ascontiguousarray(np.asarray(frame, dtype=np.uint8))
+    png_bytes: bytes | None = None
+    if include_png:
+        output = io.BytesIO()
+        frame.save(output, format="PNG")
+        png_bytes = output.getvalue()
+    return CompositeFrameRender(
+        rgb=rgb,
+        png_bytes=png_bytes,
+        panel_bounds_pixels=template.panel_bounds_pixels,
+        marker_x_pixels=marker_pixels,
+    )
+
+
+def _display_bbox_to_pixels(
+    bounds: Any, canvas_height: int
+) -> tuple[int, int, int, int]:
+    return (
+        int(round(bounds.x0)),
+        int(round(canvas_height - bounds.y1)),
+        int(round(bounds.x1)),
+        int(round(canvas_height - bounds.y0)),
+    )
+
+
+def _axis_tight_crop_png(
+    rgb: np.ndarray,
+    axis: Any,
+    renderer: Any,
+    canvas_height: int,
+) -> bytes:
+    bounds = axis.get_tightbbox(renderer)
+    left, top, right, bottom = _display_bbox_to_pixels(bounds, canvas_height)
+    padding = 8
+    left = max(0, left - padding)
+    top = max(0, top - padding)
+    right = min(int(rgb.shape[1]), right + padding)
+    bottom = min(int(rgb.shape[0]), bottom + padding)
+    crop = Image.fromarray(rgb, mode="RGB").crop((left, top, right, bottom))
+    output = io.BytesIO()
+    crop.save(output, format="PNG")
+    return output.getvalue()
+
+
+def _hex_rgb(value: str) -> tuple[int, int, int]:
+    text = str(value).strip().lstrip("#")
+    if len(text) != 6:
+        raise ValueError(f"Expected a six-digit RGB color, got {value!r}")
+    return tuple(int(text[index : index + 2], 16) for index in (0, 2, 4))
+
+
 def render_composite_png(*args: Any, dpi: int = 160, **kwargs: Any) -> bytes:
     """Render the three-row composite into PNG bytes."""
 
-    figure = build_composite_figure(*args, **kwargs)
-    output = io.BytesIO()
-    figure.savefig(output, format="png", dpi=int(dpi), facecolor="white")
-    figure.clear()
-    return output.getvalue()
+    rendered = render_composite_frame(*args, dpi=dpi, include_png=True, **kwargs)
+    if rendered.png_bytes is None:  # pragma: no cover - defensive contract guard
+        raise RuntimeError("Composite PNG rendering returned no bytes")
+    return rendered.png_bytes
 
 
 def build_composite_artifacts(
@@ -514,18 +1080,26 @@ def build_composite_artifacts(
     generated = _utc_datetime(generated_at or datetime.now(UTC))
     marker = _utc_datetime(map_time)
     annotated = annotate_source_map_png(source_map_png, source_map_metadata, roi)
-    composite_png = render_composite_png(
+    curve_template = build_composite_frame_template(
         annotated,
         radio_df,
         dart_result,
         roi=roi,
-        map_time=marker,
         map_frequency_mhz=map_frequency_mhz,
         polarization=polarization,
         time_start=time_start,
         time_end=time_end,
         dpi=dpi,
     )
+    rendered_composite = render_cached_composite_frame(
+        curve_template,
+        annotated,
+        map_time=marker,
+        include_png=True,
+    )
+    if rendered_composite.png_bytes is None:  # pragma: no cover - contract guard
+        raise RuntimeError("Composite PNG rendering returned no bytes")
+    composite_png = rendered_composite.png_bytes
     image_name = build_scientific_image_filename(
         sequence=1,
         start_time=marker,
@@ -540,6 +1114,8 @@ def build_composite_artifacts(
     stem = Path(image_name).stem
     filenames = {
         "composite_png": image_name,
+        "radio_curve_png": f"{stem}_radio-roi-lightcurve.png",
+        "dart_curve_png": f"{stem}_dart-narrowband-lightcurve.png",
         "radio_csv": f"{stem}_radio-roi.csv",
         "dart_csv": f"{stem}_dart-narrowband.csv",
         "roi_json": f"{stem}_roi.json",
@@ -567,10 +1143,12 @@ def build_composite_artifacts(
             "time_start_utc": _utc_datetime(time_start).isoformat(),
             "time_end_utc": _utc_datetime(time_end).isoformat(),
             "rows": int(len(radio_df)),
+            "image": filenames["radio_curve_png"],
         },
         "dart_curve": {
             "representation": "source Stokes I dB intensity",
             "rows": int(len(dart_frame)),
+            "image": filenames["dart_curve_png"],
             "curves": [
                 {
                     "center_frequency_mhz": float(curve.center_frequency_mhz),
@@ -586,10 +1164,13 @@ def build_composite_artifacts(
             ],
         },
         "source": _json_safe(dict(source_context or {})),
+        "curve_template": curve_template.to_metadata(),
         "artifacts": dict(filenames),
     }
     files = {
         "composite_png": composite_png,
+        "radio_curve_png": curve_template.radio_curve_png,
+        "dart_curve_png": curve_template.dart_curve_png,
         "radio_csv": radio_df.to_csv(index=False).encode("utf-8-sig"),
         "dart_csv": dart_frame.to_csv(index=False).encode("utf-8-sig"),
         "roi_json": (json.dumps(roi.to_json_dict(), indent=2) + "\n").encode("utf-8"),
@@ -609,6 +1190,7 @@ def build_composite_artifacts(
         zip_bytes=zip_output.getvalue(),
         zip_filename=f"{stem}.zip",
         metadata=metadata,
+        curve_template=curve_template,
     )
 
 
@@ -749,15 +1331,26 @@ def _json_default(value: Any) -> Any:
 __all__ = [
     "COMPOSITE_SCHEMA_VERSION",
     "CompositeArtifactBundle",
+    "CompositeFrameTemplate",
+    "CompositeFigureLayout",
+    "CompositeFrameRender",
     "FrequencyBand",
+    "annotate_source_map_image",
     "annotate_source_map_png",
+    "build_centered_frequency_bands",
     "build_composite_artifacts",
+    "build_composite_frame_template",
     "build_composite_figure",
+    "build_composite_layout",
+    "build_curve_template_signature",
     "build_dart_selection_figure",
     "build_request_signature",
     "build_source_map_selection_figure",
+    "centered_frequency_band",
     "frequency_band_from_selection",
     "render_composite_png",
+    "render_composite_frame",
+    "render_cached_composite_frame",
     "save_composite_bundle",
     "select_dart_time_overlap",
 ]

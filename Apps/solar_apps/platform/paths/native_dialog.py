@@ -7,7 +7,9 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 import threading
+import time
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -36,6 +38,7 @@ __all__ = [
 
 _DIALOG_MODES = frozenset({"open_file", "open_files", "select_directory", "save_file"})
 _EXTENSION_RE = re.compile(r"^\.[A-Za-z0-9][A-Za-z0-9._+-]{0,31}$")
+_DIALOG_APPEAR_TIMEOUT_SECONDS = 5.0
 
 
 class NativeDialogError(RuntimeError):
@@ -241,6 +244,15 @@ def validate_allowed_path(
     return resolved
 
 
+def _wait_for_worker_ready(process: Any, ready_path: Path) -> bool:
+    deadline = time.monotonic() + _DIALOG_APPEAR_TIMEOUT_SECONDS
+    while process.poll() is None and time.monotonic() < deadline:
+        if ready_path.is_file():
+            return True
+        time.sleep(0.05)
+    return False
+
+
 class NativePathDialogService:
     """Spawn and validate one platform-native dialog at a time."""
 
@@ -255,7 +267,7 @@ class NativePathDialogService:
         worker_environment: Mapping[str, str] | None = None,
     ) -> None:
         self.allowed_roots = _normalize_roots(allowed_roots)
-        self._runner = runner or subprocess.run
+        self._runner = runner
         if python_executable is None:
             selected_python = selected_python_executable()
             default_worker_environment = miniforge_subprocess_environment(
@@ -336,20 +348,39 @@ class NativePathDialogService:
             else self._safe_initial_directory(request.initial_path)
         )
         worker_payload = request.to_worker_payload(initial_path=initial_path)
+        command = [
+            self.python_executable,
+            "-m",
+            "solar_apps.platform.paths.dialog_worker",
+        ]
         try:
-            completed = self._runner(
-                [
-                    self.python_executable,
-                    "-m",
-                    "solar_apps.platform.paths.dialog_worker",
-                ],
-                input=json.dumps(worker_payload),
-                text=True,
-                capture_output=True,
-                check=False,
-                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-                env=self.worker_environment,
-            )
+            if self._runner is None:
+                with tempfile.TemporaryDirectory(
+                    prefix="solar-native-dialog-ready-"
+                ) as temporary:
+                    ready_path = Path(temporary) / "visible"
+                    process_payload = dict(worker_payload)
+                    process_payload["_ready_path"] = str(ready_path)
+                    completed = self._run_worker_process(
+                        command,
+                        input_text=json.dumps(process_payload),
+                        ready_path=(
+                            ready_path
+                            if request.mode == "select_directory"
+                            and self.platform_name == "win32"
+                            else None
+                        ),
+                    )
+            else:
+                completed = self._runner(
+                    command,
+                    input=json.dumps(worker_payload),
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                    env=self.worker_environment,
+                )
         except (OSError, subprocess.SubprocessError) as exc:
             raise NativeDialogUnavailableError(
                 f"Could not start the native path dialog: {exc}"
@@ -371,6 +402,47 @@ class NativePathDialogService:
                 "The native path dialog returned an invalid response."
             )
         return response
+
+    def _run_worker_process(
+        self,
+        command: list[str],
+        *,
+        input_text: str,
+        ready_path: Path | None,
+    ) -> subprocess.CompletedProcess[str]:
+        process = subprocess.Popen(
+            command,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            env=self.worker_environment,
+        )
+        if process.stdin is None:
+            raise NativeDialogUnavailableError(
+                "Native path dialog worker stdin was not created."
+            )
+        process.stdin.write(input_text)
+        process.stdin.close()
+        process.stdin = None
+        startup_error = ""
+        if ready_path is not None and not _wait_for_worker_ready(process, ready_path):
+            if process.poll() is None:
+                startup_error = (
+                    "Windows native directory dialog did not become visible."
+                )
+                process.kill()
+        stdout, stderr = process.communicate()
+        stderr = str(stderr).strip()
+        if startup_error:
+            stderr = startup_error if not stderr else f"{stderr}\n{startup_error}"
+        return subprocess.CompletedProcess(
+            command,
+            int(process.returncode or 0),
+            str(stdout),
+            stderr,
+        )
 
     def _validate_worker_response(
         self, request: DialogRequest, response: Mapping[str, Any]

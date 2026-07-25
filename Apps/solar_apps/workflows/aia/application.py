@@ -26,6 +26,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--year", default=None)
     parser.add_argument("--date", default=None)
     parser.add_argument("--data-path", default=None)
+    parser.add_argument(
+        "--output-dir",
+        default=None,
+        help=(
+            "Optional output directory. When omitted, preserve the historical "
+            "behavior of writing beside the selected AIA data."
+        ),
+    )
     parser.add_argument("--mode", choices=("single", "mosaic", "test"), default=None)
     parser.add_argument("--test-file", default=None)
     parser.add_argument("--test-wave", type=int, default=None)
@@ -419,7 +427,9 @@ def config_from_args(args: argparse.Namespace) -> AIAConfig:
         cfg.data_path = str(Path(args.data_path))
     elif any(getattr(args, name) is not None for name in ("root_dir", "year", "date")):
         cfg.data_path = str(Path(cfg.root_dir) / cfg.year / cfg.date / "SDO" / "AIA")
-    cfg.output_dir = cfg.data_path
+    cfg.output_dir = (
+        str(Path(args.output_dir)) if args.output_dir is not None else cfg.data_path
+    )
 
     if cfg.mode == "test":
         cfg.use_test_mode = True

@@ -70,6 +70,12 @@ PREVIEW_COLORMAPS = (
 )
 PREVIEW_TRANSFORMS = ("robust_asinh", "linear")
 PREVIEW_RANGE_MODES = ("auto", "fixed")
+PREVIEW_ARCSEC_VIEW_LIMITS = (-3000.0, 3000.0)
+PREVIEW_PERCENTILE_DEFAULTS = (50.0, 99.7)
+PREVIEW_GLOBAL_SAMPLE_LIMIT = 1_000_000
+PREVIEW_GLOBAL_FILE_SAMPLE_LIMIT = 4096
+PREVIEW_RANGE_CACHE_VERSION = 1
+PREVIEW_RANGE_CACHE_DIRNAME = "preview_range_cache"
 _IDENTIFIER_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,127}$")
 _FREQUENCY_DIR_RE = re.compile(r"^([0-9]+(?:\.[0-9]+)?)MHz$", re.IGNORECASE)
 _RAW_METRIC_FIELDS = (
@@ -163,6 +169,8 @@ class PreviewDisplaySettings:
     cmap: str = "coolwarm"
     transform: str = "robust_asinh"
     range_mode: str = "auto"
+    pmin: float = PREVIEW_PERCENTILE_DEFAULTS[0]
+    pmax: float = PREVIEW_PERCENTILE_DEFAULTS[1]
     vmin: float | None = None
     vmax: float | None = None
 
@@ -173,15 +181,24 @@ class PreviewDisplaySettings:
             raise ValueError("transform must be robust_asinh or linear")
         if self.range_mode not in PREVIEW_RANGE_MODES:
             raise ValueError("range_mode must be auto or fixed")
-        if self.range_mode == "fixed":
-            if self.vmin is None or self.vmax is None:
-                raise ValueError("Fixed intensity range requires both vmin and vmax")
+        lower, upper = float(self.pmin), float(self.pmax)
+        if not math.isfinite(lower) or not math.isfinite(upper):
+            raise ValueError("pmin and pmax must be finite")
+        if not 0.0 <= lower < upper <= 100.0:
+            raise ValueError("percentiles must satisfy 0 <= pmin < pmax <= 100")
+        object.__setattr__(self, "pmin", lower)
+        object.__setattr__(self, "pmax", upper)
+        if (self.vmin is None) != (self.vmax is None):
+            raise ValueError("legacy absolute range requires both vmin and vmax")
+        if self.vmin is not None and self.vmax is not None:
             if not math.isfinite(float(self.vmin)) or not math.isfinite(
                 float(self.vmax)
             ):
                 raise ValueError("vmin and vmax must be finite")
             if float(self.vmin) >= float(self.vmax):
                 raise ValueError("vmin must be less than vmax")
+            object.__setattr__(self, "vmin", float(self.vmin))
+            object.__setattr__(self, "vmax", float(self.vmax))
 
     @classmethod
     def from_mapping(
@@ -191,18 +208,23 @@ class PreviewDisplaySettings:
             return value
         raw = value or {}
         range_mode = str(raw.get("range_mode") or "auto").strip().lower()
+        pmin = _optional_finite_float(raw.get("pmin"), label="pmin")
+        pmax = _optional_finite_float(raw.get("pmax"), label="pmax")
         vmin = _optional_finite_float(raw.get("vmin"), label="vmin")
         vmax = _optional_finite_float(raw.get("vmax"), label="vmax")
-        if range_mode != "fixed":
-            vmin = None
-            vmax = None
         return cls(
             cmap=str(raw.get("cmap") or "coolwarm").strip(),
             transform=str(raw.get("transform") or "robust_asinh").strip().lower(),
             range_mode=range_mode,
+            pmin=(PREVIEW_PERCENTILE_DEFAULTS[0] if pmin is None else pmin),
+            pmax=(PREVIEW_PERCENTILE_DEFAULTS[1] if pmax is None else pmax),
             vmin=vmin,
             vmax=vmax,
         )
+
+    @property
+    def has_legacy_absolute_range(self) -> bool:
+        return self.vmin is not None and self.vmax is not None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -237,6 +259,48 @@ def _optional_finite_float(value: Any, *, label: str) -> float | None:
     if not math.isfinite(numeric):
         raise ValueError(f"{label} must be a finite number")
     return numeric
+
+
+def _transform_preview_data(data: Any, transform: str) -> tuple[Any, Any]:
+    import numpy as np
+
+    array = np.asarray(data, dtype=float)
+    finite = np.isfinite(array)
+    transformed = np.full(array.shape, np.nan, dtype=float)
+    if not np.any(finite):
+        return transformed, np.asarray([], dtype=float)
+    finite_data = array[finite]
+    if transform == "robust_asinh":
+        center = float(np.median(finite_data))
+        mad = float(np.median(np.abs(finite_data - center)))
+        scale = 1.4826 * mad
+        if not np.isfinite(scale) or scale <= np.finfo(float).eps:
+            scale = float(np.std(finite_data))
+        if not np.isfinite(scale) or scale <= np.finfo(float).eps:
+            scale = 1.0
+        transformed[finite] = np.arcsinh((finite_data - center) / scale)
+    else:
+        transformed[finite] = finite_data
+    return transformed, transformed[finite]
+
+
+def _preview_percentile_limits(
+    values: Any, lower_percentile: float, upper_percentile: float
+) -> tuple[float, float]:
+    import numpy as np
+
+    finite = np.asarray(values, dtype=float)
+    finite = finite[np.isfinite(finite)]
+    if not finite.size:
+        raise ValueError("No finite intensity values are available for the preview")
+    low, high = np.percentile(finite, [lower_percentile, upper_percentile])
+    low, high = float(low), float(high)
+    if not np.isfinite(low) or not np.isfinite(high):
+        raise ValueError("Preview percentile limits are not finite")
+    if low >= high:
+        delta = max(abs(low) * 1e-6, 1e-12)
+        low, high = low - delta, high + delta
+    return low, high
 
 
 def _arcsec_factor(unit: Any, *, axis: str) -> float:
@@ -542,7 +606,7 @@ def _validated_tags(value: Any, allowed: frozenset[str], label: str) -> list[str
 def _numeric_bin(value: Any, boundaries: tuple[float, ...]) -> int:
     try:
         number = float(value)
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         return -1
     if not math.isfinite(number):
         return -1
@@ -585,6 +649,8 @@ class BadFrameReviewStore:
         self.shadow_model_id = shadow_model_id
         self._audit_lock = threading.RLock()
         self._viewed_cache: dict[str, set[str]] = {}
+        self._preview_range_locks_guard = threading.RLock()
+        self._preview_range_locks: dict[tuple[str, str, str], threading.RLock] = {}
 
     def resolve_input(self, value: str | Path, *, directory: bool = False) -> Path:
         path = Path(value).expanduser().resolve(strict=True)
@@ -870,7 +936,7 @@ class BadFrameReviewStore:
                 continue
             try:
                 manifest = load_bad_frame_review(folder / "review.json")
-            except OSError, TypeError, ValueError, json.JSONDecodeError:
+            except (OSError, TypeError, ValueError, json.JSONDecodeError):
                 continue
             summaries.append(self.public_payload(manifest, include_files=False))
         return sorted(summaries, key=lambda item: item["updated_at"], reverse=True)
@@ -1138,6 +1204,7 @@ class BadFrameReviewStore:
             for file_id in candidate["context_file_ids"]
         ]
         return self._render_triptych(
+            manifest,
             candidate,
             context,
             display=PreviewDisplaySettings.from_mapping(display),
@@ -1159,6 +1226,7 @@ class BadFrameReviewStore:
             file_ids={str(item["file_id"]) for item in context if item is not None},
         )
         return self._render_triptych(
+            manifest,
             frame,
             context,
             display=PreviewDisplaySettings.from_mapping(display),
@@ -1655,7 +1723,7 @@ class BadFrameReviewStore:
         for value in probabilities.values():
             try:
                 number = float(value)
-            except TypeError, ValueError:
+            except (TypeError, ValueError):
                 continue
             if math.isfinite(number):
                 finite_probabilities.append(number)
@@ -1908,8 +1976,141 @@ class BadFrameReviewStore:
                     }
                 )
 
+    def _preview_range_lock(
+        self, review_id: str, frequency_mhz: float, transform: str
+    ) -> threading.RLock:
+        key = (review_id, f"{frequency_mhz:.12g}", transform)
+        with self._preview_range_locks_guard:
+            return self._preview_range_locks.setdefault(key, threading.RLock())
+
+    def _frequency_preview_sample(
+        self,
+        manifest: dict[str, Any],
+        *,
+        frequency_mhz: float,
+        transform: str,
+    ) -> tuple[Any, str | None]:
+        import numpy as np
+
+        records = [
+            item
+            for item in manifest.get("files", [])
+            if float(item.get("frequency_mhz", 0.0)) == float(frequency_mhz)
+        ]
+        if not records:
+            raise ValueError(f"No review files are available for {frequency_mhz:g} MHz")
+        file_ids = {str(item["file_id"]) for item in records}
+        self._assert_fresh(manifest, file_ids=file_ids)
+        fingerprint_payload = {
+            "version": PREVIEW_RANGE_CACHE_VERSION,
+            "frequency_mhz": float(frequency_mhz),
+            "transform": transform,
+            "files": [
+                [
+                    str(item["file_id"]),
+                    int(item["size"]),
+                    int(item["mtime_ns"]),
+                ]
+                for item in sorted(records, key=lambda value: str(value["file_id"]))
+            ],
+        }
+        fingerprint = hashlib.sha256(
+            json.dumps(
+                fingerprint_payload, sort_keys=True, separators=(",", ":")
+            ).encode("utf-8")
+        ).hexdigest()
+        frequency_key = re.sub(r"[^A-Za-z0-9_.-]+", "_", f"{frequency_mhz:.12g}")
+        cache_dir = (
+            self._review_dir(str(manifest["review_id"])) / PREVIEW_RANGE_CACHE_DIRNAME
+        )
+        cache_path = cache_dir / f"{frequency_key}MHz-{transform}.npz"
+        lock = self._preview_range_lock(
+            str(manifest["review_id"]), frequency_mhz, transform
+        )
+        with lock:
+            try:
+                with np.load(cache_path, allow_pickle=False) as cached:
+                    cached_fingerprint = str(cached["fingerprint"].item())
+                    if cached_fingerprint == fingerprint:
+                        sample = np.asarray(cached["sample"], dtype=float)
+                        unit = str(cached["unit"].item()).strip() or None
+                        if sample.size:
+                            return sample, unit
+            except (FileNotFoundError, KeyError, OSError, TypeError, ValueError):
+                pass
+
+            quota = max(
+                1,
+                min(
+                    PREVIEW_GLOBAL_FILE_SAMPLE_LIMIT,
+                    PREVIEW_GLOBAL_SAMPLE_LIMIT // len(records),
+                ),
+            )
+            samples: list[Any] = []
+            units: dict[str, str] = {}
+            for record in sorted(records, key=lambda value: str(value["file_id"])):
+                try:
+                    path = self.resolve_input(str(record["source_file"]))
+                    data, header = read_radio_fits_image(path)
+                    _transformed, finite_values = _transform_preview_data(
+                        data, transform
+                    )
+                except Exception:  # noqa: BLE001 - partial cache remains useful
+                    continue
+                if not finite_values.size:
+                    continue
+                unit = str(header.get("BUNIT") or "").strip()
+                if unit:
+                    units.setdefault(unit.casefold(), unit)
+                if finite_values.size > quota:
+                    indices = np.linspace(
+                        0, finite_values.size - 1, num=quota, dtype=np.int64
+                    )
+                    finite_values = finite_values[indices]
+                samples.append(np.asarray(finite_values, dtype=float))
+            if len(units) > 1:
+                labels = ", ".join(sorted(units.values(), key=str.casefold))
+                raise ValueError(
+                    f"Fixed range requires one BUNIT per frequency; found: {labels}"
+                )
+            if not samples:
+                raise ValueError(
+                    f"No finite intensity values are available for {frequency_mhz:g} MHz"
+                )
+            sample = np.concatenate(samples)
+            if sample.size > PREVIEW_GLOBAL_SAMPLE_LIMIT:
+                indices = np.linspace(
+                    0,
+                    sample.size - 1,
+                    num=PREVIEW_GLOBAL_SAMPLE_LIMIT,
+                    dtype=np.int64,
+                )
+                sample = sample[indices]
+            unit = next(iter(units.values()), None)
+            temporary: Path | None = None
+            try:
+                cache_dir.mkdir(parents=True, exist_ok=True)
+                temporary = cache_dir / f".{cache_path.name}.{uuid.uuid4().hex}.tmp.npz"
+                np.savez_compressed(
+                    temporary,
+                    sample=sample,
+                    fingerprint=np.asarray(fingerprint),
+                    unit=np.asarray(unit or ""),
+                )
+                temporary.replace(cache_path)
+            except OSError:
+                pass
+            finally:
+                if temporary is not None and temporary.exists():
+                    try:
+                        temporary.unlink()
+                    except OSError:
+                        pass
+            return sample, unit
+
     def _render_triptych(
         self,
+        manifest: dict[str, Any],
         candidate: dict[str, Any],
         context: list[dict[str, Any] | None],
         *,
@@ -1919,80 +2120,84 @@ class BadFrameReviewStore:
         from matplotlib.backends.backend_agg import FigureCanvasAgg
         from matplotlib.figure import Figure
 
-        import numpy as np
-
-        images: list[tuple[Any | None, str, _PreviewGeometry | None, str | None]] = []
-        finite_values: list[Any] = []
+        images: list[
+            tuple[Any | None, str, _PreviewGeometry | None, str | None, Any | None]
+        ] = []
         for item in context:
             if item is None:
-                images.append((None, "Frame unavailable", None, None))
+                images.append((None, "Frame unavailable", None, None, None))
                 continue
             path = self.resolve_input(item["source_file"])
             try:
                 data, header = read_radio_fits_image(path)
-                array = np.asarray(data, dtype=float)
-                finite = np.isfinite(array)
-                transformed = np.full(array.shape, np.nan, dtype=float)
-                if np.any(finite):
-                    finite_data = array[finite]
-                    if display.transform == "robust_asinh":
-                        center = float(np.median(finite_data))
-                        mad = float(np.median(np.abs(finite_data - center)))
-                        scale = 1.4826 * mad
-                        if not np.isfinite(scale) or scale <= np.finfo(float).eps:
-                            scale = float(np.std(finite_data))
-                        if not np.isfinite(scale) or scale <= np.finfo(float).eps:
-                            scale = 1.0
-                        transformed[finite] = np.arcsinh((finite_data - center) / scale)
-                    else:
-                        transformed[finite] = finite_data
-                    finite_values.append(transformed[finite])
+                transformed, finite_values = _transform_preview_data(
+                    data, display.transform
+                )
+                if finite_values.size:
                     try:
                         geometry = _preview_geometry(header, transformed.shape)
-                    except KeyError, TypeError, ValueError:
+                    except (KeyError, TypeError, ValueError):
                         geometry = None
                     unit = str(header.get("BUNIT") or "").strip() or None
-                    images.append((transformed, path.name, geometry, unit))
+                    images.append(
+                        (transformed, path.name, geometry, unit, finite_values)
+                    )
                 else:
-                    images.append((None, "No finite pixels", None, None))
+                    images.append((None, "No finite pixels", None, None, None))
             except Exception as exc:  # noqa: BLE001 - show unreadable candidates
                 images.append(
-                    (None, f"Unreadable frame\n{type(exc).__name__}", None, None)
+                    (
+                        None,
+                        f"Unreadable frame\n{type(exc).__name__}",
+                        None,
+                        None,
+                        None,
+                    )
                 )
 
-        if display.range_mode == "fixed":
-            vmin, vmax = float(display.vmin), float(display.vmax)
-        elif finite_values:
-            combined = np.concatenate(finite_values)
-            low, high = np.percentile(combined, [0.3, 99.7])
-            if display.transform == "robust_asinh":
-                limit = max(abs(float(low)), abs(float(high)))
-                if not np.isfinite(limit) or limit <= np.finfo(float).eps:
-                    limit = 1.0
-                vmin, vmax = -limit, limit
-            else:
-                vmin, vmax = float(low), float(high)
-                if not np.isfinite(vmin) or not np.isfinite(vmax):
-                    vmin, vmax = 0.0, 1.0
-                elif vmin >= vmax:
-                    delta = max(abs(vmin) * 1e-6, 1e-12)
-                    vmin, vmax = vmin - delta, vmax + delta
-        else:
-            vmin, vmax = (
-                (-1.0, 1.0) if display.transform == "robust_asinh" else (0.0, 1.0)
+        shared_limits: tuple[float, float] | None = None
+        shared_unit: str | None = None
+        if display.has_legacy_absolute_range:
+            shared_limits = (float(display.vmin), float(display.vmax))
+        elif display.range_mode == "fixed":
+            sample, shared_unit = self._frequency_preview_sample(
+                manifest,
+                frequency_mhz=float(candidate["frequency_mhz"]),
+                transform=display.transform,
             )
+            shared_limits = _preview_percentile_limits(
+                sample, display.pmin, display.pmax
+            )
+        panel_limits = [
+            (
+                (
+                    shared_limits
+                    if shared_limits is not None
+                    else _preview_percentile_limits(values, display.pmin, display.pmax)
+                )
+                if image is not None and values is not None
+                else None
+            )
+            for image, _detail, _geometry, _unit, values in images
+        ]
 
-        figure = Figure(figsize=(12, 4.55), dpi=120, layout="constrained")
+        figure = Figure(
+            figsize=(14.2 if shared_limits is None else 12, 4.55),
+            dpi=120,
+            layout="constrained",
+        )
         figure.patch.set_facecolor(_PREVIEW_FIGURE_FACE)
         FigureCanvasAgg(figure)
         axes = figure.subplots(1, 3)
         labels = ("Previous", "Candidate", "Next")
-        image_artist = None
+        image_artists: list[tuple[Any, Any, str | None]] = []
         cmap = colormaps.get_cmap(display.cmap).with_extremes(
             bad=_PREVIEW_PLACEHOLDER_FACE
         )
-        for index, (axis, panel) in enumerate(zip(axes, images, strict=True)):
-            image, detail, geometry, _unit = panel
+        for index, (axis, panel, limits) in enumerate(
+            zip(axes, images, panel_limits, strict=True)
+        ):
+            image, detail, geometry, unit, _finite_values = panel
             axis.set_facecolor(_PREVIEW_PLACEHOLDER_FACE)
             if image is None:
                 axis.text(
@@ -2012,8 +2217,8 @@ class BadFrameReviewStore:
                 image_kwargs: dict[str, Any] = {
                     "origin": geometry.origin if geometry is not None else "lower",
                     "cmap": cmap,
-                    "vmin": vmin,
-                    "vmax": vmax,
+                    "vmin": limits[0],
+                    "vmax": limits[1],
                     "interpolation": "nearest",
                 }
                 if geometry is not None:
@@ -2022,6 +2227,7 @@ class BadFrameReviewStore:
                     image,
                     **image_kwargs,
                 )
+                image_artists.append((image_artist, axis, unit))
                 if geometry is not None:
                     axis.set_xlabel(
                         "HPLN / arcsec",
@@ -2035,6 +2241,8 @@ class BadFrameReviewStore:
                         color=_PREVIEW_TICK_COLOR,
                         fontweight="bold",
                     )
+                    axis.set_xlim(*PREVIEW_ARCSEC_VIEW_LIMITS)
+                    axis.set_ylim(*PREVIEW_ARCSEC_VIEW_LIMITS)
                     axis.ticklabel_format(axis="both", style="plain", useOffset=False)
                 else:
                     axis.set_xlabel(
@@ -2086,21 +2294,15 @@ class BadFrameReviewStore:
             for spine in axis.spines.values():
                 spine.set_color(border)
                 spine.set_linewidth(width)
-        if image_artist is not None:
-            colorbar = figure.colorbar(
-                image_artist, ax=list(axes), shrink=0.78, pad=0.02
-            )
+
+        def colorbar_label(unit: str | None) -> str:
             if display.transform == "robust_asinh":
-                colorbar_label = "signed asinh robust intensity"
-            else:
-                units = {unit for _image, _detail, _geometry, unit in images if unit}
-                colorbar_label = (
-                    f"Intensity [{next(iter(units))}]"
-                    if len(units) == 1
-                    else "Raw FITS intensity"
-                )
+                return "signed asinh robust intensity"
+            return f"Intensity [{unit}]" if unit else "Raw FITS intensity"
+
+        def style_colorbar(colorbar: Any, label: str) -> None:
             colorbar.set_label(
-                colorbar_label,
+                label,
                 fontsize=9,
                 color=_PREVIEW_TICK_COLOR,
                 fontweight="bold",
@@ -2111,6 +2313,23 @@ class BadFrameReviewStore:
                 width=1.0,
             )
             colorbar.outline.set_edgecolor(_PREVIEW_CONTEXT_BORDER)
+
+        if image_artists and shared_limits is not None:
+            units = {
+                unit for _image, _detail, _geometry, unit, _values in images if unit
+            }
+            unit = shared_unit or (next(iter(units)) if len(units) == 1 else None)
+            colorbar = figure.colorbar(
+                image_artists[-1][0],
+                ax=[artist_axis for _artist, artist_axis, _unit in image_artists],
+                shrink=0.78,
+                pad=0.02,
+            )
+            style_colorbar(colorbar, colorbar_label(unit))
+        elif image_artists:
+            for image_artist, axis, unit in image_artists:
+                colorbar = figure.colorbar(image_artist, ax=axis, shrink=0.76, pad=0.02)
+                style_colorbar(colorbar, colorbar_label(unit))
         figure.suptitle(
             f"{_format_frequency(candidate['frequency_mhz'])} MHz  |  "
             f"{candidate['polarization']}  |  {candidate['time'] or 'unknown time'}",

@@ -3,11 +3,15 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 import threading
+import types
 from pathlib import Path
 
 import pytest
 
+from solar_apps.platform.paths import dialog_worker
+from solar_apps.platform.paths import native_dialog as native_dialog_module
 from solar_apps.platform.paths.native_dialog import (
     DialogRequest,
     NativeDialogBusyError,
@@ -28,6 +32,141 @@ def _completed(payload: dict, *, returncode: int = 0, stderr: str = ""):
     return subprocess.CompletedProcess(
         args=[], returncode=returncode, stdout=json.dumps(payload), stderr=stderr
     )
+
+
+def _install_fake_pyside6(monkeypatch: pytest.MonkeyPatch, *, accepted: bool) -> dict:
+    state: dict = {}
+
+    class FakeApplication:
+        current = None
+
+        def __init__(self, arguments):
+            self.arguments = arguments
+            self.process_events_calls = 0
+            type(self).current = self
+            state["app"] = self
+
+        @classmethod
+        def instance(cls):
+            return cls.current
+
+        def processEvents(self):
+            self.process_events_calls += 1
+
+    class FakeFileDialog:
+        DontUseNativeDialog = 1
+        ShowDirsOnly = 2
+        AcceptOpen = 3
+        AcceptSave = 4
+        ExistingFile = 5
+        ExistingFiles = 6
+        Directory = 7
+        AnyFile = 8
+        Accepted = 9
+
+        def __init__(self):
+            self.options = []
+            self.close_calls = 0
+            self.delete_later_calls = 0
+            state["dialog"] = self
+
+        def setOption(self, option, enabled):
+            self.options.append((option, enabled))
+
+        def setWindowTitle(self, title):
+            self.title = title
+
+        def setDirectory(self, directory):
+            self.directory = directory
+
+        def setNameFilters(self, filters):
+            self.filters = filters
+
+        def setAcceptMode(self, mode):
+            self.accept_mode = mode
+
+        def setFileMode(self, mode):
+            self.file_mode = mode
+
+        def setDefaultSuffix(self, suffix):
+            self.default_suffix = suffix
+
+        def exec(self):
+            return self.Accepted if accepted else 0
+
+        def selectedFiles(self):
+            return [r"C:\allowed\selected"]
+
+        def close(self):
+            self.close_calls += 1
+
+        def deleteLater(self):
+            self.delete_later_calls += 1
+
+    pyside6 = types.ModuleType("PySide6")
+    pyside6.__path__ = []
+    qt_widgets = types.ModuleType("PySide6.QtWidgets")
+    qt_widgets.QApplication = FakeApplication
+    qt_widgets.QFileDialog = FakeFileDialog
+    pyside6.QtWidgets = qt_widgets
+    monkeypatch.setitem(sys.modules, "PySide6", pyside6)
+    monkeypatch.setitem(sys.modules, "PySide6.QtWidgets", qt_widgets)
+    return state
+
+
+@pytest.mark.parametrize(
+    ("mode", "accepted", "expected_status", "expects_monitor"),
+    [
+        ("select_directory", True, "selected", True),
+        ("select_directory", False, "cancelled", True),
+        ("open_file", True, "selected", False),
+    ],
+)
+def test_dialog_worker_keeps_only_directories_topmost_and_always_closes(
+    monkeypatch: pytest.MonkeyPatch,
+    mode: str,
+    accepted: bool,
+    expected_status: str,
+    expects_monitor: bool,
+) -> None:
+    state = _install_fake_pyside6(monkeypatch, accepted=accepted)
+    monitor_calls: list[str] = []
+
+    def monitor(title: str, stop_event: threading.Event, ready_path: str) -> None:
+        monitor_calls.append(title)
+        assert ready_path == ""
+        stop_event.wait(timeout=1.0)
+
+    monkeypatch.setattr(
+        dialog_worker, "_keep_windows_directory_dialog_topmost", monitor
+    )
+    monkeypatch.setattr(dialog_worker, "_windows_desktop_is_interactive", lambda: True)
+
+    result = dialog_worker.run_dialog({"mode": mode, "title": "Choose a local path"})
+
+    dialog = state["dialog"]
+    assert result == {
+        "status": expected_status,
+        "paths": [r"C:\allowed\selected"] if accepted else [],
+    }
+    assert (dialog.DontUseNativeDialog, False) in dialog.options
+    assert monitor_calls == (["Choose a local path"] if expects_monitor else [])
+    if mode == "select_directory":
+        assert (dialog.ShowDirsOnly, True) in dialog.options
+    assert dialog.close_calls == 1
+    assert dialog.delete_later_calls == 1
+    assert state["app"].process_events_calls == 1
+
+
+def test_dialog_worker_rejects_a_noninteractive_windows_desktop(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(dialog_worker, "_windows_desktop_is_interactive", lambda: False)
+
+    with pytest.raises(RuntimeError, match="non-interactive desktop"):
+        dialog_worker.run_dialog(
+            {"mode": "select_directory", "title": "Choose a local path"}
+        )
 
 
 def test_request_normalizes_extensions_and_rejects_invalid_fields() -> None:
@@ -221,6 +360,68 @@ def test_worker_failures_and_platform_are_explicit(tmp_path: Path) -> None:
     )
     with pytest.raises(NativeDialogUnavailableError):
         malformed.select({"mode": "select_directory"})
+
+
+def test_default_worker_kills_an_invisible_dialog_and_releases_lock(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    processes = []
+
+    class InvisibleProcess:
+        pid = 12345
+
+        def __init__(self):
+            class InputCapture:
+                def __init__(self):
+                    self.text = ""
+
+                def write(self, value):
+                    self.text += value
+
+                def close(self):
+                    return None
+
+            self.returncode = None
+            self.input_capture = InputCapture()
+            self.stdin = self.input_capture
+            self.killed = False
+            processes.append(self)
+
+        def communicate(self):
+            return "", ""
+
+        def poll(self):
+            return self.returncode
+
+        def kill(self):
+            self.killed = True
+            self.returncode = 1
+
+    monkeypatch.setattr(
+        native_dialog_module.subprocess,
+        "Popen",
+        lambda *args, **kwargs: InvisibleProcess(),
+    )
+    monkeypatch.setattr(
+        native_dialog_module,
+        "_wait_for_worker_ready",
+        lambda _process, _ready_path: False,
+    )
+    service = NativePathDialogService([tmp_path], platform_name="win32")
+
+    for _ in range(2):
+        with pytest.raises(
+            NativeDialogUnavailableError,
+            match="did not become visible",
+        ):
+            service.select({"mode": "select_directory"})
+
+    assert len(processes) == 2
+    assert all(process.killed for process in processes)
+    assert all(
+        '"mode": "select_directory"' in process.input_capture.text
+        for process in processes
+    )
 
 
 def test_service_rejects_concurrent_dialogs(tmp_path: Path) -> None:

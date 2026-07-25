@@ -43,7 +43,13 @@
       </section>
 
       <section>
-        <h2>Frequency</h2>
+        <div class="section-heading">
+          <h2>Frequency</h2>
+          <div class="selection-actions" aria-label="Frequency selection">
+            <button id="frequency-select-all" type="button" class="secondary compact-button" aria-controls="frequency-options" disabled>Select all</button>
+            <button id="frequency-clear-all" type="button" class="secondary compact-button" aria-controls="frequency-options" disabled>Clear all</button>
+          </div>
+        </div>
         <div id="frequency-options" class="option-grid empty-options">No bands discovered</div>
       </section>
 
@@ -86,11 +92,11 @@
             <option value="fixed">Fixed</option>
           </select>
         </label>
-        <div id="preview-fixed-range" class="range-grid" hidden>
-          <label>Minimum<input id="preview-vmin" type="number" step="any"></label>
-          <label>Maximum<input id="preview-vmax" type="number" step="any"></label>
+        <div id="preview-percentile-range" class="range-grid">
+          <label>Lower percentile (%)<input id="preview-pmin" type="number" min="0" max="100" step="0.1" value="50"></label>
+          <label>Upper percentile (%)<input id="preview-pmax" type="number" min="0" max="100" step="0.1" value="99.7"></label>
         </div>
-        <p id="preview-display-help" class="control-help">Robust asinh preserves faint artifacts. Auto uses one shared range for all three frames.</p>
+        <p id="preview-display-help" class="control-help">Auto calculates an independent 50–99.7 percentile range for each FITS file.</p>
       </section>
 
       <section>

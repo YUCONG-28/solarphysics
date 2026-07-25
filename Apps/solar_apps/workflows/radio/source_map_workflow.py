@@ -729,7 +729,7 @@ def resolve_spatial_display(
 def _gaussian_band_key(freq):
     try:
         freq_float = float(freq)
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         return str(freq)
     if np.isfinite(freq_float) and abs(freq_float - round(freq_float)) < 1e-6:
         return str(int(round(freq_float)))
@@ -765,7 +765,7 @@ def config_for_gaussian_band(cfg: dict, freq) -> dict:
         freq_float = float(freq)
         if np.isfinite(freq_float) and abs(freq_float - round(freq_float)) < 1e-6:
             candidates.append(int(round(freq_float)))
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         pass
     for candidate in candidates:
         if candidate in per_band and isinstance(per_band[candidate], dict):
@@ -1423,7 +1423,7 @@ def _estimate_safe_workers(file_list: list, requested, memory_per_worker_mb) -> 
                     try:
                         total_bytes += os.path.getsize(file_path)
                         count += 1
-                    except OSError, TypeError:
+                    except (OSError, TypeError):
                         # 如果文件不存在或路径有问题，跳过
                         continue
 
@@ -1432,7 +1432,7 @@ def _estimate_safe_workers(file_list: list, requested, memory_per_worker_mb) -> 
                     memory_per_worker_mb = avg_bytes * 20 / (1024**2)
                 else:
                     memory_per_worker_mb = 500.0
-            except OSError, TypeError:
+            except (OSError, TypeError):
                 memory_per_worker_mb = 500.0
         else:
             memory_per_worker_mb = 500.0
@@ -2759,7 +2759,7 @@ class TimeParser:
                         date_key = f"{year:04d}-{day_of_year:03d}"
 
                     return (date_key, total_ms)
-                except ValueError, IndexError:
+                except (ValueError, IndexError):
                     pass
 
         return None
@@ -3403,6 +3403,64 @@ def _create_manual_radio_axes(fig, cfg, nrow, ncol, all_extents, spectrogram_ena
             row_axes.append(ax)
         axes.append(row_axes)
     return np.array(axes)
+
+
+def _apply_fixed_single_band_artifact_layout(
+    fig,
+    ax,
+    cbar,
+    *,
+    intensity_unit: str | None,
+    cfg,
+) -> None:
+    """Freeze sequence geometry and keep colorbar text legible on white."""
+
+    figure_width, figure_height = (float(value) for value in fig.get_size_inches())
+    if figure_width <= 0 or figure_height <= 0:
+        raise ValueError("Source Map figure dimensions must be positive")
+    x0, x1 = (float(value) for value in ax.get_xlim())
+    y0, y1 = (float(value) for value in ax.get_ylim())
+    x_span = abs(x1 - x0)
+    y_span = abs(y1 - y0)
+    if x_span <= 0 or y_span <= 0:
+        raise ValueError("Source Map world-coordinate ranges must be positive")
+
+    slot_left = 0.085
+    slot_bottom = 0.04
+    slot_width = 0.78
+    slot_height = 0.90
+    figure_aspect = figure_width / figure_height
+    data_aspect = x_span / y_span
+    panel_width = min(slot_width, slot_height * data_aspect / figure_aspect)
+    panel_height = panel_width * figure_aspect / data_aspect
+    panel_left = slot_left + 0.5 * (slot_width - panel_width)
+    panel_bottom = slot_bottom + 0.5 * (slot_height - panel_height)
+    ax.set_position([panel_left, panel_bottom, panel_width, panel_height])
+
+    colorbar_left = 0.895
+    colorbar_width = 0.022
+    cbar.ax.set_position([colorbar_left, panel_bottom, colorbar_width, panel_height])
+    unit = str(intensity_unit or "").strip()
+    label = f"Intensity [{unit}]" if unit else "Intensity"
+    tick_fontsize = max(12, int(cfg.get("tick_fontsize", 16)) - 2)
+    label_fontsize = max(14, int(cfg.get("label_fontsize", 18)) - 4)
+    cbar.set_label(
+        label,
+        fontsize=label_fontsize,
+        color="black",
+        labelpad=12,
+    )
+    cbar.ax.tick_params(
+        axis="y",
+        which="both",
+        labelsize=tick_fontsize,
+        colors="black",
+        length=6,
+        width=1.2,
+    )
+    cbar.ax.yaxis.get_offset_text().set_color("black")
+    cbar.ax.yaxis.get_offset_text().set_fontsize(tick_fontsize)
+    cbar.outline.set_edgecolor("black")
 
 
 def _auto_tick_step(vmin, vmax, target=5):
@@ -4332,7 +4390,14 @@ def plot_single_band(
         ax = fig.add_subplot(gs[0, 0])
         spectrogram_ax = fig.add_subplot(gs[1, 0])
     else:
-        fig, ax = plt.subplots(figsize=cfg["fig_size"])
+        fig, ax = plt.subplots(
+            figsize=cfg["fig_size"],
+            dpi=(
+                int(cfg["dpi"])
+                if cfg.get("_artifact_fixed_panel_layout", False)
+                else None
+            ),
+        )
         spectrogram_ax = None
 
     im_kwargs = get_imshow_kwargs(
@@ -4566,7 +4631,16 @@ def plot_single_band(
     if spectrogram_ax is not None:
         overlay_spectrogram_panel(spectrogram_ax, cfg, current_frame_time)
 
-    plt.tight_layout()
+    if cfg.get("_artifact_fixed_panel_layout", False):
+        _apply_fixed_single_band_artifact_layout(
+            fig,
+            ax,
+            cbar,
+            intensity_unit=unit_resolution.unit,
+            cfg=cfg,
+        )
+    else:
+        plt.tight_layout()
 
     # ★ 优化：输出目录已预创建，直接拼接路径
     subdir = f"{int(freq)}MHz" if isinstance(freq, (int, float)) else "unknown"
@@ -4623,6 +4697,8 @@ def plot_single_band(
             write_sidecar=should_write_sidecar,
             warnings=artifact_warnings,
             display=spatial_display.sidecar_payload(),
+            bbox_inches=cfg.get("_artifact_bbox_inches", "tight"),
+            pad_inches=float(cfg.get("_artifact_pad_inches", 0.1)),
         )
         if (
             background_workflow_enabled(cfg)
@@ -5099,7 +5175,16 @@ def plot_multi_band_slot(
         )
         spectrogram_ax = fig.add_subplot(outer_gs[1, 0])
     else:
-        fig, axes = plt.subplots(nrow, ncol, figsize=(fig_width, fig_height))
+        fig, axes = plt.subplots(
+            nrow,
+            ncol,
+            figsize=(fig_width, fig_height),
+            dpi=(
+                int(cfg["dpi"])
+                if cfg.get("_artifact_fixed_panel_layout", False)
+                else None
+            ),
+        )
         plt.subplots_adjust(
             wspace=wspace,
             hspace=hspace,
@@ -5590,6 +5675,8 @@ def plot_multi_band_slot(
             write_sidecar=should_write_sidecar,
             warnings=artifact_warnings,
             display=spatial_display.sidecar_payload(),
+            bbox_inches=cfg.get("_artifact_bbox_inches", "tight"),
+            pad_inches=float(cfg.get("_artifact_pad_inches", 0.1)),
         )
 
     if cfg["show_plot"] and cfg.get("_interactive", False):

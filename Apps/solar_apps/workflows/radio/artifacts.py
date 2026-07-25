@@ -125,7 +125,7 @@ def save_figure_artifact(
     write_sidecar: bool,
     warnings: Sequence[str] = (),
     display: Mapping[str, Any] | None = None,
-    bbox_inches: str = "tight",
+    bbox_inches: str | None = "tight",
     pad_inches: float = 0.1,
 ) -> tuple[Path, Path | None]:
     """Save PNG and optional schema-1 sidecar atomically.
@@ -138,22 +138,39 @@ def save_figure_artifact(
         raise ValueError("radio_axes and panel_metadata must have equal lengths")
     target = Path(image_path)
     target.parent.mkdir(parents=True, exist_ok=True)
-    fig.canvas.draw()
-    boxes = _normalized_panel_boxes(
-        fig,
-        fig.canvas.get_renderer(),
-        radio_axes,
-        bbox_inches=bbox_inches,
-        pad_inches=pad_inches,
-    )
     with tempfile.NamedTemporaryFile(
         prefix=f".{target.stem}-", suffix=target.suffix, dir=target.parent, delete=False
     ) as handle:
         temporary = Path(handle.name)
     try:
-        fig.savefig(
-            temporary, dpi=int(dpi), bbox_inches=bbox_inches, pad_inches=pad_inches
-        )
+        if bbox_inches == "tight":
+            canvas = fig.canvas
+            if not callable(getattr(canvas, "get_renderer", None)):
+                from matplotlib.backends.backend_agg import FigureCanvasAgg
+
+                canvas = FigureCanvasAgg(fig)
+            canvas.draw()
+            boxes = _normalized_panel_boxes(
+                fig,
+                canvas.get_renderer(),
+                radio_axes,
+                bbox_inches=bbox_inches,
+                pad_inches=pad_inches,
+            )
+            fig.savefig(
+                temporary,
+                dpi=int(dpi),
+                bbox_inches=bbox_inches,
+                pad_inches=pad_inches,
+            )
+        else:
+            boxes = _save_fixed_canvas_png(
+                fig,
+                temporary,
+                dpi=int(dpi),
+                radio_axes=radio_axes,
+                pad_inches=pad_inches,
+            )
         os.replace(temporary, target)
     finally:
         temporary.unlink(missing_ok=True)
@@ -197,6 +214,70 @@ def save_figure_artifact(
     sidecar = sidecar_path_for(target)
     _atomic_write_json(sidecar, payload)
     return target, sidecar
+
+
+def _save_fixed_canvas_png(
+    fig: Any,
+    target: Path,
+    *,
+    dpi: int,
+    radio_axes: Sequence[Any],
+    pad_inches: float,
+) -> list[list[float]]:
+    """Render a fixed-canvas artifact once at its final DPI.
+
+    Re-running ``Figure.savefig`` after measuring the panel boxes can invoke a
+    second layout/aspect pass.  Under threaded frontend rendering that allowed
+    the saved pixels to diverge from the sidecar even though the outer PNG size
+    stayed constant.  The fixed-canvas path therefore measures and writes the
+    exact same Agg buffer.
+    """
+
+    from matplotlib.backends.backend_agg import FigureCanvasAgg
+    import numpy as np
+    from PIL import Image
+
+    requested_dpi = int(dpi)
+    if requested_dpi < 1:
+        raise ValueError("Artifact DPI must be positive")
+    original_dpi = float(fig.dpi)
+    original_canvas = fig.canvas
+    canvas = FigureCanvasAgg(fig)
+    try:
+        fig.set_dpi(requested_dpi)
+        canvas.draw()
+        boxes = _normalized_panel_boxes(
+            fig,
+            canvas.get_renderer(),
+            radio_axes,
+            bbox_inches=None,
+            pad_inches=pad_inches,
+        )
+        width, height = canvas.get_width_height()
+        expected_width = int(round(float(fig.get_figwidth()) * requested_dpi))
+        expected_height = int(round(float(fig.get_figheight()) * requested_dpi))
+        if (width, height) != (expected_width, expected_height):
+            raise RuntimeError(
+                "Fixed-canvas renderer returned an unexpected pixel size: "
+                f"expected {expected_width}x{expected_height}, got {width}x{height}"
+            )
+        # ``buffer_rgba`` is a live view owned by the Agg renderer.  Copy it
+        # before restoring the Figure DPI/canvas so a frontend worker cannot
+        # publish pixels from the subsequently resized (usually 100-DPI)
+        # renderer.  This is especially important for streamed sequence jobs.
+        rgba = np.frombuffer(bytes(canvas.buffer_rgba()), dtype=np.uint8).reshape(
+            height, width, 4
+        )
+        Image.fromarray(rgba, mode="RGBA").save(
+            target,
+            format="PNG",
+            dpi=(requested_dpi, requested_dpi),
+        )
+        return boxes
+    finally:
+        fig.set_dpi(original_dpi)
+        if canvas is not original_canvas:
+            fig.set_canvas(original_canvas)
 
 
 def validate_source_map_artifact(
@@ -373,7 +454,7 @@ def _normalized_panel_boxes(
     renderer: Any,
     axes: Sequence[Any],
     *,
-    bbox_inches: str,
+    bbox_inches: str | None,
     pad_inches: float,
 ) -> list[list[float]]:
     if bbox_inches != "tight":

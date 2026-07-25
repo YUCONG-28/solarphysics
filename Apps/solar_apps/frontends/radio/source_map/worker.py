@@ -6,11 +6,14 @@ import argparse
 import json
 import os
 import tempfile
+import threading
 import traceback
 from pathlib import Path
 from typing import Any, Callable
 
 from .artifacts import sidecar_path_for, validate_source_map_artifact
+
+FIGURE_RENDER_LOCK = threading.RLock()
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -74,7 +77,8 @@ def run_job(
     if raw_candidates is None:
         candidate = dict(payload["candidate"])
         sequence = int(payload.get("sequence") or 1)
-        return _render_candidate(cfg, candidate, sequence=sequence)
+        with FIGURE_RENDER_LOCK:
+            return _render_candidate(cfg, candidate, sequence=sequence)
 
     candidates = [dict(candidate) for candidate in raw_candidates]
     if not candidates:
@@ -93,7 +97,8 @@ def run_job(
                     "candidate_id": str(candidate["id"]),
                 }
             )
-        results.append(_render_candidate(cfg, candidate, sequence=sequence))
+        with FIGURE_RENDER_LOCK:
+            results.append(_render_candidate(cfg, candidate, sequence=sequence))
         if progress is not None:
             progress(
                 {

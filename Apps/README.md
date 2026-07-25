@@ -128,20 +128,30 @@ Run every command from the repository root.
 
 ## Applications and interfaces
 
-Nine launchable applications provide ten visible interfaces:
+Solar Physics App 1.0 is the stable native application. It contains ten
+English PyQt6 interfaces behind one process-isolated entry point:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Apps\run.ps1 frontend app-v1
+```
+
+The `app-v1-preview` frontend ID is a compatibility alias to that same module
+for one release cycle. It is not a separate implementation.
+
+The earlier frontends remain launchable but are deprecated compatibility
+surfaces:
 
 | Frontend ID | Interface | Framework | Start command |
 | --- | --- | --- | --- |
-| `workbench` | General Workbench (`/`) | Flask | `... -File .\Apps\run.ps1 frontend workbench` |
-| `workbench` | Radio Workspace (`/radio`) | Flask | `... -File .\Apps\run.ps1 frontend workbench` |
-| `image-viewer` | Image sequence viewer and media export | Flask | `... -File .\Apps\run.ps1 frontend image-viewer` |
-| `image-composer` | Free image composer | PySide6 | `... -File .\Apps\run.ps1 frontend image-composer` |
-| `bad-frame-review` | Radio bad-frame review | Flask | `... -File .\Apps\run.ps1 frontend bad-frame-review` |
-| `source-map` | Radio source-map preparation and ROI annotation | Flask | `... -File .\Apps\run.ps1 frontend source-map` |
-| `dart-spectrogram` | DART spectrogram analysis | Streamlit | `... -File .\Apps\run.ps1 frontend dart-spectrogram` |
-| `roi-lightcurve` | Multi-region import and one-ROI light-curve analysis | Streamlit | `... -File .\Apps\run.ps1 frontend roi-lightcurve` |
-| `radio-composite` | Source Map, one-ROI curve, and DART narrowband composite | Streamlit | `... -File .\Apps\run.ps1 frontend radio-composite` |
-| `source-trajectory` | Radio-source trajectory inspection | Streamlit | `... -File .\Apps\run.ps1 frontend source-trajectory` |
+| `workbench` | General Workbench (`/`) and Radio Workspace (`/radio`) | Flask (deprecated) | `... -File .\Apps\run.ps1 frontend workbench` |
+| `image-viewer` | Image sequence viewer and media export | Flask (deprecated) | `... -File .\Apps\run.ps1 frontend image-viewer` |
+| `image-composer` | Free image composer | PySide6 (deprecated) | `... -File .\Apps\run.ps1 frontend image-composer` |
+| `bad-frame-review` | Radio bad-frame review | Flask (deprecated) | `... -File .\Apps\run.ps1 frontend bad-frame-review` |
+| `source-map` | Radio source-map preparation and ROI annotation | Flask (deprecated) | `... -File .\Apps\run.ps1 frontend source-map` |
+| `dart-spectrogram` | DART spectrogram analysis | Streamlit (deprecated) | `... -File .\Apps\run.ps1 frontend dart-spectrogram` |
+| `roi-lightcurve` | Multi-region import and one-ROI light-curve analysis | Streamlit (deprecated) | `... -File .\Apps\run.ps1 frontend roi-lightcurve` |
+| `radio-composite` | Multi-frequency Source Map ROI composite images and videos | Streamlit (deprecated) | `... -File .\Apps\run.ps1 frontend radio-composite` |
+| `source-trajectory` | Radio-source trajectory inspection | Streamlit (deprecated) | `... -File .\Apps\run.ps1 frontend source-trajectory` |
 
 Replace `...` in the table with `powershell.exe -NoProfile -ExecutionPolicy
 Bypass`. Append `--help` to a command before launching it. Browser-opening, host, port,
@@ -177,6 +187,7 @@ move to stable IDs:
 
 | Legacy form | Canonical form |
 | --- | --- |
+| `frontend app-v1-preview` | `frontend app-v1` |
 | `webapp` | `frontend workbench` |
 | `image_viewer` | `frontend image-viewer` |
 | `image_composer` | `frontend image-composer` |
@@ -318,14 +329,25 @@ Curve may import a multi-region ROI JSON, but stages and analyzes exactly one
 selected ROI after the existing confirmation step. Upload priority and
 allowed-root checks are unchanged; failed imports preserve current state.
 
-Radio Composite keeps the complete operation in one Streamlit page: it renders
-one selected Source Map frequency and time, confirms one rectangle or lasso ROI,
-selects one DART frequency band graphically or numerically, and exports a
-three-row PNG. The radio ROI and DART panels share the radio sequence's UTC
-axis and mark the selected Source Map time with the same thin vertical line.
-DART values remain source Stokes I dB intensity rather than calibrated physical
-flux. The reproducibility bundle includes both curve CSV files, ROI JSON,
-schema-versioned metadata JSON, and a ZIP archive.
+Radio Composite keeps the complete operation in one Streamlit page. Select one
+or more Source Map frequencies, render a reference time, and confirm one
+rectangle or lasso ROI in HPLN/HPLT coordinates. The same ROI can then be
+previewed across every selected frequency and observation time with frame,
+previous/next, and play/pause controls before export.
+
+The static reference and every sequence frame retain the three-row layout. The
+middle panel is the current frequency's native-sample ROI `raw_sum` curve; the
+lower panel is the selected DART narrowband source Stokes I dB intensity. Both
+curves share UTC and use the same thin marker for the current Source Map time;
+neither curve is interpolated or resampled. Sequence export uses real radio
+frames with an adjustable stride and creates one FFprobe-validated MP4 per
+frequency, the matching PNG frames, per-frequency manifests and curve CSVs,
+shared DART/ROI metadata, and a `radio-composite-v2` ZIP package.
+Each frequency freezes its scientific canvas and all three panel bounds from
+the first valid frame, so titles and tick labels cannot resize later frames.
+`Generate MP4 video` and `Save every composite frame as PNG` are independent
+options and both remain enabled by default. MP4/WebM frame streams use PyAV
+when available and retain the existing FFmpeg fallback.
 
 When Miniforge is already activated and the prompt is in the `Python`
 directory, use the exact relative launcher form:

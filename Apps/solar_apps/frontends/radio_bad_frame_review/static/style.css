@@ -68,6 +68,10 @@ button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible
 .control-rail section { padding: 0.8rem 0; border-bottom: 1px solid var(--line); }
 .control-rail section:first-child { padding-top: 0; }
 .control-rail h2 { margin: 0 0 0.55rem; font-size: 0.85rem; }
+.section-heading { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.55rem; }
+.section-heading h2 { margin: 0; }
+.selection-actions { display: flex; gap: 0.3rem; }
+.compact-button { min-height: 1.7rem; padding: 0.22rem 0.42rem; font-size: 0.66rem; }
 .control-rail label { display: grid; gap: 0.3rem; color: var(--muted); font-size: 0.72rem; font-weight: 650; }
 .control-rail section > label + label { margin-top: 0.5rem; }
 .path-control { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0.35rem; margin-bottom: 0.45rem; }
@@ -77,8 +81,7 @@ input, select { min-width: 0; min-height: 2.2rem; border: 1px solid var(--line-s
 .option-grid input { min-height: 0; accent-color: var(--accent); }
 .empty-options { display: block; color: var(--muted); font-size: 0.74rem; }
 .range-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
-#preview-fixed-range { margin-top: 0.5rem; }
-#preview-fixed-range[hidden] { display: none; }
+#preview-percentile-range { margin-top: 0.5rem; }
 .control-help { margin: 0.45rem 0 0; color: var(--muted); font-size: 0.68rem; line-height: 1.35; }
 #preview-display-help[data-kind="error"] { color: var(--bad); font-weight: 700; }
 .control-rail > .wide-button { margin-top: 0.9rem; }

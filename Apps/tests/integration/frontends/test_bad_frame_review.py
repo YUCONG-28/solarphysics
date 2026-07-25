@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import json
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import numpy as np
@@ -12,6 +13,7 @@ from astropy.io import fits
 from matplotlib.colors import to_hex
 from PIL import Image
 
+from solar_apps.frontends.radio_bad_frame_review import review as review_module
 from solar_apps.frontends.radio_bad_frame_review import (
     BadFrameReviewStore,
     StaleReviewError,
@@ -26,6 +28,7 @@ from solar_apps.frontends.radio_bad_frame_review import (
 from solar_apps.frontends.radio_bad_frame_review.review import (
     PreviewDisplaySettings,
     _preview_geometry,
+    _preview_percentile_limits,
 )
 
 APPS_ROOT = Path(__file__).resolve().parents[3]
@@ -200,6 +203,8 @@ def test_preview_display_settings_validate_fixed_ranges_and_colormaps() -> None:
         "cmap": "coolwarm",
         "transform": "robust_asinh",
         "range_mode": "auto",
+        "pmin": 50.0,
+        "pmax": 99.7,
         "vmin": None,
         "vmax": None,
     }
@@ -226,15 +231,24 @@ def test_preview_display_settings_validate_fixed_ranges_and_colormaps() -> None:
         "cmap": "viridis",
         "transform": "linear",
         "range_mode": "fixed",
+        "pmin": 50.0,
+        "pmax": 99.7,
         "vmin": 10.0,
         "vmax": 20.0,
     }
     with pytest.raises(ValueError, match="cmap must be one of"):
         PreviewDisplaySettings(cmap="not-a-map")
-    with pytest.raises(ValueError, match="requires both"):
-        PreviewDisplaySettings(range_mode="fixed")
+    assert PreviewDisplaySettings(range_mode="fixed").pmin == 50.0
+    with pytest.raises(ValueError, match="percentiles must satisfy"):
+        PreviewDisplaySettings(pmin=99.7, pmax=50.0)
+    with pytest.raises(ValueError, match="legacy absolute range requires both"):
+        PreviewDisplaySettings(vmin=10.0)
     with pytest.raises(ValueError, match="less than"):
         PreviewDisplaySettings(range_mode="fixed", vmin=20.0, vmax=10.0)
+    values = np.arange(101, dtype=float)
+    assert _preview_percentile_limits(values, 50.0, 99.7) == pytest.approx(
+        tuple(np.percentile(values, [50.0, 99.7]))
+    )
 
 
 def test_preview_renderer_uses_shared_arcsec_range_and_high_contrast(
@@ -263,6 +277,8 @@ def test_preview_renderer_uses_shared_arcsec_range_and_high_contrast(
             (axis.images[0].norm.vmin, axis.images[0].norm.vmax) for axis in axes
         ]
         captured["extents"] = [tuple(axis.images[0].get_extent()) for axis in axes]
+        captured["xlimits"] = [tuple(axis.get_xlim()) for axis in axes]
+        captured["ylimits"] = [tuple(axis.get_ylim()) for axis in axes]
         captured["cmaps"] = [axis.images[0].get_cmap().name for axis in axes]
         captured["candidate_border"] = to_hex(axes[1].spines["left"].get_edgecolor())
         captured["colorbar_label"] = figure.axes[3].get_ylabel()
@@ -296,6 +312,8 @@ def test_preview_renderer_uses_shared_arcsec_range_and_high_contrast(
     assert captured["ylabels"] == ["HPLT / arcsec"] * 3
     assert captured["ranges"] == [(0.0, 2.0e7)] * 3
     assert len(set(captured["extents"])) == 1
+    assert captured["xlimits"] == [(-3000.0, 3000.0)] * 3
+    assert captured["ylimits"] == [(-3000.0, 3000.0)] * 3
     assert captured["cmaps"] == ["viridis"] * 3
     assert captured["candidate_border"] == "#007f73"
     assert captured["colorbar_label"] == "Intensity [K]"
@@ -323,6 +341,7 @@ def test_all_preview_colormaps_render_with_explicit_pixel_fallback(
             "ranges",
             [(axis.images[0].norm.vmin, axis.images[0].norm.vmax) for axis in axes],
         )
+        observed.setdefault("colorbar_count", len(figure.axes) - len(axes))
         return result
 
     monkeypatch.setattr(Figure, "savefig", capture)
@@ -345,9 +364,239 @@ def test_all_preview_colormaps_render_with_explicit_pixel_fallback(
 
     assert observed["xlabels"] == ["Pixel X — WCS unavailable"] * 3
     assert observed["ylabels"] == ["Pixel Y — WCS unavailable"] * 3
-    assert len(set(observed["ranges"])) == 1
-    vmin, vmax = observed["ranges"][0]
-    assert vmin == pytest.approx(-vmax)
+    assert len(set(observed["ranges"])) > 1
+    assert all(vmin < vmax for vmin, vmax in observed["ranges"])
+    assert observed["ranges"][0][0] == pytest.approx(0.0, abs=1e-12)
+    assert observed["colorbar_count"] == 3
+
+
+def test_fixed_preview_uses_cached_frequency_sample_across_polarizations(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from matplotlib.figure import Figure
+
+    root, _bad_path = _radio_dataset(tmp_path / "radio", with_wcs=True)
+    ll_paths = []
+    for index in range(5):
+        path = root / "149MHz" / "LL" / f"149MHz_20250503_0720{index:02d}_000.fits"
+        _write_fits(
+            path,
+            _compact_source() * (2.0 + index),
+            second=index,
+            with_wcs=True,
+        )
+        ll_paths.append(path)
+    store = BadFrameReviewStore(tmp_path / "reviews", [tmp_path])
+    review = store.create_review(
+        {
+            "root": str(root),
+            "frequencies_mhz": [149],
+            "polarizations": ["RR", "LL"],
+            "start_index": 0,
+            "end_index": None,
+        }
+    )
+    candidate = review["candidates"][0]
+    original_reader = review_module.read_radio_fits_image
+    reads: list[Path] = []
+
+    def counted_reader(path):
+        resolved = Path(path)
+        reads.append(resolved)
+        if resolved == ll_paths[-1]:
+            raise OSError("synthetic unreadable frame")
+        return original_reader(path)
+
+    captured: list[dict[str, object]] = []
+    original_savefig = Figure.savefig
+
+    def capture(figure, *args, **kwargs):
+        result = original_savefig(figure, *args, **kwargs)
+        axes = figure.axes[:3]
+        captured.append(
+            {
+                "ranges": [
+                    (axis.images[0].norm.vmin, axis.images[0].norm.vmax)
+                    for axis in axes
+                ],
+                "colorbar_count": len(figure.axes) - len(axes),
+            }
+        )
+        return result
+
+    monkeypatch.setattr(review_module, "read_radio_fits_image", counted_reader)
+    monkeypatch.setattr(Figure, "savefig", capture)
+    first = store.render_candidate_preview(
+        review["review_id"],
+        candidate["candidate_id"],
+        display=PreviewDisplaySettings(
+            transform="linear", range_mode="fixed", pmin=50.0, pmax=90.0
+        ),
+    )
+    reads_after_first = len(reads)
+    second = store.render_candidate_preview(
+        review["review_id"],
+        candidate["candidate_id"],
+        display=PreviewDisplaySettings(
+            transform="linear", range_mode="fixed", pmin=60.0, pmax=99.0
+        ),
+    )
+
+    assert Image.open(io.BytesIO(first)).format == "PNG"
+    assert Image.open(io.BytesIO(second)).format == "PNG"
+    assert reads_after_first > 3
+    assert len(reads) - reads_after_first == 3
+    assert all(len(set(item["ranges"])) == 1 for item in captured)
+    assert [item["colorbar_count"] for item in captured] == [1, 1]
+    cache_files = list(
+        (tmp_path / "reviews" / review["review_id"] / "preview_range_cache").glob(
+            "*.npz"
+        )
+    )
+    assert len(cache_files) == 1
+
+    ll_paths[0].touch()
+    with pytest.raises(StaleReviewError):
+        store.render_candidate_preview(
+            review["review_id"],
+            candidate["candidate_id"],
+            display=PreviewDisplaySettings(
+                transform="linear", range_mode="fixed", pmin=50.0, pmax=99.7
+            ),
+        )
+
+
+def test_frequency_sample_is_deterministic_bounded_and_frequency_specific(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root, _bad_path = _radio_dataset(tmp_path / "radio", with_wcs=True)
+    for index in range(5):
+        _write_fits(
+            root / "164MHz" / "RR" / f"164MHz_20250503_0720{index:02d}_000.fits",
+            _compact_source() * 20.0,
+            second=index,
+            with_wcs=True,
+        )
+    store = BadFrameReviewStore(tmp_path / "reviews", [tmp_path])
+    review = store.create_review(
+        {
+            "root": str(root),
+            "frequencies_mhz": [149, 164],
+            "polarizations": ["RR"],
+            "start_index": 0,
+            "end_index": None,
+        }
+    )
+    monkeypatch.setattr(review_module, "PREVIEW_GLOBAL_SAMPLE_LIMIT", 20)
+    monkeypatch.setattr(review_module, "PREVIEW_GLOBAL_FILE_SAMPLE_LIMIT", 6)
+
+    first, _unit = store._frequency_preview_sample(
+        review, frequency_mhz=149.0, transform="linear"
+    )
+    cache_dir = tmp_path / "reviews" / review["review_id"] / "preview_range_cache"
+    next(cache_dir.glob("149MHz-linear.npz")).unlink()
+    repeated, _unit = store._frequency_preview_sample(
+        review, frequency_mhz=149.0, transform="linear"
+    )
+    other, _unit = store._frequency_preview_sample(
+        review, frequency_mhz=164.0, transform="linear"
+    )
+
+    assert first.size <= 20
+    assert np.array_equal(first, repeated)
+    assert np.percentile(other, 50) > 10 * np.percentile(first, 50)
+
+
+def test_fixed_frequency_sample_lock_avoids_duplicate_concurrent_scans(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root, _bad_path = _radio_dataset(tmp_path / "radio", with_wcs=True)
+    store = BadFrameReviewStore(tmp_path / "reviews", [tmp_path])
+    review = store.create_review(
+        {
+            "root": str(root),
+            "frequencies_mhz": [149],
+            "polarizations": ["RR"],
+            "start_index": 0,
+            "end_index": None,
+        }
+    )
+    original_reader = review_module.read_radio_fits_image
+    reads: list[Path] = []
+
+    def counted_reader(path):
+        reads.append(Path(path))
+        return original_reader(path)
+
+    monkeypatch.setattr(review_module, "read_radio_fits_image", counted_reader)
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = [
+            executor.submit(
+                store._frequency_preview_sample,
+                review,
+                frequency_mhz=149.0,
+                transform="linear",
+            )
+            for _index in range(2)
+        ]
+        results = [future.result()[0] for future in futures]
+
+    frequency_files = [
+        item for item in review["files"] if item["frequency_mhz"] == 149.0
+    ]
+    assert len(reads) == len(frequency_files)
+    assert np.array_equal(results[0], results[1])
+
+
+def test_fixed_frequency_sample_rejects_all_unreadable_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root, _bad_path = _radio_dataset(tmp_path / "radio", with_wcs=True)
+    store = BadFrameReviewStore(tmp_path / "reviews", [tmp_path])
+    review = store.create_review(
+        {
+            "root": str(root),
+            "frequencies_mhz": [149],
+            "polarizations": ["RR"],
+            "start_index": 0,
+            "end_index": None,
+        }
+    )
+
+    def unreadable(_path):
+        raise OSError("synthetic unreadable FITS")
+
+    monkeypatch.setattr(review_module, "read_radio_fits_image", unreadable)
+    with pytest.raises(ValueError, match="No finite intensity values"):
+        store._frequency_preview_sample(review, frequency_mhz=149.0, transform="linear")
+
+
+def test_fixed_frequency_range_rejects_conflicting_bunit(tmp_path: Path) -> None:
+    root, _bad_path = _radio_dataset(tmp_path / "radio", with_wcs=True)
+    for index in range(5):
+        path = root / "149MHz" / "LL" / f"149MHz_20250503_0720{index:02d}_000.fits"
+        _write_fits(path, _compact_source(), second=index, with_wcs=True)
+        with fits.open(path, mode="update") as hdus:
+            hdus[1].header["BUNIT"] = "Jy"
+    store = BadFrameReviewStore(tmp_path / "reviews", [tmp_path])
+    review = store.create_review(
+        {
+            "root": str(root),
+            "frequencies_mhz": [149],
+            "polarizations": ["RR", "LL"],
+            "start_index": 0,
+            "end_index": None,
+        }
+    )
+
+    with pytest.raises(ValueError, match="requires one BUNIT"):
+        store.render_candidate_preview(
+            review["review_id"],
+            review["candidates"][0]["candidate_id"],
+            display=PreviewDisplaySettings(
+                transform="linear", range_mode="fixed", pmin=50.0, pmax=99.7
+            ),
+        )
 
 
 def test_review_requires_all_decisions_and_skip_keeps_automatic_bad(
@@ -501,6 +750,8 @@ def test_api_flow_and_path_boundaries(tmp_path: Path) -> None:
     ]
     assert config["transforms"] == ["robust_asinh", "linear"]
     assert config["range_modes"] == ["auto", "fixed"]
+    assert config["percentile_bounds"] == [0.0, 100.0]
+    assert config["percentile_defaults"] == [50.0, 99.7]
     assert config["defaults"] == PreviewDisplaySettings().to_dict()
     assert client.get("/").headers["Cache-Control"] == "no-store, max-age=0"
     assert (
@@ -546,6 +797,19 @@ def test_api_flow_and_path_boundaries(tmp_path: Path) -> None:
     )
     assert fixed_preview.status_code == 200
     assert fixed_preview.mimetype == "image/png"
+    percentile_fixed_preview = client.get(
+        f"/api/reviews/{review['review_id']}/candidates/"
+        f"{candidate['candidate_id']}/preview",
+        query_string={
+            "cmap": "viridis",
+            "transform": "linear",
+            "range_mode": "fixed",
+            "pmin": "50",
+            "pmax": "99.7",
+        },
+    )
+    assert percentile_fixed_preview.status_code == 200
+    assert percentile_fixed_preview.mimetype == "image/png"
     invalid_cmap = client.get(
         f"/api/reviews/{review['review_id']}/candidates/"
         f"{candidate['candidate_id']}/preview",
@@ -560,6 +824,13 @@ def test_api_flow_and_path_boundaries(tmp_path: Path) -> None:
     )
     assert invalid_range.status_code == 400
     assert "vmin must be less than vmax" in invalid_range.get_json()["error"]
+    invalid_percentiles = client.get(
+        f"/api/reviews/{review['review_id']}/candidates/"
+        f"{candidate['candidate_id']}/preview",
+        query_string={"pmin": "99.7", "pmax": "50"},
+    )
+    assert invalid_percentiles.status_code == 400
+    assert "percentiles must satisfy" in invalid_percentiles.get_json()["error"]
     assert (
         client.get(
             f"/api/reviews/{review['review_id']}/candidates/not-a-candidate/preview"
@@ -695,8 +966,10 @@ def test_frontend_is_independent_and_exposes_review_controls() -> None:
     assert 'id="preview-cmap"' in html
     assert 'id="preview-transform"' in html
     assert 'id="preview-range-mode"' in html
-    assert 'id="preview-vmin"' in html
-    assert 'id="preview-vmax"' in html
+    assert 'id="preview-pmin"' in html
+    assert 'id="preview-pmax"' in html
+    assert 'id="frequency-select-all"' in html
+    assert 'id="frequency-clear-all"' in html
     assert 'id="frame-rows"' in html
     assert 'id="scan-progress"' in html
     assert 'API + "/reviews/"' in javascript
@@ -708,12 +981,23 @@ def test_frontend_is_independent_and_exposes_review_controls() -> None:
     assert "initializeAllFrameView" in javascript
     assert "previewDisplayParameters" in javascript
     assert "refreshActivePreview" in javascript
-    assert 'params.set("vmin", String(vmin))' in javascript
+    assert (
+        "function refreshActivePreview() {\n"
+        "  updatePreviewDisplayControls();\n"
+        "  if (!state.review) return;" in javascript
+    )
+    assert "setFrequencySelection" in javascript
+    assert "setFrequencySelection(true)" in javascript
+    assert "setFrequencySelection(false)" in javascript
+    assert 'params.set("pmin", String(pmin))' in javascript
+    assert 'params.set("pmax", String(pmax))' in javascript
+    assert "Scanning fixed per-frequency intensity range" in javascript
     assert 'window.addEventListener("solar-ui-state-restored"' in javascript
     assert 'review.status === "skipped" ? summary.final_bad_count' in javascript
     assert "[hidden] { display: none !important; }" in stylesheet
     assert "grid-template-columns: 310px" in stylesheet
     assert '#preview-display-help[data-kind="error"]' in stylesheet
+    assert "#preview-percentile-range" in stylesheet
     assert "solar_apps.frontends.workbench" not in (package / "server.py").read_text(
         encoding="utf-8"
     )

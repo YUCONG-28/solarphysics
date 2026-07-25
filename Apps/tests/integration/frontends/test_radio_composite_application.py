@@ -18,7 +18,11 @@ from streamlit.testing.v1 import AppTest
 
 from solar_apps.frontends.radio.composite_figure.composite_figure_app import (
     _apply_pending_band,
+    _dart_band_overrides,
+    _extract_dart_results_by_frequency,
+    _invalidate_composite,
     _invalidate_if_controls_changed,
+    _pause_sequence_preview,
     prepare_single_panel_render,
 )
 from solar_apps.frontends.radio.composite_figure.composite_figure_application import (
@@ -26,10 +30,14 @@ from solar_apps.frontends.radio.composite_figure.composite_figure_application im
     MAP_TIME_COLOR,
     FrequencyBand,
     annotate_source_map_png,
+    build_centered_frequency_bands,
     build_composite_artifacts,
+    build_composite_frame_template,
     build_composite_figure,
+    build_dart_selection_figure,
     build_request_signature,
     frequency_band_from_selection,
+    render_cached_composite_frame,
     save_composite_bundle,
     select_dart_time_overlap,
 )
@@ -40,6 +48,7 @@ from solar_apps.workflows.radio import source_map_workflow
 from solar_toolkit.radio.dart_spectrogram import (
     DartNarrowbandCurve,
     DartNarrowbandResult,
+    DartSpectrogramWindow,
     extract_dart_narrowband_lightcurves,
 )
 from solar_toolkit.radio.roi_lightcurve import RadioRoi, extract_radio_roi_lightcurve
@@ -115,6 +124,55 @@ def test_frequency_band_selection_and_original_channel_validation() -> None:
         FrequencyBand(150.0, 150.0)
 
 
+def test_centered_dart_bands_follow_all_selected_radio_frequencies() -> None:
+    frequencies = [149.0, 164.0, 190.0, 205.0, 223.0, 238.0]
+    bands = build_centered_frequency_bands(
+        frequencies,
+        2.0,
+        {190.0: 4.0},
+    )
+
+    assert list(bands) == frequencies
+    assert all(bands[frequency].center_mhz == frequency for frequency in frequencies)
+    assert bands[149.0] == FrequencyBand(148.0, 150.0)
+    assert bands[190.0] == FrequencyBand(188.0, 192.0)
+
+
+def test_dart_spectrum_overlays_every_band_and_highlights_active_frequency() -> None:
+    start = datetime(2025, 1, 24, 4, 48, 30, tzinfo=UTC)
+    frequencies = [149.0, 164.0, 190.0, 205.0, 223.0, 238.0]
+    bands = build_centered_frequency_bands(frequencies, 2.0)
+    window = DartSpectrogramWindow(
+        stokes_i_db=np.ones((7, 3), dtype=float),
+        stokes_v_over_i=np.zeros((7, 3), dtype=float),
+        frequency_mhz=np.asarray([140.0, *frequencies]),
+        time_utc=tuple(start + timedelta(seconds=index) for index in range(3)),
+    )
+
+    figure = build_dart_selection_figure(
+        window,
+        bands=bands,
+        active_frequency_mhz=190.0,
+    )
+
+    assert len(figure.layout.shapes) == len(frequencies)
+    active_shape = next(
+        shape
+        for shape in figure.layout.shapes
+        if float(shape.y0) == pytest.approx(189.0)
+    )
+    assert active_shape.line.width == 3
+
+
+def test_dart_override_state_prunes_unselected_frequencies() -> None:
+    overrides = _dart_band_overrides(
+        '{"149":2.5,"164":3.0,"999":8.0,"bad":"value"}',
+        [149.0, 164.0],
+    )
+
+    assert overrides == {149.0: 2.5, 164.0: 3.0}
+
+
 def test_pending_plotly_band_synchronizes_numeric_inputs() -> None:
     class StreamlitStub:
         session_state = {"_pending_dart_band": {"low_mhz": 148.25, "high_mhz": 149.75}}
@@ -125,6 +183,79 @@ def test_pending_plotly_band_synchronizes_numeric_inputs() -> None:
     assert st.session_state["dart_band_low"] == 148.25
     assert st.session_state["dart_band_high"] == 149.75
     assert "_pending_dart_band" not in st.session_state
+
+
+def test_pending_plotly_width_updates_only_the_active_frequency() -> None:
+    class StreamlitStub:
+        session_state = {
+            "dart_band_overrides_json": '{"149":2.0}',
+            "_pending_dart_bandwidth": {
+                "frequency_mhz": 164.0,
+                "bandwidth_mhz": 3.5,
+            },
+        }
+
+    st = StreamlitStub()
+    _apply_pending_band(st)
+
+    assert json.loads(st.session_state["dart_band_overrides_json"]) == {
+        "149": 2.0,
+        "164": 3.5,
+    }
+    assert st.session_state["dart_override_enabled_164"] is True
+    assert st.session_state["dart_override_width_164"] == 3.5
+
+
+def test_dart_extraction_batches_equal_widths_and_splits_results(
+    tmp_path: Path,
+) -> None:
+    start = datetime(2025, 1, 24, 4, 48, 30, tzinfo=UTC)
+    calls: list[tuple[tuple[float, ...], float]] = []
+
+    def fake_extractor(directory, centers, bandwidth, *, time_range_utc):
+        assert Path(directory) == tmp_path
+        calls.append((tuple(float(value) for value in centers), float(bandwidth)))
+        times = tuple(start + timedelta(seconds=index) for index in range(2))
+        curves = tuple(
+            DartNarrowbandCurve(
+                center_frequency_mhz=float(center),
+                bandwidth_mhz=float(bandwidth),
+                requested_frequency_range_mhz=(
+                    float(center) - float(bandwidth) / 2.0,
+                    float(center) + float(bandwidth) / 2.0,
+                ),
+                sampled_frequency_range_mhz=(float(center), float(center)),
+                channel_count=1,
+                stokes_i_db=np.asarray([float(center), float(center) + 1.0]),
+            )
+            for center in centers
+        )
+        return DartNarrowbandResult(time_utc=times, curves=curves)
+
+    bands = build_centered_frequency_bands(
+        [149.0, 164.0, 190.0],
+        2.0,
+        {190.0: 4.0},
+    )
+    split, combined = _extract_dart_results_by_frequency(
+        tmp_path,
+        bands,
+        time_range_utc=(start, start + timedelta(seconds=1)),
+        extractor=fake_extractor,
+    )
+
+    assert calls == [((149.0, 164.0), 2.0), ((190.0,), 4.0)]
+    assert list(split) == [149.0, 164.0, 190.0]
+    assert [result.curves[0].center_frequency_mhz for result in split.values()] == [
+        149.0,
+        164.0,
+        190.0,
+    ]
+    assert [curve.center_frequency_mhz for curve in combined.curves] == [
+        149.0,
+        164.0,
+        190.0,
+    ]
 
 
 def test_dart_overlap_preserves_partial_gaps_and_rejects_no_samples() -> None:
@@ -181,6 +312,7 @@ def test_three_rows_share_utc_axis_and_map_time_line() -> None:
             line for line in axis.lines if line.get_color() == MAP_TIME_COLOR
         )
         assert marker_line.get_linewidth() == pytest.approx(0.9)
+        assert marker_line.get_linestyle() == "--"
         marker_positions.append(mdates.date2num(marker_line.get_xdata()[0]))
     assert marker_positions[0] == pytest.approx(marker_positions[1], abs=1e-12)
     assert marker_positions[0] == pytest.approx(mdates.date2num(marker), abs=1e-12)
@@ -207,6 +339,8 @@ def test_artifact_bundle_uses_v1_schema_and_conflict_safe_save(tmp_path: Path) -
     )
 
     assert bundle.files["composite_png"].startswith(b"\x89PNG\r\n\x1a\n")
+    assert bundle.files["radio_curve_png"].startswith(b"\x89PNG\r\n\x1a\n")
+    assert bundle.files["dart_curve_png"].startswith(b"\x89PNG\r\n\x1a\n")
     metadata = json.loads(bundle.files["metadata_json"].decode("utf-8"))
     assert metadata["schema_version"] == COMPOSITE_SCHEMA_VERSION
     assert metadata["radio_curve"]["metric"] == "raw_sum"
@@ -227,6 +361,48 @@ def test_artifact_bundle_uses_v1_schema_and_conflict_safe_save(tmp_path: Path) -
     assert first != second
     assert second.name.endswith("_002")
     assert (first / bundle.zip_filename).is_file()
+
+
+def test_curve_template_is_marker_free_and_cached_frame_markers_align() -> None:
+    start = datetime(2025, 1, 24, 4, 48, 30, tzinfo=UTC)
+    annotated = annotate_source_map_png(
+        _source_map_png(), _source_map_metadata(), _roi()
+    )
+    template = build_composite_frame_template(
+        annotated,
+        _radio_frame(start),
+        _dart_result(start),
+        roi=_roi(),
+        map_frequency_mhz=149.0,
+        polarization="RR+LL",
+        time_start=start,
+        time_end=start + timedelta(seconds=4),
+        dpi=100,
+    )
+    marker_rgb = np.asarray(
+        tuple(int(MAP_TIME_COLOR[index : index + 2], 16) for index in (1, 3, 5)),
+        dtype=np.uint8,
+    )
+    for payload in (template.radio_curve_png, template.dart_curve_png):
+        with Image.open(io.BytesIO(payload)) as opened:
+            pixels = np.asarray(opened.convert("RGB"))
+        assert not np.any(np.all(pixels == marker_rgb, axis=2))
+
+    rendered = render_cached_composite_frame(
+        template,
+        annotated,
+        map_time=start + timedelta(seconds=2),
+        include_png=True,
+    )
+
+    assert rendered.png_bytes is not None
+    assert rendered.marker_x_pixels is not None
+    assert (
+        rendered.marker_x_pixels["radio_curve"]
+        == rendered.marker_x_pixels["dart_curve"]
+    )
+    with Image.open(io.BytesIO(rendered.png_bytes)) as opened:
+        assert np.array_equal(rendered.rgb, np.asarray(opened.convert("RGB")))
 
 
 def test_request_signature_invalidates_for_controls_and_file_identity(
@@ -267,6 +443,21 @@ def test_control_change_clears_downstream_but_same_controls_preserve_it() -> Non
     assert first == same
     assert changed != same
     assert invalidations == ["valid"]
+
+
+def test_composite_invalidation_clears_curve_template_cache() -> None:
+    class StreamlitStub:
+        session_state = {
+            "curve_plot_cache_by_frequency": {149.0: object()},
+            "sequence_bundle": object(),
+            "composite_bundle": object(),
+        }
+
+    st = StreamlitStub()
+    _invalidate_composite(st)
+
+    assert "curve_plot_cache_by_frequency" not in st.session_state
+    assert "sequence_bundle" not in st.session_state
 
 
 def test_prepare_single_panel_render_handles_linear_and_log_candidates(
@@ -405,6 +596,16 @@ def test_streamlit_page_loads_in_auto_light_and_dark_modes(
     for mode in ("auto", "light", "dark"):
         theme.set_value(mode).run()
         assert len(app.exception) == 0
+
+
+def test_sequence_preview_pause_callback_updates_state_before_widget_render() -> None:
+    class FakeStreamlit:
+        session_state = {"sequence_preview_playing": True}
+
+    fake = FakeStreamlit()
+    _pause_sequence_preview(fake)
+
+    assert fake.session_state["sequence_preview_playing"] is False
 
 
 def _write_radio_fits(path: Path, *, value: float, observed: datetime) -> None:

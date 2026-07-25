@@ -15,6 +15,8 @@ from solar_apps.platform.environment import (
 from solar_apps.platform.dispatch import forward_main
 
 FRONTEND_TARGETS = {
+    "app-v1": "solar_apps.frontends.app_v1.cli",
+    "app-v1-preview": "solar_apps.frontends.app_v1.cli",
     "bad-frame-review": "solar_apps.frontends.radio_bad_frame_review.cli",
     "dart-spectrogram": (
         "solar_apps.frontends.radio.dart_spectrogram.dart_spectrogram_launcher"

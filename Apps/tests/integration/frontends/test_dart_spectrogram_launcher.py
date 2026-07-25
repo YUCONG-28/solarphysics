@@ -77,6 +77,31 @@ def test_main_opens_browser_and_uses_auto_stop(monkeypatch) -> None:
     assert "PYTHONPATH" not in launched[0][1]["env"]
 
 
+def test_intentional_idle_shutdown_returns_success(monkeypatch) -> None:
+    process = SimpleNamespace(returncode=1)
+    monkeypatch.setattr(launcher, "_pick_port", lambda _preferred: 8765)
+    monkeypatch.setattr(launcher.subprocess, "Popen", lambda *_args, **_kwargs: process)
+    monkeypatch.setattr(
+        launcher, "_wait_with_auto_stop", lambda *_args, **_kwargs: True
+    )
+
+    assert launcher.main(["--no-browser"]) == 0
+
+
+def test_localized_netstat_output_is_decoded_safely(monkeypatch) -> None:
+    observed = {}
+
+    def fake_run(*_args, **kwargs):
+        observed.update(kwargs)
+        return SimpleNamespace(stdout=None)
+
+    monkeypatch.setattr(launcher.subprocess, "run", fake_run)
+
+    assert launcher._has_browser_connection(8765) is False
+    assert observed["encoding"] == "utf-8"
+    assert observed["errors"] == "replace"
+
+
 def test_workflow_dispatcher_does_not_register_frontends() -> None:
     assert "dart-spectrogram" not in _COMMANDS
     assert "roi-lightcurve" not in _COMMANDS

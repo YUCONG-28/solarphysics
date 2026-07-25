@@ -8,6 +8,9 @@ from typing import Any
 import pytest
 
 from solar_apps.frontends.radio.roi_lightcurve import roi_lightcurve_app as app
+from solar_apps.frontends.radio.composite_figure import (
+    composite_figure_app as composite_app,
+)
 from solar_apps.ui.streamlit_paths import PathAccessPolicy
 from solar_toolkit.radio.roi_lightcurve import RadioRoi
 
@@ -410,6 +413,89 @@ def test_import_controls_stage_one_region_and_leave_state_on_invalid_json(
 
     assert invalid.errors and "ROI JSON is invalid" in invalid.errors[0]
     assert invalid.session_state == before
+
+
+def test_composite_import_stages_single_roi_and_invalidates_sequence_results(
+    tmp_path: Path, monkeypatch
+) -> None:
+    old = RadioRoi.from_box(1, 2, 3, 4, label="old")
+    uploaded = _UploadedJson(
+        json.dumps(_source_map_payload(rois=[_lasso("Saved loop")])).encode("utf-8")
+    )
+    st = _ImportControlsStreamlit(
+        uploaded,
+        state={
+            "confirmed_roi": old.to_json_dict(),
+            "composite_bundle": "cached-composite",
+            "sequence_bundle": "cached-sequence",
+        },
+    )
+    policy = PathAccessPolicy.create((tmp_path,), base_directory=tmp_path)
+    monkeypatch.setattr(
+        composite_app,
+        "render_native_path_input",
+        lambda *_args, **_kwargs: "",
+    )
+
+    composite_app._render_roi_import_controls(st, policy, SimpleNamespace())
+
+    assert composite_app._session_roi(st, "candidate_roi").label == "Saved loop"
+    assert "confirmed_roi" not in st.session_state
+    assert "composite_bundle" not in st.session_state
+    assert "sequence_bundle" not in st.session_state
+
+
+def test_composite_import_requires_explicit_choice_for_multiple_regions(
+    tmp_path: Path, monkeypatch
+) -> None:
+    payload = json.dumps(
+        _source_map_payload(rois=[_rectangle(visible=False), _lasso(visible=True)])
+    ).encode("utf-8")
+    st = _ImportControlsStreamlit(_UploadedJson(payload))
+    policy = PathAccessPolicy.create((tmp_path,), base_directory=tmp_path)
+    monkeypatch.setattr(
+        composite_app,
+        "render_native_path_input",
+        lambda *_args, **_kwargs: "",
+    )
+
+    composite_app._render_roi_import_controls(st, policy, SimpleNamespace())
+
+    document = st.session_state["roi_import_document"]
+    assert st.session_state["roi_import_selected_key"] == document.choices[1].key
+    assert "candidate_roi" not in st.session_state
+
+    st.session_state["roi_import_selected_key"] = document.choices[0].key
+    st.clicked.add("Use Selected Imported Region")
+    composite_app._render_roi_import_controls(st, policy, SimpleNamespace())
+
+    assert composite_app._session_roi(st, "candidate_roi").label == "Burst"
+
+
+def test_composite_invalid_import_preserves_current_valid_state(
+    tmp_path: Path, monkeypatch
+) -> None:
+    current = RadioRoi.from_box(1, 2, 3, 4, label="keep")
+    st = _ImportControlsStreamlit(
+        _UploadedJson(b"{broken"),
+        state={
+            "candidate_roi": current.to_json_dict(),
+            "composite_bundle": "keep-composite",
+            "sequence_bundle": "keep-sequence",
+        },
+    )
+    before = dict(st.session_state)
+    policy = PathAccessPolicy.create((tmp_path,), base_directory=tmp_path)
+    monkeypatch.setattr(
+        composite_app,
+        "render_native_path_input",
+        lambda *_args, **_kwargs: "",
+    )
+
+    composite_app._render_roi_import_controls(st, policy, SimpleNamespace())
+
+    assert st.errors and "ROI JSON is invalid" in st.errors[0]
+    assert st.session_state == before
 
 
 class _Context:

@@ -32,7 +32,10 @@ def test_apps_manual_documents_complete_public_contract() -> None:
     required = (
         "solarphysics_env_latest",
         "solarphysics_env",
-        "Nine launchable applications provide ten visible interfaces",
+        "Solar Physics App 1.0 is the stable native application",
+        "frontend app-v1",
+        "app-v1-preview",
+        "deprecated compatibility",
         "frontend workbench",
         "frontend image-viewer",
         "frontend image-composer",

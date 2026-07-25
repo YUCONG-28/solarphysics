@@ -17,6 +17,7 @@ from .lifecycle import ClientLifecycle
 from .model_registry import QualityModelRegistry
 from .review import (
     PREVIEW_COLORMAPS,
+    PREVIEW_PERCENTILE_DEFAULTS,
     PREVIEW_RANGE_MODES,
     PREVIEW_TRANSFORMS,
     BadFrameReviewStore,
@@ -172,6 +173,8 @@ def create_app(
                     "colormaps": list(PREVIEW_COLORMAPS),
                     "transforms": list(PREVIEW_TRANSFORMS),
                     "range_modes": list(PREVIEW_RANGE_MODES),
+                    "percentile_bounds": [0.0, 100.0],
+                    "percentile_defaults": list(PREVIEW_PERCENTILE_DEFAULTS),
                     "defaults": PreviewDisplaySettings().to_dict(),
                 },
             }
@@ -364,6 +367,14 @@ def _preview_display_query(request) -> PreviewDisplaySettings:
     return PreviewDisplaySettings.from_mapping(
         {
             key: request.args.get(key)
-            for key in ("cmap", "transform", "range_mode", "vmin", "vmax")
+            for key in (
+                "cmap",
+                "transform",
+                "range_mode",
+                "pmin",
+                "pmax",
+                "vmin",
+                "vmax",
+            )
         }
     )

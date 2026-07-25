@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import socket
+from types import SimpleNamespace
 
 from solar_apps.frontends.radio.composite_figure import (
     composite_figure_launcher as launcher,
@@ -60,3 +61,28 @@ def test_dry_run_does_not_start_streamlit(monkeypatch, capsys) -> None:
     output = capsys.readouterr().out
     assert "streamlit run" in output
     assert "composite_figure_app.py" in output
+
+
+def test_intentional_idle_shutdown_returns_success(monkeypatch) -> None:
+    class Process:
+        returncode = 1
+
+    monkeypatch.setattr(launcher, "_pick_port", lambda _preferred: 8765)
+    monkeypatch.setattr(
+        launcher.subprocess, "Popen", lambda *_args, **_kwargs: Process()
+    )
+    monkeypatch.setattr(
+        launcher, "_wait_with_auto_stop", lambda *_args, **_kwargs: True
+    )
+
+    assert launcher.main(["--no-browser"]) == 0
+
+
+def test_browser_connection_check_tolerates_empty_netstat_output(monkeypatch) -> None:
+    monkeypatch.setattr(
+        launcher.subprocess,
+        "run",
+        lambda *_args, **_kwargs: SimpleNamespace(stdout=None),
+    )
+
+    assert launcher._has_browser_connection(8765) is False

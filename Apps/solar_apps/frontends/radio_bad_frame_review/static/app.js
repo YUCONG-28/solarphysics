@@ -61,6 +61,17 @@ function selectedValues(containerId) {
   return [...document.querySelectorAll("#" + containerId + " input[type='checkbox']:checked")].map((input) => input.value);
 }
 
+function setFrequencyActionState(disabled) {
+  $("#frequency-select-all").disabled = disabled;
+  $("#frequency-clear-all").disabled = disabled;
+}
+
+function setFrequencySelection(checked) {
+  const inputs = document.querySelectorAll("#frequency-options input[type='checkbox']");
+  for (const input of inputs) input.checked = checked;
+  updateScanEstimate();
+}
+
 function selectedFrameEstimate() {
   if (!state.discovery) return 0;
   const frequencies = new Set(selectedValues("frequency-options").map(Number));
@@ -94,15 +105,16 @@ function updateScanEstimate() {
 
 function updatePreviewDisplayControls() {
   const fixed = $("#preview-range-mode").value === "fixed";
-  const fields = $("#preview-fixed-range");
-  fields.hidden = !fixed;
-  $("#preview-vmin").disabled = !fixed;
-  $("#preview-vmax").disabled = !fixed;
+  const lower = $("#preview-pmin").value || "50";
+  const upper = $("#preview-pmax").value || "99.7";
   const help = $("#preview-display-help");
   help.dataset.kind = "";
-  help.textContent = $("#preview-transform").value === "linear"
-    ? "Linear raw uses FITS intensity and BUNIT. Auto uses one shared 0.3–99.7 percentile range."
-    : "Robust asinh preserves faint artifacts. Auto uses one shared symmetric range for all three frames.";
+  const transformLabel = $("#preview-transform").value === "linear"
+    ? "Linear raw uses FITS intensity and BUNIT. "
+    : "Robust asinh preserves faint artifacts. ";
+  help.textContent = fixed
+    ? transformLabel + "Fixed reuses one P" + lower + "–P" + upper + " range sampled across the current review for this frequency."
+    : transformLabel + "Auto calculates an independent P" + lower + "–P" + upper + " range for each FITS file.";
 }
 
 function previewDisplayParameters() {
@@ -111,20 +123,25 @@ function previewDisplayParameters() {
     transform: $("#preview-transform").value,
     range_mode: $("#preview-range-mode").value,
   });
-  if ($("#preview-range-mode").value !== "fixed") return params;
-  const vminText = $("#preview-vmin").value.trim();
-  const vmaxText = $("#preview-vmax").value.trim();
-  const vmin = Number(vminText);
-  const vmax = Number(vmaxText);
-  if (!vminText || !vmaxText || !Number.isFinite(vmin) || !Number.isFinite(vmax) || vmin >= vmax) {
+  const pminText = $("#preview-pmin").value.trim();
+  const pmaxText = $("#preview-pmax").value.trim();
+  const pmin = Number(pminText);
+  const pmax = Number(pmaxText);
+  if (!pminText || !pmaxText || !Number.isFinite(pmin) || !Number.isFinite(pmax) || pmin < 0 || pmax > 100 || pmin >= pmax) {
     const help = $("#preview-display-help");
     help.dataset.kind = "error";
-    help.textContent = "Fixed range requires finite Minimum and Maximum values with Minimum < Maximum.";
+    help.textContent = "Percentiles must satisfy 0 ≤ Lower < Upper ≤ 100.";
     return null;
   }
-  params.set("vmin", String(vmin));
-  params.set("vmax", String(vmax));
+  params.set("pmin", String(pmin));
+  params.set("pmax", String(pmax));
   return params;
+}
+
+function previewLoadingState(fallback) {
+  return $("#preview-range-mode").value === "fixed"
+    ? "Scanning fixed per-frequency intensity range"
+    : fallback;
 }
 
 function previewImageUrl(path) {
@@ -135,8 +152,8 @@ function previewImageUrl(path) {
 }
 
 function refreshActivePreview() {
-  if (!state.review) return;
   updatePreviewDisplayControls();
+  if (!state.review) return;
   if (state.reviewView === "frames") {
     const frame = frameFromCurrentPage(state.selectedFrameIndex);
     if (frame) renderFramePreview(frame);
@@ -155,6 +172,9 @@ function configurePreviewDisplay(config) {
     select.replaceChildren(...colormaps.map((value) => new Option(value, value)));
     select.value = colormaps.includes(current) ? current : (defaults.cmap || "coolwarm");
   }
+  const percentileDefaults = display.percentile_defaults || [50, 99.7];
+  if (!$("#preview-pmin").value) $("#preview-pmin").value = String(percentileDefaults[0]);
+  if (!$("#preview-pmax").value) $("#preview-pmax").value = String(percentileDefaults[1]);
   updatePreviewDisplayControls();
 }
 
@@ -170,6 +190,7 @@ function renderDiscovery(discovery) {
     polarizationContainer.textContent = "No polarizations found";
     frequencyContainer.className = "option-grid empty-options";
     polarizationContainer.className = "option-grid empty-options";
+    setFrequencyActionState(true);
     $("#scan-button").disabled = true;
     updateScanEstimate();
     return;
@@ -200,6 +221,7 @@ function renderDiscovery(discovery) {
     label.append(input, document.createTextNode(polarization));
     polarizationContainer.append(label);
   }
+  setFrequencyActionState(false);
   $("#scan-button").disabled = false;
   updateScanEstimate();
 }
@@ -459,7 +481,7 @@ function renderCandidatePreview() {
   $("#preview-meta").textContent =
     Number(candidate.frequency_mhz).toLocaleString() + " MHz | " +
     candidate.polarization + " | " + (candidate.time || "unknown time");
-  $("#preview-state").textContent = "Loading preview";
+  $("#preview-state").textContent = previewLoadingState("Loading preview");
   renderAssessment(candidate);
   $("#preview-placeholder").hidden = true;
   const image = $("#preview-image");
@@ -473,7 +495,7 @@ function renderCandidatePreview() {
   if (!url) {
     image.hidden = true;
     $("#preview-placeholder").hidden = false;
-    $("#preview-placeholder").textContent = "Enter a valid fixed intensity range.";
+    $("#preview-placeholder").textContent = "Enter a valid percentile range.";
     $("#preview-state").textContent = "Display settings incomplete";
     return;
   }
@@ -636,7 +658,7 @@ function renderFramePreview(frame) {
   $("#preview-meta").textContent =
     Number(frame.frequency_mhz).toLocaleString() + " MHz | " +
     frame.polarization + " | " + (frame.time || "unknown time");
-  $("#preview-state").textContent = frame.viewed ? "Previously viewed" : "Loading preview";
+  $("#preview-state").textContent = previewLoadingState(frame.viewed ? "Previously viewed" : "Loading preview");
   renderAssessment(frame);
   $("#preview-placeholder").hidden = true;
   const image = $("#preview-image");
@@ -655,7 +677,7 @@ function renderFramePreview(frame) {
   if (!url) {
     image.hidden = true;
     $("#preview-placeholder").hidden = false;
-    $("#preview-placeholder").textContent = "Enter a valid fixed intensity range.";
+    $("#preview-placeholder").textContent = "Enter a valid percentile range.";
     $("#preview-state").textContent = "Display settings incomplete";
     return;
   }
@@ -830,8 +852,18 @@ async function openNativeRootDialog() {
     $("#root-input").value = paths[0];
     await discoverBands();
   } catch (error) {
-    setScanMessage(error.message, "error");
+    await openInAppRootDialog(error);
   }
+}
+
+async function openInAppRootDialog(error) {
+  setScanMessage(
+    "Windows folder dialog unavailable: " + error.message + " Opened the in-app folder browser instead.",
+    "error",
+  );
+  const dialog = $("#folder-dialog");
+  if (!dialog.open) dialog.showModal();
+  await loadDirectories($("#root-input").value.trim());
 }
 
 async function loadDirectories(path) {
@@ -905,6 +937,8 @@ function closeClient() {
 
 async function initialize() {
   $("#discover-button").addEventListener("click", discoverBands);
+  $("#frequency-select-all").addEventListener("click", () => setFrequencySelection(true));
+  $("#frequency-clear-all").addEventListener("click", () => setFrequencySelection(false));
   $("#scan-button").addEventListener("click", createReview);
   $("#browse-root").addEventListener("click", openNativeRootDialog);
   $("#start-index").addEventListener("input", updateScanEstimate);
@@ -912,15 +946,9 @@ async function initialize() {
   $("#review-scope").addEventListener("change", updateScanEstimate);
   $("#preview-cmap").addEventListener("change", refreshActivePreview);
   $("#preview-range-mode").addEventListener("change", refreshActivePreview);
-  $("#preview-transform").addEventListener("change", () => {
-    if ($("#preview-range-mode").value === "fixed") {
-      $("#preview-vmin").value = "";
-      $("#preview-vmax").value = "";
-    }
-    refreshActivePreview();
-  });
-  $("#preview-vmin").addEventListener("change", refreshActivePreview);
-  $("#preview-vmax").addEventListener("change", refreshActivePreview);
+  $("#preview-transform").addEventListener("change", refreshActivePreview);
+  $("#preview-pmin").addEventListener("change", refreshActivePreview);
+  $("#preview-pmax").addEventListener("change", refreshActivePreview);
   window.addEventListener("solar-ui-state-restored", refreshActivePreview);
   $("#folder-parent").addEventListener("click", (event) => loadDirectories(event.currentTarget.dataset.path));
   $("#folder-choose").addEventListener("click", () => {
