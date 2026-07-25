@@ -36,6 +36,7 @@ def test_apps_manual_documents_complete_public_contract() -> None:
         "frontend app-v1",
         "app-v1-preview",
         "deprecated compatibility",
+        "frontend aia-radio-composite",
         "frontend workbench",
         "frontend image-viewer",
         "frontend image-composer",

@@ -15,6 +15,7 @@ from solar_apps.platform.environment import (
 from solar_apps.platform.dispatch import forward_main
 
 FRONTEND_TARGETS = {
+    "aia-radio-composite": "solar_apps.frontends.radio.aia_radio_composite.cli",
     "app-v1": "solar_apps.frontends.app_v1.cli",
     "app-v1-preview": "solar_apps.frontends.app_v1.cli",
     "bad-frame-review": "solar_apps.frontends.radio_bad_frame_review.cli",

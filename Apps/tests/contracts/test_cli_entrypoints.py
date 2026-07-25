@@ -53,6 +53,7 @@ def test_direct_cli_rejects_an_unsupported_python(
 
 def test_frontend_catalog_has_all_launchable_apps() -> None:
     assert set(router.FRONTEND_TARGETS) == {
+        "aia-radio-composite",
         "app-v1",
         "app-v1-preview",
         "bad-frame-review",

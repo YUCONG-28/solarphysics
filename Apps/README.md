@@ -151,6 +151,7 @@ surfaces:
 | `dart-spectrogram` | DART spectrogram analysis | Streamlit (deprecated) | `... -File .\Apps\run.ps1 frontend dart-spectrogram` |
 | `roi-lightcurve` | Multi-region import and one-ROI light-curve analysis | Streamlit (deprecated) | `... -File .\Apps\run.ps1 frontend roi-lightcurve` |
 | `radio-composite` | Multi-frequency Source Map ROI composite images and videos | Streamlit (deprecated) | `... -File .\Apps\run.ps1 frontend radio-composite` |
+| `aia-radio-composite` | AIA/Radio Gaussian, multi-frequency ROI curve, and DART/CSO composite | Streamlit (deprecated) | `... -File .\Apps\run.ps1 frontend aia-radio-composite` |
 | `source-trajectory` | Radio-source trajectory inspection | Streamlit (deprecated) | `... -File .\Apps\run.ps1 frontend source-trajectory` |
 
 Replace `...` in the table with `powershell.exe -NoProfile -ExecutionPolicy
@@ -205,7 +206,7 @@ and documentation should use canonical commands.
 
 ## Theme system
 
-All ten interfaces use the Radio Source Map semantic design system. Each
+All supported interfaces use the Radio Source Map semantic design system. Each
 frontend offers:
 
 - `Auto` (default), which follows operating-system color-scheme changes;
@@ -348,6 +349,20 @@ the first valid frame, so titles and tick labels cannot resize later frames.
 `Generate MP4 video` and `Save every composite frame as PNG` are independent
 options and both remain enabled by default. MP4/WebM frame streams use PyAV
 when available and retain the existing FFmpeg fallback.
+
+AIA Radio Composite uses a radio-source ROI rather than an AIA-pixel ROI. It
+can render one or more selected AIA wavelengths as an ordered panel grid and
+overlay Gaussian fits from one or more selected radio frequencies on every
+panel; the fitted centers and contours are independently switchable, and the
+contour percentage is user-controlled. No FWHM ellipse or contour is drawn
+unless the contour control is enabled. It automatically matches every selected
+ROI imaging frequency to a CSO or DART narrow band with a user-controlled
+bandwidth. Dual-axis flux curves can be combined or rendered as one aligned row
+per frequency. The dynamic video uses the first selected radio frequency's real
+observation times, rematches and redraws every AIA/radio top frame, and moves
+the aligned UTC markers across every flux row and the spectrum. The PNG, CSV
+exports, metadata, and video retain the shared UTC axis without resampling or
+interpolation.
 
 When Miniforge is already activated and the prompt is in the `Python`
 directory, use the exact relative launcher form:

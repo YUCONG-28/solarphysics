@@ -112,6 +112,20 @@ FRONTENDS: tuple[FrontendSpec, ...] = (
         True,
     ),
     FrontendSpec(
+        "aia-radio-composite",
+        "AIA Radio Composite",
+        "solar_apps.frontends.radio.aia_radio_composite.cli",
+        "streamlit",
+        (
+            InterfaceSpec(
+                "aia-radio-composite",
+                "AIA Radio Composite",
+                "browser",
+            ),
+        ),
+        True,
+    ),
+    FrontendSpec(
         "source-trajectory",
         "Radio Source Trajectory",
         "solar_apps.frontends.radio.source_trajectory.source_app_launcher",
