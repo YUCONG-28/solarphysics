@@ -34,7 +34,9 @@ from .models import (
     CompositeResult,
     SpectrumBand,
     SpectrumFluxCurve,
+    SpectrumTimeAlignment,
     SpectrumWindow,
+    build_spectrum_time_alignment,
 )
 from .rendering import (
     TopPanelArtifact,
@@ -53,8 +55,10 @@ __all__ = [
     "build_roi_lightcurve",
     "build_spectrum_flux_curve",
     "build_spectrum_flux_curves",
+    "build_spectrum_frequency_time_alignments",
     "build_spectrum_window",
     "build_top_panel",
+    "match_reference_radio_time",
 ]
 
 
@@ -77,6 +81,73 @@ class _FrameMatchError(RuntimeError):
 
 AIA_VIDEO_MATCH_TOLERANCE_SECONDS = 12.0
 RADIO_VIDEO_MATCH_TOLERANCE_SECONDS = 0.1
+
+
+def match_reference_radio_time(
+    request: CompositeRequest,
+    *,
+    radio_frequencies_mhz: Sequence[float] | None = None,
+    max_dt_seconds: float = 60.0,
+    pair_time_tolerance_sec: float = 0.5,
+) -> datetime:
+    """Return the nearest primary-radio UTC without rendering the top panel."""
+
+    if not isinstance(request, CompositeRequest):
+        raise TypeError("request must be a CompositeRequest")
+    frequencies = _normalized_radio_frequencies(
+        request,
+        radio_frequencies_mhz,
+    )
+    primary_request = replace(
+        request,
+        radio_frequency=float(frequencies[0]),
+    )
+    candidates = load_radio_candidates(
+        primary_request,
+        pair_time_tolerance_sec=pair_time_tolerance_sec,
+    )
+    primary_frame, _, _ = select_radio_frame_from_candidates(
+        candidates,
+        request.aia_time,
+        max_dt_seconds=max_dt_seconds,
+    )
+    if primary_frame.obs_time is None:
+        raise ValueError("Primary radio frame is missing an observation time")
+    matched = pd.Timestamp(primary_frame.obs_time)
+    if matched.tzinfo is None:
+        matched = matched.tz_localize(UTC)
+    else:
+        matched = matched.tz_convert(UTC)
+    return matched.to_pydatetime()
+
+
+def build_spectrum_frequency_time_alignments(
+    request: CompositeRequest,
+    spectrum: SpectrumWindow,
+    frequencies_mhz: Sequence[float],
+) -> dict[float, SpectrumTimeAlignment]:
+    """Build one display-only DART alignment per radio imaging frequency."""
+
+    if not isinstance(request, CompositeRequest):
+        raise TypeError("request must be a CompositeRequest")
+    if not isinstance(spectrum, SpectrumWindow):
+        raise TypeError("spectrum must be a SpectrumWindow")
+    if spectrum.source.upper() != "DART":
+        return {}
+    frequencies = tuple(dict.fromkeys(float(value) for value in frequencies_mhz))
+    if not frequencies:
+        raise ValueError("frequencies_mhz must not be empty")
+    alignments = {}
+    for frequency in frequencies:
+        radio_time = match_reference_radio_time(
+            request,
+            radio_frequencies_mhz=(frequency,),
+        )
+        alignment = build_spectrum_time_alignment(spectrum, radio_time)
+        if alignment is None:
+            raise RuntimeError("DART spectrum did not produce a time alignment")
+        alignments[frequency] = alignment
+    return alignments
 
 
 def build_composite_result(
@@ -145,6 +216,19 @@ def build_composite_result(
             request.aia_time.isoformat(),
         )
     )
+    spectrum_time_alignment = build_spectrum_time_alignment(
+        spectrum,
+        map_time,
+    )
+    spectrum_frequency_time_alignments = (
+        build_spectrum_frequency_time_alignments(
+            request,
+            spectrum,
+            tuple(curve.requested_band.center_mhz for curve in spectrum_flux_curves),
+        )
+        if spectrum_flux_curves
+        else {}
+    )
     return CompositeResult(
         top_image=top.image_png,
         roi_curve=curve,
@@ -154,6 +238,15 @@ def build_composite_result(
             "roi": roi.to_json_dict(),
             "top_panel": dict(top.metadata),
             "map_time_utc": str(map_time),
+            "spectrum_time_alignment": (
+                spectrum_time_alignment.to_dict()
+                if spectrum_time_alignment is not None
+                else None
+            ),
+            "spectrum_flux_time_alignments": {
+                f"{frequency:g}": alignment.to_dict()
+                for frequency, alignment in spectrum_frequency_time_alignments.items()
+            },
             "frequencies_mhz": [float(value) for value in frequencies_mhz],
             "radio_overlay_frequencies_mhz": list(
                 _normalized_radio_frequencies(request, radio_frequencies_mhz)

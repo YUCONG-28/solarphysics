@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import numpy as np
@@ -22,7 +22,9 @@ from solar_apps.frontends.radio.aia_radio_composite.adapters import (
 from solar_apps.frontends.radio.aia_radio_composite.models import (
     CompositeRequest,
     SpectrumBand,
+    SpectrumTimeAlignment,
     SpectrumWindow,
+    build_spectrum_time_alignment,
 )
 from solar_apps.frontends.radio.aia_radio_composite.rendering import (
     build_spectrum_selection_figure,
@@ -121,6 +123,67 @@ def test_dart_adapter_uses_discovery_and_window_reader(
         "SpecFrequency",
         "SpecTime",
     }
+
+
+def test_dart_display_alignment_uses_one_constant_offset() -> None:
+    start = datetime(2025, 1, 24, 4, 48, 30, 312134, tzinfo=UTC)
+    times = tuple(
+        start + timedelta(seconds=offset) for offset in (0.0, 0.401374, 0.802748)
+    )
+    window = SpectrumWindow(
+        data=np.ones((2, 3), dtype=float),
+        frequency_mhz=np.asarray([148.0, 150.0]),
+        time_utc=times,
+        polarization="Stokes I",
+        unit="dB",
+        source="DART",
+    )
+    reference = datetime(2025, 1, 24, 4, 48, 30, 312000, tzinfo=UTC)
+
+    alignment = build_spectrum_time_alignment(window, reference)
+
+    assert isinstance(alignment, SpectrumTimeAlignment)
+    assert alignment.nearest_spectrum_time_utc == times[0]
+    assert alignment.display_offset_seconds == pytest.approx(-0.000134)
+    assert alignment.native_cadence_seconds == pytest.approx(0.401374)
+    assert alignment.align_times(times)[0] == reference
+    aligned_differences = np.diff(
+        [value.timestamp() for value in alignment.align_times(times)]
+    )
+    original_differences = np.diff([value.timestamp() for value in times])
+    np.testing.assert_allclose(aligned_differences, original_differences)
+
+
+def test_dart_display_alignment_rejects_reference_outside_native_cadence() -> None:
+    start = datetime(2025, 1, 24, 4, 48, 30, tzinfo=UTC)
+    window = SpectrumWindow(
+        data=np.ones((1, 3), dtype=float),
+        frequency_mhz=np.asarray([149.0]),
+        time_utc=tuple(start + timedelta(seconds=index * 0.4) for index in range(3)),
+        polarization="Stokes I",
+        unit="dB",
+        source="DART",
+    )
+
+    with pytest.raises(ValueError, match="one native sampling period"):
+        build_spectrum_time_alignment(
+            window,
+            start + timedelta(seconds=2),
+        )
+
+
+def test_cso_display_alignment_keeps_native_time_axis() -> None:
+    start = datetime(2025, 1, 24, 4, 48, 30, tzinfo=UTC)
+    window = SpectrumWindow(
+        data=np.ones((1, 2), dtype=float),
+        frequency_mhz=np.asarray([149.0]),
+        time_utc=(start, start + timedelta(seconds=1)),
+        polarization="RR",
+        unit="sfu",
+        source="CSO",
+    )
+
+    assert build_spectrum_time_alignment(window, start) is None
 
 
 def test_cso_adapter_uses_reader_date_obs_axes_and_polarization(
@@ -564,3 +627,30 @@ def test_spectrum_selection_figure_aligns_range_and_reference_line() -> None:
     ]
     assert len(reference_lines) == 1
     assert reference_lines[0].line.dash == "dash"
+
+
+def test_spectrum_selection_figure_applies_same_dart_offset_to_heatmap_and_grid() -> (
+    None
+):
+    first = datetime(2025, 1, 24, 4, 48, 30, 312134, tzinfo=UTC)
+    second = first + timedelta(seconds=0.401374)
+    reference = first - timedelta(microseconds=134)
+    window = SpectrumWindow(
+        data=np.asarray([[1.0, 2.0], [3.0, 4.0]]),
+        frequency_mhz=np.asarray([148.0, 150.0]),
+        time_utc=(first, second),
+        polarization="Stokes I",
+        unit="dB",
+        source="DART",
+    )
+    alignment = build_spectrum_time_alignment(window, reference)
+
+    figure = build_spectrum_selection_figure(
+        window,
+        map_time=reference,
+        time_alignment=alignment,
+    )
+
+    assert figure.data[0].x[0] == reference
+    assert figure.data[1].x[0] == reference
+    assert figure.layout.meta["spectrum_time_alignment"] == alignment.to_dict()

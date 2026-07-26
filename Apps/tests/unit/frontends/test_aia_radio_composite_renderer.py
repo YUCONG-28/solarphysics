@@ -18,6 +18,7 @@ from solar_apps.frontends.radio.aia_radio_composite.models import (
     CompositeResult,
     SpectrumBand,
     SpectrumFluxCurve,
+    SpectrumTimeAlignment,
     SpectrumWindow,
 )
 from solar_apps.frontends.radio.aia_radio_composite.rendering import (
@@ -148,6 +149,33 @@ def test_renderer_applies_spectrum_display_ranges_without_changing_data() -> Non
     assert render["spectrum_display_frequency_range_mhz"] == [120.0, 180.0]
     assert render["spectrum_display_intensity_range"] == [2.0, 5.0]
     np.testing.assert_array_equal(result.spectrum.data, original_data)
+
+
+def test_renderer_aligns_dart_display_but_exports_original_flux_utc() -> None:
+    result, start = _result()
+    original_first = result.spectrum_flux_curve.time_utc[0]
+    reference = start + timedelta(seconds=1, microseconds=-125)
+    alignment = SpectrumTimeAlignment(
+        reference_radio_time_utc=reference,
+        nearest_spectrum_time_utc=original_first,
+        display_offset_seconds=-0.000125,
+        native_cadence_seconds=1.0,
+        nearest_delta_seconds=0.000125,
+    )
+    result.metadata["spectrum_time_alignment"] = alignment.to_dict()
+
+    artifact = render_composite_result(
+        result,
+        map_time=reference,
+        dpi=60,
+    )
+
+    render = artifact.metadata["render"]
+    assert render["time_alignment"] == "shared_utc_dart_display_offset_no_interpolation"
+    assert render["spectrum_time_alignment"] == alignment.to_dict()
+    exported = pd.read_csv(io.BytesIO(artifact.spectrum_flux_csv))
+    assert exported.loc[0, "time_utc"] == original_first.isoformat()
+    assert result.spectrum_flux_curve.time_utc[0] == original_first
     assert result.spectrum.frequency_mhz.tolist() == [100.0, 200.0]
 
 
@@ -189,11 +217,33 @@ def test_renderer_exports_multiple_matched_spectrum_bands() -> None:
         sampled_frequency_range_mhz=(163.1, 164.9),
         channel_count=4,
     )
+    alignments = {
+        150.0: SpectrumTimeAlignment(
+            reference_radio_time_utc=start + timedelta(seconds=1),
+            nearest_spectrum_time_utc=start + timedelta(seconds=1),
+            display_offset_seconds=0.0,
+            native_cadence_seconds=1.0,
+            nearest_delta_seconds=0.0,
+        ),
+        164.0: SpectrumTimeAlignment(
+            reference_radio_time_utc=start + timedelta(seconds=1, microseconds=100000),
+            nearest_spectrum_time_utc=start + timedelta(seconds=1),
+            display_offset_seconds=0.1,
+            native_cadence_seconds=1.0,
+            nearest_delta_seconds=0.1,
+        ),
+    }
     multi_result = CompositeResult(
         top_image=result.top_image,
         roi_curve=result.roi_curve,
         spectrum=result.spectrum,
-        metadata=result.metadata,
+        metadata={
+            **result.metadata,
+            "spectrum_flux_time_alignments": {
+                f"{frequency:g}": alignment.to_dict()
+                for frequency, alignment in alignments.items()
+            },
+        },
         spectrum_flux_curve=result.spectrum_flux_curve,
         spectrum_flux_curves=(result.spectrum_flux_curve, second),
     )
@@ -202,8 +252,16 @@ def test_renderer_exports_multiple_matched_spectrum_bands() -> None:
     exported = pd.read_csv(io.BytesIO(artifact.spectrum_flux_csv))
 
     assert artifact.metadata["render"]["spectrum_flux_curve_count"] == 2
+    assert artifact.metadata["render"]["spectrum_flux_time_alignments"] == {
+        "150": alignments[150.0].to_dict(),
+        "164": alignments[164.0].to_dict(),
+    }
     assert exported["band_index"].unique().tolist() == [0, 1]
     assert exported["center_mhz"].unique().tolist() == [150.0, 164.0]
+    assert (
+        exported.loc[exported["center_mhz"].eq(164.0), "time_utc"].iloc[0]
+        == (start + timedelta(seconds=1)).isoformat()
+    )
 
 
 def test_renderer_separates_flux_axes_for_video_frame_layout() -> None:

@@ -35,12 +35,15 @@ from solar_apps.frontends.radio.aia_radio_composite.application import (
     build_spectrum_flux_curves,
     build_spectrum_window,
     build_top_panel,
+    match_reference_radio_time,
 )
 from solar_apps.frontends.radio.aia_radio_composite.models import (
     AIA_WAVELENGTHS,
     CompositeRequest,
     SpectrumBand,
+    SpectrumTimeAlignment,
     SpectrumWindow,
+    build_spectrum_time_alignment,
 )
 from solar_apps.frontends.radio.aia_radio_composite.rendering import (
     build_dual_flux_figures,
@@ -420,7 +423,7 @@ def _run_streamlit_app(argv: list[str] | None = None) -> None:
             )
             gaussian_show_contours = st.checkbox(
                 "Show Gaussian fitted contour",
-                value=True,
+                value=False,
                 key="gaussian_show_contours",
             )
             gaussian_contour_percent = float(
@@ -651,7 +654,7 @@ def _run_streamlit_app(argv: list[str] | None = None) -> None:
         except Exception as exc:
             st.error(f"Top-panel generation failed: {exc}")
     top = st.session_state.get("aia_radio_top")
-    reference_display_time = request.aia_time if request is not None else None
+    reference_display_time = None
     if top is not None:
         reference_value = top.metadata.get("reference_radio_time_utc")
         if reference_value:
@@ -769,6 +772,9 @@ def _run_streamlit_app(argv: list[str] | None = None) -> None:
             st.error(f"Spectrum loading failed: {exc}")
     spectrum = st.session_state.get("aia_radio_spectrum")
     matched_bands: tuple[SpectrumBand, ...] = ()
+    spectrum_time_alignment: SpectrumTimeAlignment | None = None
+    spectrum_flux_time_alignments: dict[float, SpectrumTimeAlignment] = {}
+    spectrum_time_alignment_ready = spectrum is not None
     if spectrum is not None:
         try:
             matched_bands = _matched_spectrum_bands(
@@ -778,20 +784,53 @@ def _run_streamlit_app(argv: list[str] | None = None) -> None:
             )
         except ValueError as exc:
             st.error(str(exc))
-        selection_figure = build_spectrum_selection_figure(
-            spectrum,
-            bands=matched_bands,
-            map_time=reference_display_time,
-            display_time_range_utc=aligned_time_range,
-            display_frequency_range_mhz=spectrum_display_frequency_range,
-            display_intensity_range=spectrum_display_intensity_range,
-            theme_mode=theme_mode,
-        )
-        st.plotly_chart(
-            selection_figure,
-            width="stretch",
-            key="aia_radio_spectrum_matched_bands",
-        )
+        try:
+            if spectrum.source.upper() == "DART":
+                if reference_display_time is None:
+                    reference_display_time = _cached_reference_radio_time(
+                        st,
+                        request,
+                        radio_frequencies,
+                    )
+                spectrum_time_alignment = build_spectrum_time_alignment(
+                    spectrum,
+                    reference_display_time,
+                )
+                for frequency in curve_frequencies:
+                    frequency_radio_time = _cached_reference_radio_time(
+                        st,
+                        request,
+                        [float(frequency)],
+                    )
+                    frequency_alignment = build_spectrum_time_alignment(
+                        spectrum,
+                        frequency_radio_time,
+                    )
+                    if frequency_alignment is None:
+                        raise RuntimeError(
+                            "DART spectrum did not produce a frequency alignment"
+                        )
+                    spectrum_flux_time_alignments[float(frequency)] = (
+                        frequency_alignment
+                    )
+            selection_figure = build_spectrum_selection_figure(
+                spectrum,
+                bands=matched_bands,
+                map_time=reference_display_time,
+                time_alignment=spectrum_time_alignment,
+                display_time_range_utc=aligned_time_range,
+                display_frequency_range_mhz=spectrum_display_frequency_range,
+                display_intensity_range=spectrum_display_intensity_range,
+                theme_mode=theme_mode,
+            )
+            st.plotly_chart(
+                selection_figure,
+                width="stretch",
+                key="aia_radio_spectrum_matched_bands",
+            )
+        except ValueError as exc:
+            spectrum_time_alignment_ready = False
+            st.error(f"Spectrum time alignment failed: {exc}")
         if matched_bands:
             st.success(
                 f"Automatically matched {len(matched_bands)} spectrum band(s) "
@@ -806,6 +845,21 @@ def _run_streamlit_app(argv: list[str] | None = None) -> None:
                         "bandwidth (MHz)": band.bandwidth_mhz,
                         "original channels": int(
                             band.observed_indices(spectrum.frequency_mhz).size
+                        ),
+                        "matched radio UTC": (
+                            spectrum_flux_time_alignments[
+                                float(frequency)
+                            ].reference_radio_time_utc.isoformat()
+                            if float(frequency) in spectrum_flux_time_alignments
+                            else None
+                        ),
+                        "DART display offset (ms)": (
+                            1000.0
+                            * spectrum_flux_time_alignments[
+                                float(frequency)
+                            ].display_offset_seconds
+                            if float(frequency) in spectrum_flux_time_alignments
+                            else None
                         ),
                     }
                     for frequency, band in zip(
@@ -863,6 +917,7 @@ def _run_streamlit_app(argv: list[str] | None = None) -> None:
             or spectrum is None
             or not curve_frequencies
             or flux_time_range is None
+            or not spectrum_time_alignment_ready
         ),
     ):
         try:
@@ -893,6 +948,8 @@ def _run_streamlit_app(argv: list[str] | None = None) -> None:
                 metric=metric,
                 theme_mode=theme_mode,
                 map_time=reference_display_time,
+                time_alignment=spectrum_time_alignment,
+                time_alignments=spectrum_flux_time_alignments,
                 display_time_range_utc=aligned_time_range,
             )
             for dual_figure in dual_figures:
@@ -1267,6 +1324,41 @@ def _clear_dual_flux_state(st: Any) -> None:
         st.session_state.pop(key, None)
 
 
+def _cached_reference_radio_time(
+    st: Any,
+    request: CompositeRequest | None,
+    radio_frequencies: list[float] | tuple[float, ...],
+) -> datetime:
+    """Resolve and cache the nearest primary-radio UTC for DART display."""
+
+    if request is None:
+        raise ValueError("Complete the input controls before matching radio time")
+    signature = json.dumps(
+        {
+            "radio_directory": str(request.radio_directory),
+            "reference_time_utc": request.aia_time.isoformat(),
+            "radio_frequency_mhz": (
+                float(radio_frequencies[0])
+                if radio_frequencies
+                else float(request.radio_frequency)
+            ),
+            "polarization": request.polarization,
+        },
+        sort_keys=True,
+    )
+    cached = st.session_state.get("_reference_radio_time_matches")
+    if isinstance(cached, dict) and signature in cached:
+        return pd.Timestamp(cached[signature]).to_pydatetime()
+    matched = match_reference_radio_time(
+        request,
+        radio_frequencies_mhz=radio_frequencies,
+    )
+    matches = dict(cached) if isinstance(cached, dict) else {}
+    matches[signature] = matched.isoformat()
+    st.session_state["_reference_radio_time_matches"] = matches
+    return matched
+
+
 def _clear_spectrum_state(
     st: Any,
     *,
@@ -1305,12 +1397,19 @@ def _gaussian_display_overrides(
     show_contours: bool,
     contour_percent: float,
 ) -> dict[str, Any]:
+    if show_contours:
+        display_mode = "contours_only"
+    elif show_center:
+        display_mode = "center_only"
+    else:
+        display_mode = "none"
     return {
         "draw_gaussian_center": bool(show_center),
         "draw_gaussian_contours": bool(show_contours),
         # This frontend exposes contours, not a separate FWHM ellipse control.
         # Keep the implicit ellipse disabled so unchecked means no outline.
         "draw_gaussian_fwhm_ellipse": False,
+        "gaussian_overlay_display_mode": display_mode,
         "gaussian_contour_levels": [float(contour_percent) / 100.0],
     }
 

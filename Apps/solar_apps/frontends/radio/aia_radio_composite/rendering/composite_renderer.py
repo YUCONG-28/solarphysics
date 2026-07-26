@@ -25,6 +25,7 @@ from ..models import (
     AIA_RADIO_COMPOSITE_SCHEMA_VERSION,
     CompositeResult,
     SpectrumFluxCurve,
+    SpectrumTimeAlignment,
     parse_roi_curve_times,
 )
 
@@ -82,6 +83,8 @@ def render_composite_result(
     if int(dpi) <= 0:
         raise ValueError("dpi must be greater than zero")
     marker_time = _utc_datetime(map_time)
+    spectrum_time_alignment = _result_spectrum_time_alignment(result)
+    spectrum_flux_time_alignments = _result_spectrum_flux_time_alignments(result)
     curve = result.roi_curve.copy(deep=False)
     curve_times = parse_roi_curve_times(curve)
     spectrum_fluxes = result.spectrum_flux_curves
@@ -192,9 +195,31 @@ def render_composite_result(
             spectrum_colors=spectrum_colors,
             color_offset=color_offset,
             separate=separate_flux_axes,
+            time_alignment=spectrum_time_alignment,
+            time_alignments=spectrum_flux_time_alignments,
         )
 
     spectrum = result.spectrum
+    spectrum_display_times = (
+        spectrum_time_alignment.align_times(spectrum.time_utc)
+        if spectrum_time_alignment is not None
+        else spectrum.time_utc
+    )
+    spectrum_flux_display_times = tuple(
+        (
+            alignment.align_times(item.time_utc)
+            if (
+                alignment := _spectrum_flux_time_alignment(
+                    item,
+                    default=spectrum_time_alignment,
+                    by_frequency=spectrum_flux_time_alignments,
+                )
+            )
+            is not None
+            else item.time_utc
+        )
+        for item in spectrum_fluxes
+    )
     spectrum_intensity_range = _optional_numeric_range(
         result.metadata.get("spectrum_display_intensity_range"),
         label="spectrum display intensity range",
@@ -204,7 +229,7 @@ def render_composite_result(
         label="spectrum display frequency range",
     )
     mesh = spectrum_axis.pcolormesh(
-        spectrum.time_utc,
+        spectrum_display_times,
         spectrum.frequency_mhz,
         spectrum.data,
         shading="auto",
@@ -267,8 +292,12 @@ def render_composite_result(
                 )
         combined_times = requested_times or [
             *(value.to_pydatetime() for value in curve_times if not pd.isna(value)),
-            *spectrum.time_utc,
-            *(time for item in spectrum_fluxes for time in item.time_utc),
+            *spectrum_display_times,
+            *(
+                time
+                for display_times in spectrum_flux_display_times
+                for time in display_times
+            ),
             marker_time,
         ]
         time_start = min(combined_times)
@@ -342,7 +371,20 @@ def render_composite_result(
             ],
             "quality_flagged_rows": flagged_count,
             "untimed_quality_rows": untimed_quality_rows,
-            "time_alignment": "shared_utc_no_interpolation",
+            "time_alignment": (
+                "shared_utc_dart_display_offset_no_interpolation"
+                if spectrum_time_alignment is not None
+                else "shared_utc_no_interpolation"
+            ),
+            "spectrum_time_alignment": (
+                spectrum_time_alignment.to_dict()
+                if spectrum_time_alignment is not None
+                else None
+            ),
+            "spectrum_flux_time_alignments": {
+                f"{frequency:g}": alignment.to_dict()
+                for frequency, alignment in spectrum_flux_time_alignments.items()
+            },
             "main_axis_bbox_normalized": {
                 "flux": curve_bbox_normalized,
                 "fluxes": curve_bboxes_normalized,
@@ -401,6 +443,8 @@ def _plot_flux_axis(
     spectrum_colors: Sequence[str],
     color_offset: int,
     separate: bool,
+    time_alignment: SpectrumTimeAlignment | None,
+    time_alignments: Mapping[float, SpectrumTimeAlignment],
 ) -> None:
     for (frequency, polarization), frame in curve_plot.groupby(
         ["frequency", "polarization"],
@@ -455,8 +499,18 @@ def _plot_flux_axis(
         spectrum_flux_axis = curve_axis.twinx()
         for index, spectrum_flux in enumerate(spectrum_fluxes):
             band = spectrum_flux.requested_band
+            item_alignment = _spectrum_flux_time_alignment(
+                spectrum_flux,
+                default=time_alignment,
+                by_frequency=time_alignments,
+            )
+            display_times = (
+                item_alignment.align_times(spectrum_flux.time_utc)
+                if item_alignment is not None
+                else spectrum_flux.time_utc
+            )
             spectrum_flux_axis.plot(
-                spectrum_flux.time_utc,
+                display_times,
                 spectrum_flux.values,
                 color=spectrum_colors[(color_offset + index) % len(spectrum_colors)],
                 linewidth=1.4,
@@ -483,6 +537,49 @@ def _plot_flux_axis(
         labels.extend(right_labels)
     if handles:
         curve_axis.legend(handles, labels, loc="best", fontsize=7, ncols=2)
+
+
+def _result_spectrum_time_alignment(
+    result: CompositeResult,
+) -> SpectrumTimeAlignment | None:
+    value = result.metadata.get("spectrum_time_alignment")
+    if value is None:
+        return None
+    if not isinstance(value, Mapping):
+        raise TypeError("spectrum_time_alignment metadata must be a mapping")
+    if result.spectrum.source.upper() != "DART":
+        raise ValueError("DART time alignment cannot be applied to a CSO spectrum")
+    return SpectrumTimeAlignment.from_dict(value)
+
+
+def _result_spectrum_flux_time_alignments(
+    result: CompositeResult,
+) -> dict[float, SpectrumTimeAlignment]:
+    value = result.metadata.get("spectrum_flux_time_alignments")
+    if value is None:
+        return {}
+    if not isinstance(value, Mapping):
+        raise TypeError("spectrum_flux_time_alignments metadata must be a mapping")
+    if result.spectrum.source.upper() != "DART":
+        raise ValueError("DART time alignments cannot be applied to a CSO spectrum")
+    alignments: dict[float, SpectrumTimeAlignment] = {}
+    for frequency, payload in value.items():
+        if not isinstance(payload, Mapping):
+            raise TypeError("spectrum_flux_time_alignments values must be mappings")
+        alignments[float(frequency)] = SpectrumTimeAlignment.from_dict(payload)
+    return alignments
+
+
+def _spectrum_flux_time_alignment(
+    spectrum_flux: SpectrumFluxCurve,
+    *,
+    default: SpectrumTimeAlignment | None,
+    by_frequency: Mapping[float, SpectrumTimeAlignment],
+) -> SpectrumTimeAlignment | None:
+    return by_frequency.get(
+        float(spectrum_flux.requested_band.center_mhz),
+        default,
+    )
 
 
 def write_composite_artifacts(
@@ -784,13 +881,14 @@ def _draw_aia_radio_axis(
             # display canvas.
             canonical_config = dict(gaussian_config)
             canonical_config["draw_gaussian_contours"] = False
-            overlay_gaussian_fit_on_axis(
-                axis,
-                radio_selection.fit_result,
-                radio_selection.extent_arcsec,
-                radio_selection.frame.image.shape,
-                canonical_config,
-            )
+            if canonical_config.get("gaussian_overlay_display_mode") != "none":
+                overlay_gaussian_fit_on_axis(
+                    axis,
+                    radio_selection.fit_result,
+                    radio_selection.extent_arcsec,
+                    radio_selection.frame.image.shape,
+                    canonical_config,
+                )
             if draw_contours and _gaussian_overlay_is_visible(
                 radio_selection.fit_result,
                 gaussian_config,

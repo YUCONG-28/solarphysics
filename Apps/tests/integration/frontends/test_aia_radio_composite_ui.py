@@ -70,6 +70,7 @@ def test_page_loads_with_required_three_panel_controls(
         "Show Gaussian fitted center",
         "Show Gaussian fitted contour",
     }
+    assert app.checkbox(key="gaussian_show_contours").value is False
     assert {item.label for item in app.number_input} >= {
         "Gaussian contour (% of fitted peak)",
         "Radio display low percentile",

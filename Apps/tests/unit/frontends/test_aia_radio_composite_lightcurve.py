@@ -20,6 +20,7 @@ from solar_apps.frontends.radio.aia_radio_composite.models import (
     ROI_CURVE_COLUMNS,
     SpectrumBand,
     SpectrumFluxCurve,
+    SpectrumTimeAlignment,
 )
 from solar_apps.frontends.radio.aia_radio_composite.rendering import (
     build_dual_flux_figure,
@@ -324,6 +325,56 @@ def test_dual_flux_plot_uses_requested_shared_range_and_reference_line() -> None
     assert reference_lines[0].line.dash == "dash"
 
 
+def test_dual_flux_plot_applies_dart_display_offset_without_changing_values() -> None:
+    curve = _extractor_frame().assign(
+        time=lambda frame: frame["obs_time"],
+        frequency=lambda frame: frame["freq_mhz"],
+    )
+    original_times = (
+        datetime(2025, 1, 24, 4, 48, 30, 312134, tzinfo=UTC),
+        datetime(2025, 1, 24, 4, 48, 30, 713508, tzinfo=UTC),
+    )
+    spectrum_flux = SpectrumFluxCurve(
+        time_utc=original_times,
+        values=np.asarray([10.0, np.nan]),
+        source="DART",
+        polarization="Stokes I",
+        unit="dB",
+        requested_band=SpectrumBand(148.0, 150.0),
+        sampled_frequency_range_mhz=(148.1, 149.9),
+        channel_count=8,
+    )
+    reference = datetime(2025, 1, 24, 4, 48, 30, 312000, tzinfo=UTC)
+    alignment = SpectrumTimeAlignment(
+        reference_radio_time_utc=reference,
+        nearest_spectrum_time_utc=original_times[0],
+        display_offset_seconds=-0.000134,
+        native_cadence_seconds=0.401374,
+        nearest_delta_seconds=0.000134,
+    )
+
+    figure = build_dual_flux_figure(
+        curve,
+        spectrum_flux,
+        map_time=reference,
+        time_alignment=alignment,
+    )
+
+    spectrum_trace = figure.data[-1]
+    assert spectrum_trace.x[0] == reference
+    np.testing.assert_allclose(
+        np.asarray(spectrum_trace.y, dtype=float),
+        np.asarray([10.0, np.nan]),
+        equal_nan=True,
+    )
+    assert spectrum_flux.time_utc == original_times
+    assert (
+        figure.layout.meta["time_alignment"]
+        == "shared_utc_dart_display_offset_no_interpolation"
+    )
+    assert figure.layout.meta["spectrum_time_alignment"] == alignment.to_dict()
+
+
 def test_dual_flux_plot_adds_one_secondary_trace_per_matched_roi_frequency() -> None:
     curve = _extractor_frame().assign(
         time=lambda frame: frame["obs_time"],
@@ -353,6 +404,57 @@ def test_dual_flux_plot_adds_one_secondary_trace_per_matched_roi_frequency() -> 
         item["requested_band"]["center_mhz"]
         for item in (figure.layout.meta["spectrum_flux_curves"])
     ] == [149.0, 164.0]
+
+
+def test_dual_flux_plot_applies_independent_frequency_time_offsets() -> None:
+    curve = _extractor_frame().assign(
+        time=lambda frame: frame["obs_time"],
+        frequency=lambda frame: frame["freq_mhz"],
+    )
+    dart_start = datetime(2025, 1, 24, 4, 48, 30, 312134, tzinfo=UTC)
+    fluxes = tuple(
+        SpectrumFluxCurve(
+            time_utc=(dart_start, dart_start + timedelta(seconds=0.401374)),
+            values=np.asarray([center, center + 1.0]),
+            source="DART",
+            polarization="Stokes I",
+            unit="dB",
+            requested_band=SpectrumBand(center - 1.0, center + 1.0),
+            sampled_frequency_range_mhz=(center - 0.5, center + 0.5),
+            channel_count=3,
+        )
+        for center in (164.0, 238.0)
+    )
+    radio_times = {
+        164.0: dart_start - timedelta(microseconds=134),
+        238.0: dart_start + timedelta(microseconds=99866),
+    }
+    alignments = {
+        frequency: SpectrumTimeAlignment(
+            reference_radio_time_utc=radio_time,
+            nearest_spectrum_time_utc=dart_start,
+            display_offset_seconds=(radio_time - dart_start).total_seconds(),
+            native_cadence_seconds=0.401374,
+            nearest_delta_seconds=abs((radio_time - dart_start).total_seconds()),
+        )
+        for frequency, radio_time in radio_times.items()
+    }
+
+    figure = build_dual_flux_figure(
+        curve,
+        fluxes,
+        time_alignments=alignments,
+    )
+
+    secondary = [trace for trace in figure.data if trace.yaxis == "y2"]
+    assert secondary[0].x[0] == radio_times[164.0]
+    assert secondary[1].x[0] == radio_times[238.0]
+    assert figure.layout.meta["spectrum_flux_time_alignments"] == {
+        "164": alignments[164.0].to_dict(),
+        "238": alignments[238.0].to_dict(),
+    }
+    assert fluxes[0].time_utc[0] == dart_start
+    assert fluxes[1].time_utc[0] == dart_start
 
 
 def test_dual_flux_plots_can_separate_each_matched_frequency() -> None:

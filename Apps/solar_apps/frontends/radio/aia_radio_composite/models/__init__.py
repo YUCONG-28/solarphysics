@@ -17,6 +17,10 @@ from .schema import (
     SpectrumWindow,
     parse_roi_curve_times,
 )
+from .time_alignment import (
+    SpectrumTimeAlignment,
+    build_spectrum_time_alignment,
+)
 
 __all__ = [
     "AIA_RADIO_COMPOSITE_SCHEMA_VERSION",
@@ -30,6 +34,8 @@ __all__ = [
     "SPECTRUM_TYPES",
     "SpectrumBand",
     "SpectrumFluxCurve",
+    "SpectrumTimeAlignment",
     "SpectrumWindow",
+    "build_spectrum_time_alignment",
     "parse_roi_curve_times",
 ]

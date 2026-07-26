@@ -419,6 +419,30 @@ def test_gaussian_user_visibility_overrides_are_not_reset() -> None:
     assert config["draw_gaussian_contours"] is False
 
 
+@pytest.mark.parametrize(
+    ("show_center", "show_contours", "expected_mode"),
+    [
+        (False, False, "none"),
+        (True, False, "center_only"),
+        (False, True, "contours_only"),
+        (True, True, "contours_only"),
+    ],
+)
+def test_gaussian_display_overrides_select_explicit_overlay_mode(
+    show_center: bool,
+    show_contours: bool,
+    expected_mode: str,
+) -> None:
+    overrides = composite_app._gaussian_display_overrides(
+        show_center=show_center,
+        show_contours=show_contours,
+        contour_percent=95.0,
+    )
+
+    assert overrides["gaussian_overlay_display_mode"] == expected_mode
+    assert overrides["draw_gaussian_fwhm_ellipse"] is False
+
+
 def test_top_panel_renders_valid_gaussian_center_contour_and_fwhm() -> None:
     """A valid existing Gaussian fit produces a PNG and quality metadata."""
 
@@ -519,6 +543,7 @@ def test_top_panel_does_not_draw_contours_when_disabled(
     object.__setattr__(selection, "gaussian_config", config)
     contour_calls: list[object] = []
     ellipse_calls: list[object] = []
+    overlay_calls: list[object] = []
     original_contour = Axes.contour
     original_add_patch = Axes.add_patch
 
@@ -533,11 +558,17 @@ def test_top_panel_does_not_draw_contours_when_disabled(
 
     monkeypatch.setattr(Axes, "contour", spy_contour)
     monkeypatch.setattr(Axes, "add_patch", spy_add_patch)
+    monkeypatch.setattr(
+        composite_renderer,
+        "overlay_gaussian_fit_on_axis",
+        lambda *args, **kwargs: overlay_calls.append((args, kwargs)),
+    )
 
     artifact = render_top_panel(_aia_selection(), selection, dpi=80)
 
     assert contour_calls == []
     assert ellipse_calls == []
+    assert overlay_calls == []
     assert artifact.metadata["render"]["draw_gaussian_contours"] == [False]
     assert artifact.metadata["render"]["draw_gaussian_fwhm_ellipse"] == [False]
 

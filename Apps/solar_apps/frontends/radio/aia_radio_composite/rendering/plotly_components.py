@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
+from datetime import datetime
 from typing import Any
 
 import numpy as np
@@ -25,6 +26,7 @@ from ..models import (
     ROI_CURVE_COLUMNS,
     SpectrumBand,
     SpectrumFluxCurve,
+    SpectrumTimeAlignment,
     SpectrumWindow,
     parse_roi_curve_times,
 )
@@ -50,6 +52,7 @@ def build_spectrum_figure(
     spectrum: SpectrumWindow,
     *,
     map_time: Any | None = None,
+    time_alignment: SpectrumTimeAlignment | None = None,
     display_time_range_utc: tuple[Any, Any] | None = None,
     display_frequency_range_mhz: tuple[float, float] | None = None,
     display_intensity_range: tuple[float, float] | None = None,
@@ -69,10 +72,15 @@ def build_spectrum_figure(
         display_intensity_range,
         label="display_intensity_range",
     )
+    display_times = _aligned_spectrum_times(
+        spectrum.time_utc,
+        source=spectrum.source,
+        time_alignment=time_alignment,
+    )
     figure = go.Figure(
         go.Heatmap(
             z=spectrum.data,
-            x=list(spectrum.time_utc),
+            x=list(display_times),
             y=spectrum.frequency_mhz,
             colorscale="Turbo",
             colorbar={
@@ -112,6 +120,9 @@ def build_spectrum_figure(
             "display_intensity_range": (
                 list(intensity_range) if intensity_range is not None else None
             ),
+            "spectrum_time_alignment": (
+                time_alignment.to_dict() if time_alignment is not None else None
+            ),
         }
     )
     return apply_plotly_chrome(figure, theme_mode)
@@ -123,6 +134,7 @@ def build_spectrum_selection_figure(
     band: SpectrumBand | None = None,
     bands: Sequence[SpectrumBand] | None = None,
     map_time: Any | None = None,
+    time_alignment: SpectrumTimeAlignment | None = None,
     display_time_range_utc: tuple[Any, Any] | None = None,
     display_frequency_range_mhz: tuple[float, float] | None = None,
     display_intensity_range: tuple[float, float] | None = None,
@@ -148,6 +160,7 @@ def build_spectrum_selection_figure(
     figure = build_spectrum_figure(
         spectrum,
         map_time=map_time,
+        time_alignment=time_alignment,
         display_time_range_utc=display_time_range_utc,
         display_frequency_range_mhz=display_frequency_range_mhz,
         display_intensity_range=display_intensity_range,
@@ -169,11 +182,16 @@ def build_spectrum_selection_figure(
             dtype=int,
         )
     )
+    display_times = _aligned_spectrum_times(
+        spectrum.time_utc,
+        source=spectrum.source,
+        time_alignment=time_alignment,
+    )
     grid_x: list[Any] = []
     grid_y: list[float] = []
     for frequency_index in frequency_indices:
         for time_index in time_indices:
-            grid_x.append(spectrum.time_utc[int(time_index)])
+            grid_x.append(display_times[int(time_index)])
             grid_y.append(float(spectrum.frequency_mhz[int(frequency_index)]))
     figure.add_trace(
         go.Scattergl(
@@ -347,6 +365,8 @@ def build_dual_flux_figure(
     metric: str = "raw_sum",
     theme_mode: str = "auto",
     map_time: Any | None = None,
+    time_alignment: SpectrumTimeAlignment | None = None,
+    time_alignments: Mapping[float, SpectrumTimeAlignment] | None = None,
     display_time_range_utc: tuple[Any, Any] | None = None,
 ):
     """Plot image-ROI and spectrum-band fluxes on independent y axes."""
@@ -370,7 +390,24 @@ def build_dual_flux_figure(
         theme_mode=theme_mode,
     )
     colors = ("#f97316", "#a855f7", "#22c55e", "#eab308", "#ef4444", "#06b6d4")
+    spectrum_display_times: list[tuple[datetime, ...]] = []
+    applied_alignments: dict[float, SpectrumTimeAlignment] = {}
     for index, spectrum_item in enumerate(spectrum_fluxes):
+        item_alignment = _spectrum_flux_time_alignment(
+            spectrum_item,
+            default=time_alignment,
+            by_frequency=time_alignments,
+        )
+        if item_alignment is not None:
+            applied_alignments[float(spectrum_item.requested_band.center_mhz)] = (
+                item_alignment
+            )
+        display_times = _aligned_spectrum_times(
+            spectrum_item.time_utc,
+            source=spectrum_item.source,
+            time_alignment=item_alignment,
+        )
+        spectrum_display_times.append(display_times)
         band = spectrum_item.requested_band
         spectrum_label = (
             f"{spectrum_item.source} {band.center_mhz:g} MHz "
@@ -378,7 +415,7 @@ def build_dual_flux_figure(
         )
         figure.add_trace(
             go.Scattergl(
-                x=list(spectrum_item.time_utc),
+                x=list(display_times),
                 y=spectrum_item.values,
                 mode="lines",
                 name=spectrum_label,
@@ -418,7 +455,7 @@ def build_dual_flux_figure(
     radio_times = parse_roi_curve_times(curve).dropna()
     combined_times = [
         *(value.to_pydatetime() for value in radio_times),
-        *(time for item in spectrum_fluxes for time in item.time_utc),
+        *(time for times in spectrum_display_times for time in times),
     ]
     x_range = (
         list(display_time_range_utc)
@@ -460,7 +497,18 @@ def build_dual_flux_figure(
     meta = dict(figure.layout.meta or {})
     meta["spectrum_flux"] = spectrum_fluxes[0].to_metadata_dict()
     meta["spectrum_flux_curves"] = [item.to_metadata_dict() for item in spectrum_fluxes]
-    meta["time_alignment"] = "shared_utc_no_interpolation"
+    meta["time_alignment"] = (
+        "shared_utc_dart_display_offset_no_interpolation"
+        if applied_alignments
+        else "shared_utc_no_interpolation"
+    )
+    meta["spectrum_time_alignment"] = (
+        time_alignment.to_dict() if time_alignment is not None else None
+    )
+    meta["spectrum_flux_time_alignments"] = {
+        f"{frequency:g}": alignment.to_dict()
+        for frequency, alignment in applied_alignments.items()
+    }
     figure.update_layout(meta=meta)
     return figure
 
@@ -473,6 +521,8 @@ def build_dual_flux_figures(
     metric: str = "raw_sum",
     theme_mode: str = "auto",
     map_time: Any | None = None,
+    time_alignment: SpectrumTimeAlignment | None = None,
+    time_alignments: Mapping[float, SpectrumTimeAlignment] | None = None,
     display_time_range_utc: tuple[Any, Any] | None = None,
 ) -> tuple[Any, ...]:
     """Build one combined dual-axis chart or one chart per matched frequency."""
@@ -491,6 +541,8 @@ def build_dual_flux_figures(
             metric=metric,
             theme_mode=theme_mode,
             map_time=map_time,
+            time_alignment=time_alignment,
+            time_alignments=time_alignments,
             display_time_range_utc=display_time_range_utc,
         )
         meta = dict(figure.layout.meta or {})
@@ -515,6 +567,8 @@ def build_dual_flux_figures(
             metric=metric,
             theme_mode=theme_mode,
             map_time=map_time,
+            time_alignment=time_alignment,
+            time_alignments=time_alignments,
             display_time_range_utc=display_time_range_utc,
         )
         figure.update_layout(
@@ -526,6 +580,37 @@ def build_dual_flux_figures(
         figure.update_layout(meta=meta)
         figures.append(figure)
     return tuple(figures)
+
+
+def _aligned_spectrum_times(
+    values: Sequence[datetime],
+    *,
+    source: str,
+    time_alignment: SpectrumTimeAlignment | None,
+) -> tuple[datetime, ...]:
+    times = tuple(values)
+    if time_alignment is None:
+        return times
+    if str(source).upper() != "DART":
+        raise ValueError("DART time alignment cannot be applied to a CSO spectrum")
+    return time_alignment.align_times(times)
+
+
+def _spectrum_flux_time_alignment(
+    spectrum_flux: SpectrumFluxCurve,
+    *,
+    default: SpectrumTimeAlignment | None,
+    by_frequency: Mapping[float, SpectrumTimeAlignment] | None,
+) -> SpectrumTimeAlignment | None:
+    if by_frequency is None:
+        return default
+    center = float(spectrum_flux.requested_band.center_mhz)
+    alignment = by_frequency.get(center, default)
+    if alignment is not None and not isinstance(alignment, SpectrumTimeAlignment):
+        raise TypeError(
+            "time_alignments values must be SpectrumTimeAlignment instances"
+        )
+    return alignment
 
 
 def build_top_panel_selection_figure(
