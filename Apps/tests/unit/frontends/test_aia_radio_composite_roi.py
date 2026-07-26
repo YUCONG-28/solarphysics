@@ -118,8 +118,9 @@ def test_top_panel_uses_existing_source_map_selection_figure() -> None:
 def test_radio_frame_uses_existing_radio_reference_roi_selector() -> None:
     """A current artifact selects the raw radio source, never the AIA PNG."""
 
+    artifact = _radio_artifact()
     figure = build_top_panel_selection_figure(
-        _radio_artifact(),
+        artifact,
         roi_mode="box",
     )
 
@@ -127,7 +128,8 @@ def test_radio_frame_uses_existing_radio_reference_roi_selector() -> None:
     assert figure.layout.xaxis.range == (-80.0, 80.0)
     assert figure.layout.yaxis.range == (-70.0, 70.0)
     assert figure.layout.meta["roi_coordinate_source"] == "radio_source_frame"
-    assert figure.layout.meta["radio_path"] == "/data/radio_149_RR.fits"
+    assert artifact.radio_frame is not None
+    assert figure.layout.meta["radio_path"] == str(artifact.radio_frame.path)
     assert figure.layout.meta["display_percentiles"] == [90.0, 99.0]
     assert figure.layout.images == ()
     assert figure.data[0].type == "heatmap"

@@ -164,7 +164,7 @@ def test_spectrum_window_preserves_samples_and_normalizes_metadata() -> None:
     assert window.data.dtype == np.float32
     assert all(value.tzinfo is UTC for value in window.time_utc)
     assert window.source == "DART"
-    assert window.metadata["path"] == "/data/dart"
+    assert window.metadata["path"] == str(Path("/data/dart"))
     assert window.metadata["bins"] == 2
     assert window.to_metadata_dict()["shape"] == [2, 3]
     json.dumps(window.to_metadata_dict())
@@ -212,7 +212,7 @@ def test_composite_result_validates_curve_and_copies_inputs() -> None:
     curve.loc[0, "raw_sum"] = 999.0
 
     assert result.roi_curve.loc[0, "raw_sum"] == 10.0
-    assert result.metadata["output"] == "/tmp/product.png"
+    assert result.metadata["output"] == str(Path("/tmp/product.png"))
     inventory = result.to_metadata_dict()
     assert inventory["roi_curve_rows"] == 2
     assert inventory["spectrum"]["source"] == "DART"

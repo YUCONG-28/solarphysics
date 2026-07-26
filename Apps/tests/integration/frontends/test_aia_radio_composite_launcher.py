@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from solar_apps.cli.router import FRONTEND_TARGETS
 from solar_apps.frontends.radio.aia_radio_composite import cli
 from solar_apps.platform.processes import selected_python_executable
@@ -38,7 +40,7 @@ def test_streamlit_command_forwards_data_and_output_paths() -> None:
         "streamlit",
         "run",
     ]
-    assert command[4].endswith("aia_radio_composite/app.py")
+    assert Path(command[4]).parts[-2:] == ("aia_radio_composite", "app.py")
     assert command[command.index("--server.port") + 1] == "8511"
     assert command[command.index("--server.address") + 1] == "127.0.0.1"
     assert command[command.index("--aia-dir") + 1] == "D:/aia"
@@ -66,4 +68,4 @@ def test_dry_run_prints_command_without_starting_process(
     assert cli.main(["--dry-run", "--no-browser"]) == 0
     output = capsys.readouterr().out
     assert "streamlit run" in output
-    assert "aia_radio_composite/app.py" in output
+    assert "aia_radio_composite/app.py" in output.replace("\\", "/")
