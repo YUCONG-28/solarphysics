@@ -163,8 +163,10 @@ def test_naive_or_invalid_timestamps_are_rejected(tmp_path: Path) -> None:
     index = SQLiteTimelineIndex(tmp_path / "time.sqlite3")
     with pytest.raises(sqlite3.IntegrityError):
         with index._connect() as connection:
-            connection.execute("""
+            connection.execute(
+                """
                 INSERT INTO timeline_sources(
                     source_id, module_id, local_source, updated_at_utc, record_count
                 ) VALUES ('bad source', 'source-map', 'x', '2025-01-24T00:00:00Z', -1)
-                """)
+                """
+            )

@@ -95,7 +95,8 @@ class AppV1ThemeController(QObject):
         palette.setColor(QPalette.ColorRole.Link, QColor(colors["accent"]))
         palette.setColor(QPalette.ColorRole.PlaceholderText, QColor(colors["muted"]))
         self.application.setPalette(palette)
-        self.application.setStyleSheet("""
+        self.application.setStyleSheet(
+            """
             QMainWindow, QDialog { background: %(window)s; }
             QDockWidget::title {
                 background: %(alternate)s;
@@ -129,7 +130,9 @@ class AppV1ThemeController(QObject):
                 border-radius: 8px;
                 padding: 2px 7px;
             }
-            """ % colors)
+            """
+            % colors
+        )
         self.theme_changed.emit(self.mode, effective)
         return effective
 

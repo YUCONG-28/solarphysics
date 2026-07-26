@@ -129,6 +129,7 @@ def test_dialog_worker_keeps_only_directories_topmost_and_always_closes(
     expected_status: str,
     expects_monitor: bool,
 ) -> None:
+    monkeypatch.setattr(dialog_worker.sys, "platform", "win32")
     state = _install_fake_pyside6(monkeypatch, accepted=accepted)
     monitor_calls: list[str] = []
 
@@ -161,6 +162,7 @@ def test_dialog_worker_keeps_only_directories_topmost_and_always_closes(
 def test_dialog_worker_rejects_a_noninteractive_windows_desktop(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(dialog_worker.sys, "platform", "win32")
     monkeypatch.setattr(dialog_worker, "_windows_desktop_is_interactive", lambda: False)
 
     with pytest.raises(RuntimeError, match="non-interactive desktop"):

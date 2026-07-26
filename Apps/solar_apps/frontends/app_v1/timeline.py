@@ -128,7 +128,8 @@ class SQLiteTimelineIndex:
 
     def _initialize(self) -> None:
         with self._connect() as connection:
-            connection.executescript("""
+            connection.executescript(
+                """
                 CREATE TABLE IF NOT EXISTS timeline_sources (
                     source_id TEXT PRIMARY KEY,
                     module_id TEXT NOT NULL,
@@ -148,7 +149,8 @@ class SQLiteTimelineIndex:
                 );
                 CREATE INDEX IF NOT EXISTS idx_timeline_samples_source_time
                     ON timeline_samples(source_id, observed_at_utc, locator);
-                """)
+                """
+            )
             connection.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
 
     def rebuild_source(
