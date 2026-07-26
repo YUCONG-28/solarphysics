@@ -1250,6 +1250,59 @@
         "notes_for_current_code":  "不建议据此修改核心拟合模型；可用于 README 和综述中的 fine-structure 背景段。"
     },
     {
+        "title":  "Spectral analysis of a single Type III burst in the wide frequency range of 0.3 -19 MHz according to PSP observations",
+        "authors":  [
+                        "Valentin Melnik",
+                        "Volodymyr Dorovskyy"
+                    ],
+        "year":  "2026",
+        "journal":  "Research Square preprint",
+        "doi":  "10.21203/rs.3.rs-10369850/v1",
+        "arxiv_id":  "",
+        "ads_url":  "https://www.researchsquare.com/article/rs-10369850/v1",
+        "pdf_url":  "https://www.researchsquare.com/article/rs-10369850/v1.pdf",
+        "local_pdf_path":  "",
+        "summary":  "Research Square preprint analyzing one Parker Solar Probe Type III burst over 0.3-19 MHz, with intensity-level electron velocity spectra, drift-rate versus frequency measurements under piecewise coronal density models, and duration/bandwidth scaling.",
+        "summary_cn":  "Research Square 预印本；针对 PSP 观测的单个 0.3-19 MHz III 型暴，分别分析前沿、峰值和后沿强度层的电子速度与频漂率，并用分段 Newkirk/幂律密度模型连接频率、距离和电子束速度，同时给出 duration-frequency 与 bandwidth-frequency 关系。",
+        "topic_tags":  [
+                           "type III radio burst",
+                           "frequency drift rate",
+                           "electron beam velocity",
+                           "Newkirk density model",
+                           "Parker Solar Probe",
+                           "dynamic spectrum",
+                           "burst duration",
+                           "spectral bandwidth"
+                       ],
+        "method_tags":  [
+                            "intensity-level tracking",
+                            "drift-rate fitting",
+                            "piecewise density model",
+                            "electron velocity spectrum",
+                            "duration-frequency fit",
+                            "bandwidth-frequency measurement"
+                        ],
+        "relevance_level":  "B",
+        "recommended_priority":  "medium",
+        "key_methods":  "前沿/峰值/后沿多强度层追踪、drift-rate-frequency 拟合、分段 Newkirk/幂律密度模型、电子速度谱、duration/bandwidth-frequency 诊断",
+        "why_relevant_to_current_project":  "直接补强当前动态频谱从 df/dt 到电子束速度的推断链条，并提示把密度模型、径向适用区间和不同强度层轨迹作为显式质量控制；不提供 Gaussian、centroid 或 source-size 证据。",
+        "date_added":  "2026-07-26",
+        "last_checked":  "2026-07-26",
+        "direction":  "Newkirk density model / frequency drift / source motion",
+        "instrument":  "Parker Solar Probe",
+        "radio_frequency_range":  "0.3-19 MHz",
+        "target_event_type":  "single solar type III radio burst",
+        "gaussian_model":  "",
+        "centroid_definition":  "不涉及射电图像中心定位；研究对象是动态频谱中不同强度层的时间-频率轨迹。",
+        "source_size_definition":  "",
+        "beam_handling":  "",
+        "background_handling":  "摘要证据未给出可直接迁移的背景扣除流程，需全文核对。",
+        "uncertainty_method":  "摘要证据支持强度分层的 drift-rate、速度、duration 和 bandwidth 关系；具体拟合协方差与系统误差仍需全文核对。",
+        "quality_control":  "区分 leading edge、peak 和 trailing edge；按 1-5、5-15、15-50 solar radii 记录密度模型分段，并检查各强度层的 drift-rate/速度一致性。",
+        "applicability_to_DART_DRAT":  "中高，适合把单条 burst ridge 扩展为多强度层轨迹，并保存 density-model segment、radial range、drift rate、beam speed、duration 和 bandwidth；不适合作为图像 Gaussian 或束反卷积参考。",
+        "notes_for_current_code":  "建议新增 intensity_level、track_role、density_model_segment、radial_range、drift_rate、beam_speed、duration 和 bandwidth 字段，并保留 emission-mode 假设与残差。"
+    },
+    {
         "title":  "The SKA as a Probe of Heliospheric Turbulence and Radio-wave Propagation Effects",
         "authors":  [
                         "Nicolina Chrysaphi",
