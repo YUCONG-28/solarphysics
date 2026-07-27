@@ -103,6 +103,10 @@ dependency, data, and runtime boundaries.
 
 ## Development
 
+For the standard save, branch, test, push, PR, merge, and cleanup workflow,
+see the [project workflow guide](WORKFLOW_README.md). The guide is written in
+Chinese and includes both macOS and Windows commands.
+
 Run the complete application test suite with the primary Miniforge
 interpreter:
 
