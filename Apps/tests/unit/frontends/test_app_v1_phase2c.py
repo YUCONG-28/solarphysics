@@ -26,7 +26,7 @@ def _adapter(tmp_path: Path) -> tuple[Phase2CAdapter, Path, RuntimeLayout]:
     )
 
 
-def test_dart_launch_reuses_existing_frontend(tmp_path: Path) -> None:
+def test_dart_launch_uses_native_worker_without_browser(tmp_path: Path) -> None:
     adapter, observations, layout = _adapter(tmp_path)
     dart = observations / "dart"
     dart.mkdir()
@@ -35,9 +35,10 @@ def test_dart_launch_reuses_existing_frontend(tmp_path: Path) -> None:
 
     launch = adapter.build_dart_spectrogram(dart)
 
-    assert launch.python_module.endswith("dart_spectrogram_launcher")
+    assert launch.python_module.endswith("app_v1.native_science_worker")
+    assert launch.arguments[0] == "dart-render"
     assert launch.arguments[launch.arguments.index("--input-dir") + 1] == str(dart)
-    assert "--browser" in launch.arguments
+    assert "--browser" not in launch.arguments
     assert "Workload: 4 input file(s)" in launch.summary
     assert launch.output_dir.is_relative_to(layout.outputs_dir / "app_v1")
 
@@ -101,7 +102,8 @@ def test_trajectory_and_dem_launchers_keep_science_in_existing_modules(
         radio_file=radio,
     )
 
-    assert interactive.python_module.endswith("source_app_launcher")
+    assert interactive.python_module.endswith("trajectory_cli")
+    assert "--browser" not in interactive.arguments
     assert export.python_module.endswith("trajectory_cli")
     assert export.arguments[export.arguments.index("--tail-n") + 1] == "8"
     assert dem.python_module.endswith("dem_radio_cli")

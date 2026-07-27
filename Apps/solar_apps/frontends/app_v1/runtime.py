@@ -39,6 +39,10 @@ class AppV1RuntimePaths:
         project = validate_identifier(project_id, label="project_id")
         return self.workspaces_dir / f"{project}.spapp.json"
 
+    def flow_file(self, flow_id: str) -> Path:
+        flow = validate_identifier(flow_id, label="flow_id")
+        return self.workspaces_dir / "flows" / f"{flow}.spflow.json"
+
     def run_output_dir(self, project_id: str, run_id: str, module_id: str) -> Path:
         project = validate_identifier(project_id, label="project_id")
         run = validate_identifier(run_id, label="run_id")

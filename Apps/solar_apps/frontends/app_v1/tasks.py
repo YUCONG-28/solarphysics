@@ -3,11 +3,13 @@
 
 from __future__ import annotations
 
+import json
 import re
 import uuid
 from collections import deque
 from collections.abc import Iterable
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from PyQt6.QtCore import (
     QObject,
@@ -23,9 +25,12 @@ from solar_apps.platform.processes import (
     selected_python_executable,
 )
 
+from .contracts import WorkerEventV1
+
 _MODULE = re.compile(r"^[A-Za-z_][A-Za-z0-9_.]*$")
 _PROGRESS = re.compile(r"^PROGRESS\s+(\d{1,3})$")
 _TERMINAL = frozenset({"succeeded", "failed", "cancelled"})
+_EVENT_PREFIX = "APP_V1_EVENT "
 
 
 @dataclass(slots=True)
@@ -43,6 +48,9 @@ class TaskRecord:
     progress: int = 0
     return_code: int | None = None
     logs: list[str] = field(default_factory=list)
+    events: list[WorkerEventV1] = field(default_factory=list)
+    artifacts: list[str] = field(default_factory=list)
+    manifest_path: str | None = None
 
 
 class TaskQueueController(QObject):
@@ -50,6 +58,8 @@ class TaskQueueController(QObject):
 
     task_changed = pyqtSignal(str)
     log_line = pyqtSignal(str, str)
+    worker_event = pyqtSignal(str, object)
+    artifact_ready = pyqtSignal(str, str)
     queue_idle = pyqtSignal()
 
     def __init__(self, layout: RuntimeLayout, parent: QObject | None = None) -> None:
@@ -59,6 +69,7 @@ class TaskQueueController(QObject):
         self._pending: deque[str] = deque()
         self._current_id: str | None = None
         self._process: QProcess | None = None
+        self._stdout_buffer = ""
         self._shutdown = False
 
     @property
@@ -206,6 +217,8 @@ class TaskQueueController(QObject):
         environment = QProcessEnvironment()
         for key, value in miniforge_subprocess_environment().items():
             environment.insert(str(key), str(value))
+        environment.insert("APP_V1_RUN_ID", record.task_id)
+        environment.insert("APP_V1_MODULE_ID", record.module_id)
         process.setProcessEnvironment(environment)
         process.setProgram(str(selected_python_executable()))
         process.setArguments(["-m", record.python_module, *record.arguments])
@@ -215,6 +228,7 @@ class TaskQueueController(QObject):
         process.finished.connect(self._process_finished)
         self._current_id = record.task_id
         self._process = process
+        self._stdout_buffer = ""
         record.status = "starting"
         self.task_changed.emit(record.task_id)
         process.start()
@@ -231,17 +245,66 @@ class TaskQueueController(QObject):
         record = self._current_record()
         if process is None or record is None:
             return
-        text = bytes(process.readAllStandardOutput()).decode("utf-8", errors="replace")
-        for line in text.splitlines():
-            match = _PROGRESS.fullmatch(line.strip())
-            if match:
-                record.progress = min(100, int(match.group(1)))
-            else:
-                rendered = line.removeprefix("LOG ").strip()
-                if rendered:
-                    record.logs.append(rendered)
-                    self.log_line.emit(record.task_id, rendered)
-            self.task_changed.emit(record.task_id)
+        text = self._stdout_buffer + bytes(process.readAllStandardOutput()).decode(
+            "utf-8", errors="replace"
+        )
+        lines = text.splitlines(keepends=True)
+        self._stdout_buffer = ""
+        if lines and not lines[-1].endswith(("\n", "\r")):
+            self._stdout_buffer = lines.pop()
+        for line in lines:
+            self._process_output_line(record, line.rstrip("\r\n"))
+
+    def _process_output_line(self, record: TaskRecord, line: str) -> None:
+        """Consume one complete worker protocol or legacy log line."""
+
+        if line.startswith(_EVENT_PREFIX):
+            if self._handle_worker_event(record, line.removeprefix(_EVENT_PREFIX)):
+                self.task_changed.emit(record.task_id)
+                return
+        match = _PROGRESS.fullmatch(line.strip())
+        if match:
+            record.progress = min(100, int(match.group(1)))
+        else:
+            rendered = line.removeprefix("LOG ").strip()
+            if rendered:
+                record.logs.append(rendered)
+                self.log_line.emit(record.task_id, rendered)
+        self.task_changed.emit(record.task_id)
+
+    def _handle_worker_event(self, record: TaskRecord, raw: str) -> bool:
+        try:
+            payload = json.loads(raw)
+            if not isinstance(payload, dict):
+                raise TypeError("worker event must be a JSON object")
+            event = WorkerEventV1(
+                run_id=str(payload.get("run_id") or record.task_id),
+                module_id=str(payload.get("module_id") or record.module_id),
+                kind=payload["kind"],
+                payload=payload.get("payload") or {},
+                schema_version=int(payload.get("schema_version", 1)),
+            )
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+            rendered = f"Ignored invalid worker event: {exc}"
+            record.logs.append(rendered)
+            self.log_line.emit(record.task_id, rendered)
+            return True
+        record.events.append(event)
+        if event.kind == "progress":
+            value = event.payload.get("percent")
+            if isinstance(value, (int, float)):
+                record.progress = min(100, max(0, int(value)))
+        elif event.kind in {"preview", "artifact"}:
+            value = event.payload.get("path")
+            if isinstance(value, str) and value and value not in record.artifacts:
+                record.artifacts.append(value)
+                self.artifact_ready.emit(record.task_id, value)
+        elif event.kind == "result":
+            value = event.payload.get("manifest_path")
+            if isinstance(value, str) and value:
+                record.manifest_path = value
+        self.worker_event.emit(record.task_id, event)
+        return True
 
     def _process_error(self, _error: QProcess.ProcessError) -> None:
         record = self._current_record()
@@ -258,12 +321,16 @@ class TaskQueueController(QObject):
         self._read_output()
         record = self._current_record()
         if record is not None:
+            if self._stdout_buffer:
+                self._process_output_line(record, self._stdout_buffer)
+                self._stdout_buffer = ""
             record.return_code = int(exit_code)
             if record.status == "cancelling":
                 record.status = "cancelled"
             elif exit_code == 0:
                 record.status = "succeeded"
                 record.progress = 100
+                self._discover_output_artifacts(record)
             else:
                 record.status = "failed"
             self.task_changed.emit(record.task_id)
@@ -273,6 +340,23 @@ class TaskQueueController(QObject):
         if process is not None:
             process.deleteLater()
         QTimer.singleShot(0, self._start_next)
+
+    def _discover_output_artifacts(self, record: TaskRecord) -> None:
+        """Expose products from legacy-compatible headless workers."""
+
+        if not record.output_dir:
+            return
+        root = Path(record.output_dir)
+        if not root.is_dir():
+            return
+        for path in sorted(item for item in root.rglob("*") if item.is_file()):
+            rendered = str(path)
+            if path.name in {"manifest.json", "artifact-manifest.json"}:
+                record.manifest_path = rendered
+            if rendered in record.artifacts:
+                continue
+            record.artifacts.append(rendered)
+            self.artifact_ready.emit(record.task_id, rendered)
 
     def _kill_if_running(self) -> None:
         process = self._process

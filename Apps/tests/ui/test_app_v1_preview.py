@@ -60,7 +60,7 @@ def _run_smoke(tmp_path: Path, mode: str) -> dict[str, object]:
     return json.loads(line.removeprefix(SMOKE_PREFIX))
 
 
-@pytest.mark.parametrize("theme", ["auto", "light", "dark"])
+@pytest.mark.parametrize("theme", ["auto", "light", "dark", "dark-dimmed"])
 def test_preview_help_accepts_all_themes(theme: str) -> None:
     completed = subprocess.run(
         [
@@ -89,9 +89,11 @@ def test_offscreen_preview_registers_ten_pages_and_switches_themes(
     assert len(result["registered_modules"]) == 10
     assert result["themes"]["light"] == "light"
     assert result["themes"]["dark"] == "dark"
+    assert result["themes"]["dark_dimmed"] == "dark_dimmed"
     assert result["foreign_qt_loaded"] is False
+    assert result["forbidden_frontend_modules"] == []
     assert result["process_running"] is False
-    assert result["dock_count"] == 6
+    assert result["dock_count"] == 7
 
 
 def test_offscreen_preview_cancels_worker_without_leaving_a_process(

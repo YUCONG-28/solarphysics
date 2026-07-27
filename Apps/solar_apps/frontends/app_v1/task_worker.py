@@ -4,9 +4,23 @@
 from __future__ import annotations
 
 import argparse
+import json
 import time
 from collections.abc import Sequence
 from pathlib import Path
+
+_EVENT_PREFIX = "APP_V1_EVENT "
+
+
+def _event(kind: str, payload: dict[str, object]) -> None:
+    print(
+        _EVENT_PREFIX
+        + json.dumps(
+            {"schema_version": 1, "kind": kind, "payload": payload},
+            separators=(",", ":"),
+        ),
+        flush=True,
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -26,11 +40,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.steps < 1 or args.delay_ms < 0:
         raise ValueError("steps must be positive and delay-ms cannot be negative")
     print("LOG Demo worker started", flush=True)
+    _event("log", {"message": "Demo worker started"})
     for index in range(args.steps):
         if args.delay_ms:
             time.sleep(args.delay_ms / 1000)
         progress = round(((index + 1) / args.steps) * 100)
         print(f"PROGRESS {progress}", flush=True)
+        _event("progress", {"percent": progress})
     if args.fail:
         print("LOG Demo worker failed as requested", flush=True)
         return 3
@@ -42,6 +58,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             print("LOG Demo worker recorded a recoverable first failure", flush=True)
             return 4
     print("LOG Demo worker completed", flush=True)
+    _event("result", {"status": "succeeded"})
     return 0
 
 

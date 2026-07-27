@@ -43,6 +43,7 @@ from solar_apps.frontends.image_composer.models import (
 from solar_apps.frontends.image_composer.project import load_project, save_project
 
 from .phase4 import Phase4ComposerAdapter
+from .components import NativeModulePanel
 
 _FOLDER_MIME = "application/x-app-v1-composer-folder"
 
@@ -199,7 +200,7 @@ class SlotGraphicsItem(QGraphicsRectItem):
         return super().itemChange(change, value)
 
 
-class Phase4ComposerPanel(QWidget):
+class Phase4ComposerPanel(NativeModulePanel):
     """PyQt6 canvas that reuses the legacy model, matching, and renderer."""
 
     task_requested = pyqtSignal(object)
@@ -209,19 +210,25 @@ class Phase4ComposerPanel(QWidget):
         adapter: Phase4ComposerAdapter,
         parent: QWidget | None = None,
     ) -> None:
-        super().__init__(parent)
+        super().__init__(
+            "image-composer",
+            legacy_label="legacy Image Composer",
+            parent=parent,
+        )
         self.adapter = adapter
         self.project = ComposerProject()
         self._items: dict[str, SlotGraphicsItem] = {}
         self._updating_controls = False
         root = QVBoxLayout(self)
+        note_row = QHBoxLayout()
         note = QLabel(
             "Drag folders onto the canvas. Layout geometry is native PyQt6; "
             "schema-1 persistence, matching, and rendering reuse the existing composer."
         )
         note.setWordWrap(True)
         note.setProperty("muted", True)
-        root.addWidget(note)
+        note_row.addWidget(note, 1)
+        root.addLayout(note_row)
         splitter = QSplitter()
         splitter.addWidget(self._source_panel())
         splitter.addWidget(self._canvas_panel())
@@ -704,16 +711,14 @@ class Phase4ComposerPanel(QWidget):
         try:
             launch = builder()
         except (OSError, ValueError) as exc:
+            self.record_diagnostic(exc)
             QMessageBox.critical(self, "Image Composer export error", str(exc))
             return
-        decision = QMessageBox.question(
+        if self.confirm(
             self,
             "Confirm Image Composer export",
             launch.summary,
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
-            QMessageBox.StandardButton.Cancel,
-        )
-        if decision == QMessageBox.StandardButton.Yes:
+        ):
             self.task_requested.emit(launch)
 
 

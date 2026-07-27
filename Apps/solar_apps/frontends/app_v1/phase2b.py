@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import json
 import os
-import socket
 import uuid
 from pathlib import Path
 
@@ -15,11 +14,8 @@ from solar_apps.platform.paths.allowed_roots import configured_allowed_roots
 from .phase2a import TaskLaunch
 from .runtime import AppV1RuntimePaths
 
-_BAD_FRAME = "solar_apps.frontends.radio_bad_frame_review.cli"
-_SOURCE_MAP_APP = "solar_apps.frontends.radio.source_map.cli"
+_NATIVE_WORKER = "solar_apps.frontends.app_v1.native_science_worker"
 _GAUSSIAN = "solar_apps.workflows.radio.source_map_cli"
-_ROI = "solar_apps.frontends.radio.roi_lightcurve.roi_lightcurve_launcher"
-_COMPOSITE = "solar_apps.frontends.radio.composite_figure.composite_figure_launcher"
 _FITS_SUFFIXES = {".fits", ".fit", ".fts"}
 
 
@@ -48,45 +44,49 @@ class Phase2BAdapter:
     def build_bad_frame_review(self, input_root: str | Path) -> TaskLaunch:
         selected = self.validate_input_directory(input_root)
         output = self._new_output_dir("bad-frame-review")
-        port = self._free_port()
         arguments = (
-            "--allowed-roots",
-            self._root_list(output),
-            "--output-root",
+            "bad-frame-discover",
+            "--module-id",
+            "bad-frame-review",
+            "--input-dir",
+            str(selected),
+            "--output-dir",
             str(output),
-            "--port",
-            str(port),
-            "--open-browser",
+            *sum(
+                (("--allowed-root", str(root)) for root in self.allowed_roots),
+                (),
+            ),
         )
-        return self._interactive_launch(
+        return self._native_launch(
             "Bad Frame Review",
             "bad-frame-review",
-            _BAD_FRAME,
+            _NATIVE_WORKER,
             arguments,
             output,
             selected,
-            port,
+            "discover frequency bands for native review",
         )
 
     def build_source_map_app(self, input_root: str | Path) -> TaskLaunch:
         selected = self.validate_input_directory(input_root)
         output = self._new_output_dir("source-map")
-        port = self._free_port()
         arguments = (
-            "--allowed-roots",
-            self._root_list(output),
-            "--port",
-            str(port),
-            "--open-browser",
+            "source-map-discover",
+            "--module-id",
+            "source-map",
+            "--input-dir",
+            str(selected),
+            "--output-dir",
+            str(output),
         )
-        return self._interactive_launch(
+        return self._native_launch(
             "Source Map",
             "source-map",
-            _SOURCE_MAP_APP,
+            _NATIVE_WORKER,
             arguments,
             output,
             selected,
-            port,
+            "discover radio FITS files for the native Source Map workspace",
         )
 
     def build_gaussian_fit(
@@ -159,33 +159,36 @@ class Phase2BAdapter:
         radio_dir: str | Path,
         *,
         polarization: str = "L+R",
+        roi_bounds: str = "-300,-300,300,300",
+        frequencies: str = "",
     ) -> TaskLaunch:
         selected = self.validate_input_directory(radio_dir)
         if polarization not in {"L+R", "LCP", "RCP", "all"}:
             raise ValueError("Unsupported ROI polarization")
         output = self._new_output_dir("roi-lightcurve")
-        port = self._free_port()
         arguments = (
-            "--radio-dir",
+            "roi-run",
+            "--module-id",
+            "roi-lightcurve",
+            "--input-dir",
             str(selected),
             "--output-dir",
             str(output),
-            "--allowed-roots",
-            self._root_list(output),
             "--polarization",
             polarization,
-            "--port",
-            str(port),
-            "--browser",
+            "--roi-bounds",
+            str(roi_bounds),
+            "--frequencies",
+            str(frequencies),
         )
-        return self._interactive_launch(
+        return self._native_launch(
             "ROI Light Curve",
             "roi-lightcurve",
-            _ROI,
+            _NATIVE_WORKER,
             arguments,
             output,
             selected,
-            port,
+            f"extract ROI {roi_bounds} with polarization {polarization}",
         )
 
     def build_radio_composite(
@@ -196,35 +199,31 @@ class Phase2BAdapter:
         radio = self.validate_input_directory(radio_dir)
         dart = self.validate_input_directory(dart_dir)
         output = self._new_output_dir("radio-composite")
-        port = self._free_port()
         arguments = (
-            "--radio-dir",
+            "radio-composite-discover",
+            "--module-id",
+            "radio-composite",
+            "--input-dir",
             str(radio),
-            "--dart-dir",
+            "--secondary-dir",
             str(dart),
             "--output-dir",
             str(output),
-            "--allowed-roots",
-            self._root_list(output),
-            "--port",
-            str(port),
-            "--browser",
         )
         workload = len(self._fits_files(radio)) + len(self._fits_files(dart))
         summary = "\n".join(
             (
                 "Module: Radio Composite",
                 f"Input: radio={radio}; DART={dart}",
-                "Parameters: managed Streamlit workflow",
+                "Parameters: native radio and DART discovery",
                 f"Output: {output}",
                 f"Workload: {workload} FITS candidate(s)",
-                f"Endpoint: http://127.0.0.1:{port}",
             )
         )
         return TaskLaunch(
             "Radio Composite",
             "radio-composite",
-            _COMPOSITE,
+            _NATIVE_WORKER,
             arguments,
             output,
             summary,
@@ -244,7 +243,7 @@ class Phase2BAdapter:
             )
         return path
 
-    def _interactive_launch(
+    def _native_launch(
         self,
         title: str,
         module_id: str,
@@ -252,17 +251,16 @@ class Phase2BAdapter:
         arguments: tuple[str, ...],
         output: Path,
         selected: Path,
-        port: int,
+        parameters: str,
     ) -> TaskLaunch:
         workload = len(self._fits_files(selected))
         summary = "\n".join(
             (
                 f"Module: {title}",
                 f"Input: {selected}",
-                "Parameters: existing interactive frontend in a separate process",
+                f"Parameters: {parameters}",
                 f"Output: {output}",
                 f"Workload: {workload} FITS candidate(s)",
-                f"Endpoint: http://127.0.0.1:{port}",
             )
         )
         return TaskLaunch(
@@ -278,10 +276,6 @@ class Phase2BAdapter:
         run_id = f"run-{uuid.uuid4().hex[:12]}"
         return self.runtime.run_output_dir("preview", run_id, module_id)
 
-    def _root_list(self, output: Path) -> str:
-        roots = [*self.allowed_roots, output]
-        return os.pathsep.join(map(str, roots))
-
     @staticmethod
     def _fits_files(root: Path) -> list[Path]:
         return sorted(
@@ -292,12 +286,5 @@ class Phase2BAdapter:
             ),
             key=lambda item: item.name.casefold(),
         )
-
-    @staticmethod
-    def _free_port() -> int:
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
-            probe.bind(("127.0.0.1", 0))
-            return int(probe.getsockname()[1])
-
 
 __all__ = ["Phase2BAdapter"]

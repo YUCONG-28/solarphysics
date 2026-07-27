@@ -11,7 +11,9 @@ from collections.abc import Sequence
 from types import SimpleNamespace
 
 from PyQt6.QtCore import QTimer
-from PyQt6.QtWidgets import QApplication, QMessageBox
+from PyQt6.QtWidgets import QApplication
+
+from .components import RunConfirmationDialog
 
 from solar_apps.platform.layout import RuntimeLayout
 
@@ -27,7 +29,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--theme",
-        choices=("auto", "light", "dark"),
+        choices=("auto", "light", "dark", "dark-dimmed"),
         default="auto",
         help="Initial application chrome theme.",
     )
@@ -103,6 +105,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                     or name.startswith("PySide6.")
                     for name in sys.modules
                 ),
+                "forbidden_frontend_modules": [
+                    name
+                    for name in ("flask", "streamlit", "matplotlib", "PySide6")
+                    if name in sys.modules
+                ],
                 "process_running": window.task_controller.process_running,
             }
         )
@@ -117,7 +124,7 @@ def _schedule_basic_smoke(
 ) -> None:
     def run() -> None:
         modes: dict[str, str] = {}
-        for mode in ("auto", "light", "dark"):
+        for mode in ("auto", "light", "dark", "dark_dimmed"):
             modes[mode] = window.set_theme(mode)
         result["themes"] = modes
         result["dock_count"] = len(window.findChildren(type(window.parameter_dock)))
@@ -168,8 +175,8 @@ def _schedule_dialog_smoke(
 
     def accept_dialog() -> None:
         modal = application.activeModalWidget()
-        if isinstance(modal, QMessageBox):
-            modal.done(int(QMessageBox.StandardButton.Cancel))
+        if isinstance(modal, RunConfirmationDialog):
+            modal.reject()
 
     def show_dialog() -> None:
         QTimer.singleShot(150, accept_dialog)
