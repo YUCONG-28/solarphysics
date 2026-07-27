@@ -6,6 +6,7 @@ from __future__ import annotations
 from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import (
     QDoubleSpinBox,
+    QComboBox,
     QFileDialog,
     QFormLayout,
     QHBoxLayout,
@@ -21,9 +22,10 @@ from PyQt6.QtWidgets import (
 
 from .phase2a import TaskLaunch
 from .phase2c import Phase2CAdapter
+from .components import ArtifactBrowser, NativeModulePanel
 
 
-class Phase2CPanel(QWidget):
+class Phase2CPanel(NativeModulePanel):
     """DART, drift, Newkirk, trajectory, and DEM controls."""
 
     task_requested = pyqtSignal(object)
@@ -34,17 +36,23 @@ class Phase2CPanel(QWidget):
         module_id: str,
         parent: QWidget | None = None,
     ) -> None:
-        super().__init__(parent)
+        super().__init__(
+            module_id,
+            legacy_label=f"legacy {module_id.replace('-', ' ').title()}",
+            parent=parent,
+        )
         self.adapter = adapter
         self.module_id = module_id
         layout = QVBoxLayout(self)
+        note_row = QHBoxLayout()
         note = QLabel(
             "Inputs are validated locally. Scientific work remains in the existing "
             "workflow and runs only after the confirmation summary is accepted."
         )
         note.setWordWrap(True)
         note.setProperty("muted", True)
-        layout.addWidget(note)
+        note_row.addWidget(note, 1)
+        layout.addLayout(note_row)
         tabs = QTabWidget()
         if module_id == "dart-spectrogram":
             tabs.addTab(self._dart_tab(), "DART")
@@ -54,11 +62,33 @@ class Phase2CPanel(QWidget):
             tabs.addTab(self._trajectory_tab(), "Trajectory")
             tabs.addTab(self._dem_tab(), "DEM Overlay")
         layout.addWidget(tabs, 1)
+        self.artifacts = ArtifactBrowser()
+        layout.addWidget(self.artifacts, 1)
 
     def _dart_tab(self) -> QWidget:
         page, form, buttons = self._page()
         self.dart_dir = QLineEdit()
+        self.configure_path_field(self.dart_dir)
         form.addRow("DART folder", self._path_row(self.dart_dir, directory=True))
+        self.dart_centers = QLineEdit("149, 164, 190")
+        self.dart_centers.setPlaceholderText("Optional center frequencies")
+        self.dart_bandwidth = QDoubleSpinBox()
+        self.dart_bandwidth.setRange(0.001, 10000.0)
+        self.dart_bandwidth.setValue(2.0)
+        self.dart_bandwidth.setSuffix(" MHz")
+        self.dart_display = QComboBox()
+        self.dart_display.addItems(["db", "linear"])
+        self.dart_samples = QSpinBox()
+        self.dart_samples.setRange(32, 10000)
+        self.dart_samples.setValue(1200)
+        self.dart_dpi = QSpinBox()
+        self.dart_dpi.setRange(72, 600)
+        self.dart_dpi.setValue(150)
+        form.addRow("Center frequencies", self.dart_centers)
+        form.addRow("Bandwidth", self.dart_bandwidth)
+        form.addRow("Display", self.dart_display)
+        form.addRow("Maximum samples", self.dart_samples)
+        form.addRow("DPI", self.dart_dpi)
         launch = QPushButton("Confirm and launch DART Spectrogram")
         launch.clicked.connect(self._request_dart)
         buttons.addWidget(launch)
@@ -87,6 +117,8 @@ class Phase2CPanel(QWidget):
         page, form, buttons = self._page()
         self.gaussian_csv = QLineEdit()
         self.drift_csv = QLineEdit()
+        self.configure_path_field(self.gaussian_csv)
+        self.configure_path_field(self.drift_csv)
         form.addRow(
             "Gaussian diagnostics CSV",
             self._path_row(self.gaussian_csv, directory=False),
@@ -104,6 +136,8 @@ class Phase2CPanel(QWidget):
         page, form, buttons = self._page()
         self.centers = QLineEdit()
         self.aia_dir = QLineEdit()
+        self.configure_path_field(self.centers)
+        self.configure_path_field(self.aia_dir)
         self.tail_n = QSpinBox()
         self.tail_n.setRange(1, 10000)
         self.tail_n.setValue(5)
@@ -123,6 +157,9 @@ class Phase2CPanel(QWidget):
         self.dem_aia = QLineEdit()
         self.dem_tb = QLineEdit()
         self.dem_radio = QLineEdit()
+        self.configure_path_field(self.dem_aia)
+        self.configure_path_field(self.dem_tb)
+        self.configure_path_field(self.dem_radio)
         form.addRow("AIA FITS", self._path_row(self.dem_aia, directory=False))
         form.addRow("Tb data", self._path_row(self.dem_tb, directory=False))
         form.addRow("Radio FITS", self._path_row(self.dem_radio, directory=False))
@@ -176,7 +213,16 @@ class Phase2CPanel(QWidget):
             field.setText(selected)
 
     def _request_dart(self) -> None:
-        self._build(lambda: self.adapter.build_dart_spectrogram(self.dart_dir.text()))
+        self._build(
+            lambda: self.adapter.build_dart_spectrogram(
+                self.dart_dir.text(),
+                center_frequencies=self.dart_centers.text(),
+                bandwidth_mhz=self.dart_bandwidth.value(),
+                display_mode=self.dart_display.currentText(),
+                max_samples=self.dart_samples.value(),
+                dpi=self.dart_dpi.value(),
+            )
+        )
 
     def _request_drift(self) -> None:
         self._build(
@@ -226,20 +272,17 @@ class Phase2CPanel(QWidget):
         try:
             launch = builder()
         except (OSError, ValueError) as exc:
+            self.record_diagnostic(exc)
             QMessageBox.critical(self, "App 1.0 input error", str(exc))
             return
         self._confirm_and_emit(launch)
 
     def _confirm_and_emit(self, launch: TaskLaunch) -> None:
-        decision = QMessageBox.question(
-            self,
-            "Confirm Phase 2C task",
-            launch.summary,
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
-            QMessageBox.StandardButton.Cancel,
-        )
-        if decision == QMessageBox.StandardButton.Yes:
+        if self.confirm(self, "Confirm Phase 2C task", launch.summary):
             self.task_requested.emit(launch)
+
+    def handle_artifact(self, path: str) -> None:
+        self.artifacts.open_path(path)
 
 
 __all__ = ["Phase2CPanel"]

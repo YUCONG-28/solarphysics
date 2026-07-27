@@ -8,24 +8,31 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QColor, QCloseEvent, QPainter, QPen
+from PyQt6.QtCore import QProcess, Qt, pyqtSignal
+from PyQt6.QtGui import QCloseEvent
 from PyQt6.QtWidgets import (
     QAbstractItemView,
+    QCheckBox,
     QComboBox,
     QDockWidget,
+    QDoubleSpinBox,
     QFormLayout,
+    QFrame,
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QLineEdit,
     QListWidget,
     QMainWindow,
-    QMessageBox,
     QPlainTextEdit,
     QPushButton,
+    QScrollArea,
+    QSpinBox,
+    QSplitter,
     QStackedWidget,
     QTableWidget,
     QTableWidgetItem,
+    QTextEdit,
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
@@ -33,10 +40,13 @@ from PyQt6.QtWidgets import (
 )
 
 from solar_apps.platform.layout import RuntimeLayout
+from solar_apps.platform.processes import selected_python_executable
 from solar_apps.ui.state import frontend_state_store
 
 from .catalog import MODULES
+from .components import NativeModulePanel, RunConfirmationDialog
 from .contracts import AppV1ProjectV1, ModuleDescriptor
+from .function_catalog import page_template
 from .phase2a import Phase2AAdapter, TaskLaunch
 from .phase2a_page import Phase2APanel
 from .phase2b import Phase2BAdapter
@@ -48,38 +58,13 @@ from .phase4_page import Phase4ComposerPanel
 from .project_store import AppV1ProjectStore
 from .project_ui import ProjectPanel
 from .runtime import AppV1RuntimePaths
+from .shell_pages import RadioWorkspaceNativePanel, WorkbenchNativePanel
+from .source_map_page import SourceMapNativePanel
 from .tasks import TaskQueueController, TaskRecord
 from .theme import AppV1ThemeController
 from .timeline import SQLiteTimelineIndex, TimeCoordinator
 from .time_sync_ui import TimeSyncPanel
-
-
-class PlotSurface(QWidget):
-    """Theme-invariant preview surface reserved for scientific plots."""
-
-    def __init__(self, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        self.setObjectName("appV1PlotSurface")
-        self.setMinimumSize(420, 280)
-        self.setToolTip("Scientific rendering is disabled in Phase 1.")
-
-    def paintEvent(self, _event) -> None:  # type: ignore[no-untyped-def]
-        painter = QPainter(self)
-        painter.fillRect(self.rect(), QColor("#10151f"))
-        pen = QPen(QColor("#273449"))
-        pen.setWidth(1)
-        painter.setPen(pen)
-        spacing = 40
-        for x in range(0, self.width(), spacing):
-            painter.drawLine(x, 0, x, self.height())
-        for y in range(0, self.height(), spacing):
-            painter.drawLine(0, y, self.width(), y)
-        painter.setPen(QColor("#cbd5e1"))
-        painter.drawText(
-            self.rect(),
-            Qt.AlignmentFlag.AlignCenter,
-            "Plot Preview\nScientific execution is disabled in Phase 1",
-        )
+from .workflow_builder import WorkflowBuilder
 
 
 class ModulePage(QWidget):
@@ -87,6 +72,9 @@ class ModulePage(QWidget):
 
     launch_demo_requested = pyqtSignal(str)
     task_launch_requested = pyqtSignal(object)
+    legacy_interface_requested = pyqtSignal(str)
+    navigate_requested = pyqtSignal(str)
+    edit_flow_requested = pyqtSignal(str)
 
     def __init__(
         self,
@@ -98,6 +86,7 @@ class ModulePage(QWidget):
         self.descriptor = descriptor
         self.time_status: QLabel | None = None
         self.phase4_panel: Phase4ComposerPanel | None = None
+        self.native_panels: list[NativeModulePanel] = []
         layout = QVBoxLayout(self)
         header = QHBoxLayout()
         title = QLabel(descriptor.title)
@@ -107,6 +96,20 @@ class ModulePage(QWidget):
         header.addWidget(title)
         header.addStretch(1)
         header.addWidget(badge)
+        edit_flow = QPushButton("Edit workflow")
+        edit_flow.clicked.connect(
+            lambda: self.edit_flow_requested.emit(descriptor.module_id)
+        )
+        header.addWidget(edit_flow)
+        self.header_menu_panel = NativeModulePanel(
+            descriptor.module_id,
+            legacy_label=f"legacy {descriptor.title}",
+            parent=self,
+        )
+        self.header_menu_panel.legacy_interface_requested.connect(
+            self.legacy_interface_requested
+        )
+        header.addWidget(self.header_menu_panel.build_more_button())
         layout.addLayout(header)
 
         description = QLabel(self._description())
@@ -119,14 +122,34 @@ class ModulePage(QWidget):
             self.time_status.setProperty("muted", True)
             layout.addWidget(self.time_status)
         active_phase = None
-        if descriptor.module_id == "image-viewer":
+        if descriptor.module_id == "workbench":
+            workbench = WorkbenchNativePanel(
+                AppV1RuntimePaths.from_layout(runtime_layout)
+            )
+            workbench.task_requested.connect(self.task_launch_requested)
+            self._register_native_panel(workbench)
+            layout.addWidget(workbench, 1)
+            active_phase = "5 native"
+        elif descriptor.module_id == "radio-workspace":
+            workspace = RadioWorkspaceNativePanel()
+            workspace.navigate_requested.connect(self.navigate_requested)
+            self._register_native_panel(workspace)
+            layout.addWidget(workspace, 1)
+            active_phase = "5 native"
+        elif descriptor.module_id == "image-viewer":
             phase2a = Phase2APanel(Phase2AAdapter(runtime_layout))
             phase2a.task_requested.connect(self.task_launch_requested)
+            self._register_native_panel(phase2a)
             layout.addWidget(phase2a, 1)
             active_phase = "2A"
+        elif descriptor.module_id == "source-map":
+            source_map = SourceMapNativePanel(Phase2BAdapter(runtime_layout))
+            source_map.task_requested.connect(self.task_launch_requested)
+            self._register_native_panel(source_map)
+            layout.addWidget(source_map, 1)
+            active_phase = "2B native"
         elif descriptor.module_id in {
             "bad-frame-review",
-            "source-map",
             "roi-lightcurve",
             "radio-composite",
         }:
@@ -135,6 +158,7 @@ class ModulePage(QWidget):
                 descriptor.module_id,
             )
             phase2b.task_requested.connect(self.task_launch_requested)
+            self._register_native_panel(phase2b)
             layout.addWidget(phase2b, 1)
             active_phase = "2B"
         elif descriptor.module_id in {"dart-spectrogram", "source-trajectory"}:
@@ -143,6 +167,7 @@ class ModulePage(QWidget):
                 descriptor.module_id,
             )
             phase2c.task_requested.connect(self.task_launch_requested)
+            self._register_native_panel(phase2c)
             layout.addWidget(phase2c, 1)
             active_phase = "2C"
         elif descriptor.module_id == "image-composer":
@@ -150,10 +175,11 @@ class ModulePage(QWidget):
                 Phase4ComposerAdapter(runtime_layout)
             )
             self.phase4_panel.task_requested.connect(self.task_launch_requested)
+            self._register_native_panel(self.phase4_panel)
             layout.addWidget(self.phase4_panel, 1)
             active_phase = "4"
         else:
-            layout.addWidget(PlotSurface(), 1)
+            raise KeyError(f"Unsupported App 1.0 module: {descriptor.module_id}")
 
         footer = QHBoxLayout()
         state = QLabel(
@@ -162,14 +188,54 @@ class ModulePage(QWidget):
             else "Placeholder page — no scientific calculation is available."
         )
         state.setProperty("muted", True)
-        demo = QPushButton("Run shell demo task")
-        demo.clicked.connect(
-            lambda: self.launch_demo_requested.emit(descriptor.module_id)
-        )
         footer.addWidget(state)
         footer.addStretch(1)
-        footer.addWidget(demo)
         layout.addLayout(footer)
+
+    def _register_native_panel(self, panel: NativeModulePanel) -> None:
+        self.native_panels.append(panel)
+        panel.legacy_interface_requested.connect(self.legacy_interface_requested)
+        defaults = {
+            "lines": [(item, item.text()) for item in panel.findChildren(QLineEdit)],
+            "combos": [
+                (item, item.currentIndex()) for item in panel.findChildren(QComboBox)
+            ],
+            "spins": [
+                (item, item.value())
+                for item in (
+                    *panel.findChildren(QSpinBox),
+                    *panel.findChildren(QDoubleSpinBox),
+                )
+            ],
+            "checks": [
+                (item, item.isChecked()) for item in panel.findChildren(QCheckBox)
+            ],
+            "texts": [
+                (item, item.toPlainText()) for item in panel.findChildren(QTextEdit)
+            ],
+        }
+        panel.reset_requested.connect(lambda: self._restore_panel_defaults(defaults))
+
+    @staticmethod
+    def _restore_panel_defaults(defaults: dict[str, list[tuple[object, object]]]) -> None:
+        for item, value in defaults["lines"]:
+            item.setText(str(value))  # type: ignore[attr-defined]
+        for item, value in defaults["combos"]:
+            item.setCurrentIndex(int(value))  # type: ignore[attr-defined]
+        for item, value in defaults["spins"]:
+            item.setValue(value)  # type: ignore[attr-defined]
+        for item, value in defaults["checks"]:
+            item.setChecked(bool(value))  # type: ignore[attr-defined]
+        for item, value in defaults["texts"]:
+            item.setPlainText(str(value))  # type: ignore[attr-defined]
+
+    def handle_artifact(self, path: str | Path) -> None:
+        """Route task artifacts back to the active module's native panels."""
+
+        for panel in self.native_panels:
+            handler = getattr(panel, "handle_artifact", None)
+            if callable(handler):
+                handler(path)
 
     def apply_sync_selection(
         self,
@@ -252,16 +318,28 @@ class AppV1MainWindow(QMainWindow):
         )
         self.task_controller = TaskQueueController(layout, self)
         self.module_pages: dict[str, ModulePage] = {}
+        self.page_containers: dict[str, QScrollArea] = {}
         self._module_rows: dict[str, int] = {}
 
         self._build_toolbar()
         self._build_central()
         self._build_parameter_dock()
+        self._build_flow_dock()
         self._build_project_dock()
         self._build_task_dock()
         self._build_log_dock()
         self._build_output_dock()
         self._build_time_sync_dock()
+        self.resizeDocks(
+            [self.parameter_dock],
+            [280],
+            Qt.Orientation.Horizontal,
+        )
+        self.resizeDocks(
+            [self.task_dock],
+            [220],
+            Qt.Orientation.Vertical,
+        )
         self._connect_signals()
         self._select_module("workbench")
         if self.timeline_load_warning:
@@ -313,30 +391,39 @@ class AppV1MainWindow(QMainWindow):
         )
 
     def confirm_and_enqueue_demo(self, module_id: str) -> TaskRecord | None:
-        decision = QMessageBox.question(
+        if not RunConfirmationDialog.confirm(
             self,
             "Confirm shell demo task",
             self.demo_confirmation_summary(module_id),
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
-            QMessageBox.StandardButton.Cancel,
-        )
-        if decision != QMessageBox.StandardButton.Yes:
+        ):
             return None
         return self.enqueue_demo_task(module_id)
 
     def cancel_current_task(self) -> TaskRecord | None:
-        task_id = self.task_controller.current_task_id
-        if task_id is None:
+        record = self._selected_task_record()
+        if record is None or record.status in {"succeeded", "failed", "cancelled"}:
             return None
-        return self.task_controller.cancel(task_id)
+        return self.task_controller.cancel(record.task_id)
 
     def redraw_last_task(self) -> TaskRecord | None:
         """Re-run the most recent terminal task with identical parameters."""
 
-        for record in reversed(self.task_controller.records):
+        selected = self._selected_task_record()
+        candidates = (
+            (selected,)
+            if selected is not None
+            else tuple(reversed(self.task_controller.records))
+        )
+        for record in candidates:
             if record.status in {"succeeded", "failed", "cancelled"}:
                 return self.task_controller.retry(record.task_id)
         return None
+
+    def retry_selected_task(self) -> TaskRecord | None:
+        record = self._selected_task_record()
+        if record is None or record.status != "failed":
+            return None
+        return self.task_controller.retry(record.task_id)
 
     def recover_failed_tasks(self) -> tuple[TaskRecord, ...]:
         """Queue every failed task again in its original order."""
@@ -378,6 +465,7 @@ class AppV1MainWindow(QMainWindow):
             parameters=self.project_parameters,
             timeline=self.time_coordinator.to_dict(),
             layout={
+                "active_flow_id": self.workflow_builder.flow.flow_id,
                 "geometry_base64": bytes(self.saveGeometry().toBase64()).decode(
                     "ascii"
                 ),
@@ -402,10 +490,18 @@ class AppV1MainWindow(QMainWindow):
         self.time_sync_panel.refresh_sources()
         geometry = project.layout.get("geometry_base64")
         dock_state = project.layout.get("dock_state_base64")
+        active_flow_id = project.layout.get("active_flow_id")
         if isinstance(geometry, str):
             self.restoreGeometry(base64.b64decode(geometry))
         if isinstance(dock_state, str):
             self.restoreState(base64.b64decode(dock_state))
+        if isinstance(active_flow_id, str):
+            try:
+                self.workflow_builder.load_flow(
+                    self.workflow_builder.store.load(active_flow_id)
+                )
+            except (OSError, KeyError, TypeError, ValueError):
+                pass
         self._show_parameter_document(self._current_module_id())
         self.output_list.clear()
         for reference in project.artifact_manifests:
@@ -448,6 +544,7 @@ class AppV1MainWindow(QMainWindow):
         except (TypeError, ValueError):
             pass
         self.task_controller.shutdown()
+        self.workflow_builder.shutdown()
         try:
             self.time_coordinator.save(self.timeline_config_path)
         except OSError as exc:
@@ -490,38 +587,41 @@ class AppV1MainWindow(QMainWindow):
             ("Auto", "auto"),
             ("Light", "light"),
             ("Dark", "dark"),
+            ("Dark Dimmed", "dark_dimmed"),
         ):
             self.theme_combo.addItem(label, value)
         current = self.theme_combo.findData(self.theme_controller.mode)
         self.theme_combo.setCurrentIndex(max(0, current))
         toolbar.addWidget(self.theme_combo)
         toolbar.addSeparator()
-        self.demo_button = QPushButton("Run demo task")
         self.redraw_button = QPushButton("Redraw last")
         self.recover_button = QPushButton("Retry failed")
         self.cancel_button = QPushButton("Cancel current task")
         self.redraw_button.setEnabled(False)
         self.recover_button.setEnabled(False)
         self.cancel_button.setEnabled(False)
-        toolbar.addWidget(self.demo_button)
         toolbar.addWidget(self.redraw_button)
         toolbar.addWidget(self.recover_button)
         toolbar.addWidget(self.cancel_button)
 
     def _build_central(self) -> None:
-        root = QWidget()
-        layout = QHBoxLayout(root)
+        splitter = QSplitter(Qt.Orientation.Horizontal)
+        splitter.setObjectName("appV1MainSplitter")
+        splitter.setChildrenCollapsible(True)
         self.navigation = QTreeWidget()
         self.navigation.setHeaderHidden(True)
-        self.navigation.setMinimumWidth(220)
-        self.navigation.setMaximumWidth(310)
+        self.navigation.setMinimumWidth(190)
+        self.navigation.setMaximumWidth(340)
         self.navigation.setSelectionMode(
             QAbstractItemView.SelectionMode.SingleSelection
         )
         self.page_stack = QStackedWidget()
-        layout.addWidget(self.navigation)
-        layout.addWidget(self.page_stack, 1)
-        self.setCentralWidget(root)
+        splitter.addWidget(self.navigation)
+        splitter.addWidget(self.page_stack)
+        splitter.setStretchFactor(0, 0)
+        splitter.setStretchFactor(1, 1)
+        splitter.setSizes([190, 1130])
+        self.setCentralWidget(splitter)
 
         categories: dict[str, QTreeWidgetItem] = {}
         for descriptor in MODULES:
@@ -536,7 +636,13 @@ class AppV1MainWindow(QMainWindow):
             category.addChild(item)
             page = ModulePage(descriptor, self.layout)
             self.module_pages[descriptor.module_id] = page
-            self.page_stack.addWidget(page)
+            viewport = QScrollArea()
+            viewport.setObjectName("appV1PageViewport")
+            viewport.setWidgetResizable(True)
+            viewport.setFrameShape(QFrame.Shape.NoFrame)
+            viewport.setWidget(page)
+            self.page_containers[descriptor.module_id] = viewport
+            self.page_stack.addWidget(viewport)
         self.navigation.expandAll()
 
     def _build_parameter_dock(self) -> None:
@@ -567,6 +673,14 @@ class AppV1MainWindow(QMainWindow):
         form.addRow("Parameter JSON", self.parameter_document)
         self.parameter_dock.setWidget(panel)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.parameter_dock)
+
+    def _build_flow_dock(self) -> None:
+        self.flow_dock = QDockWidget("Workflow Builder", self)
+        self.flow_dock.setObjectName("appV1WorkflowBuilderDock")
+        self.workflow_builder = WorkflowBuilder(self.layout)
+        self.flow_dock.setWidget(self.workflow_builder)
+        self.addDockWidget(Qt.DockWidgetArea.BottomDockWidgetArea, self.flow_dock)
+        self.flow_dock.hide()
 
     def _build_project_dock(self) -> None:
         self.project_dock = QDockWidget("Project", self)
@@ -632,12 +746,9 @@ class AppV1MainWindow(QMainWindow):
         self.theme_combo.currentIndexChanged.connect(
             lambda _index: self.set_theme(self.theme_combo.currentData())
         )
-        self.demo_button.clicked.connect(
-            lambda: self.confirm_and_enqueue_demo(self._current_module_id())
-        )
         self.cancel_button.clicked.connect(self.cancel_current_task)
         self.redraw_button.clicked.connect(self.redraw_last_task)
-        self.recover_button.clicked.connect(self.recover_failed_tasks)
+        self.recover_button.clicked.connect(self.retry_selected_task)
         self.project_panel.save_project_requested.connect(
             lambda: self._project_action(self.save_current_project)
         )
@@ -653,12 +764,20 @@ class AppV1MainWindow(QMainWindow):
         for page in self.module_pages.values():
             page.launch_demo_requested.connect(self.confirm_and_enqueue_demo)
             page.task_launch_requested.connect(self._enqueue_launch)
+            page.legacy_interface_requested.connect(self._open_legacy_interface)
+            page.navigate_requested.connect(self._select_module)
+            page.edit_flow_requested.connect(self._open_flow_builder)
         self.task_controller.task_changed.connect(self._refresh_task)
         self.task_controller.log_line.connect(self._append_log)
+        self.task_controller.artifact_ready.connect(self._artifact_ready)
+        self.task_table.itemSelectionChanged.connect(self._update_task_actions)
         self.task_controller.queue_idle.connect(
             lambda: self.statusBar().showMessage("Task queue idle")
         )
         self.time_sync_panel.selection_changed.connect(self._timeline_selection_changed)
+        self.workflow_builder.artifact_ready.connect(
+            lambda path: self.output_list.addItem(f"Workflow: {path}")
+        )
 
     def _navigation_changed(
         self,
@@ -678,7 +797,7 @@ class AppV1MainWindow(QMainWindow):
             except (TypeError, ValueError) as exc:
                 self.project_panel.status.setText(str(exc))
         page = self.module_pages[module_id]
-        self.page_stack.setCurrentWidget(page)
+        self.page_stack.setCurrentWidget(self.page_containers[module_id])
         self.parameter_module.setText(page.descriptor.title)
         matches = self.navigation.findItems(
             page.descriptor.title,
@@ -689,10 +808,19 @@ class AppV1MainWindow(QMainWindow):
         self._show_parameter_document(module_id)
         self.statusBar().showMessage(f"Selected {page.descriptor.title}")
 
+    def _open_flow_builder(self, module_id: str) -> None:
+        self.workflow_builder.load_flow(page_template(module_id))
+        self.flow_dock.show()
+        self.flow_dock.raise_()
+        self.statusBar().showMessage(
+            f"Editing {self.module_pages[module_id].descriptor.title} workflow"
+        )
+
     def _current_module_id(self) -> str:
-        page = self.page_stack.currentWidget()
-        if isinstance(page, ModulePage):
-            return page.descriptor.module_id
+        current = self.page_stack.currentWidget()
+        for module_id, container in self.page_containers.items():
+            if container is current:
+                return module_id
         return "workbench"
 
     def _refresh_task(self, task_id: str) -> None:
@@ -710,28 +838,7 @@ class AppV1MainWindow(QMainWindow):
         )
         for column, value in enumerate(values):
             self.task_table.setItem(row, column, QTableWidgetItem(value))
-        active = any(
-            item.status in {"starting", "running", "cancelling"}
-            for item in self.task_controller.records
-        )
-        self.cancel_button.setEnabled(active)
-        terminal = any(
-            item.status in {"succeeded", "failed", "cancelled"}
-            for item in self.task_controller.records
-        )
-        self.redraw_button.setEnabled(terminal)
-        self.recover_button.setEnabled(
-            any(
-                item.status == "failed"
-                and item.task_id
-                not in {
-                    candidate.retry_of
-                    for candidate in self.task_controller.records
-                    if candidate.retry_of is not None
-                }
-                for item in self.task_controller.records
-            )
-        )
+        self._update_task_actions()
         self.statusBar().showMessage(f"{record.title}: {record.status}")
         if record.status == "succeeded":
             if record.output_dir:
@@ -749,9 +856,122 @@ class AppV1MainWindow(QMainWindow):
                     f"{record.title}: completed without scientific output"
                 )
 
+    def _selected_task_record(self) -> TaskRecord | None:
+        row = self.task_table.currentRow()
+        if row >= 0:
+            for task_id, candidate_row in self._module_rows.items():
+                if candidate_row == row:
+                    return self.task_controller.task(task_id)
+        current_id = self.task_controller.current_task_id
+        if current_id is not None:
+            return self.task_controller.task(current_id)
+        records = self.task_controller.records
+        return records[-1] if records else None
+
+    def _update_task_actions(self) -> None:
+        record = self._selected_task_record()
+        if record is None:
+            self.cancel_button.setEnabled(False)
+            self.redraw_button.setEnabled(False)
+            self.recover_button.setEnabled(False)
+            return
+        self.cancel_button.setEnabled(
+            record.status in {"queued", "starting", "running", "cancelling"}
+        )
+        self.redraw_button.setEnabled(
+            record.status in {"succeeded", "failed", "cancelled"}
+        )
+        self.recover_button.setEnabled(record.status == "failed")
+
     def _append_log(self, task_id: str, line: str) -> None:
         record = self.task_controller.task(task_id)
         self.log_output.appendPlainText(f"[{record.title}] {line}")
+
+    def _artifact_ready(self, task_id: str, path: str) -> None:
+        record = self.task_controller.task(task_id)
+        self.output_list.addItem(f"{record.title}: {path}")
+        page = self.module_pages.get(record.module_id)
+        if page is not None:
+            page.handle_artifact(path)
+
+    def _open_legacy_interface(self, module_id: str) -> None:
+        descriptor = self.module_pages[module_id].descriptor
+        summary = {
+            "Module": descriptor.title,
+            "Input": "Current configured allowed roots",
+            "Parameters": (
+                "Launch the deprecated standalone interface in the default browser"
+                if module_id != "image-composer"
+                else "Launch the deprecated standalone PySide6 interface"
+            ),
+            "Output": "Managed by the legacy interface",
+            "Workload": "Compatibility fallback; no automatic fallback is performed",
+        }
+        if not RunConfirmationDialog.confirm(
+            self,
+            f"Open legacy {descriptor.title}",
+            summary,
+        ):
+            return
+        targets: dict[str, tuple[str, tuple[str, ...]]] = {
+            "workbench": (
+                "solar_apps.frontends.workbench.cli",
+                ("--open-browser",),
+            ),
+            "radio-workspace": (
+                "solar_apps.frontends.workbench.cli",
+                ("--open-browser",),
+            ),
+            "image-viewer": (
+                "solar_apps.frontends.image_viewer.cli",
+                ("--open-browser",),
+            ),
+            "image-composer": (
+                "solar_apps.frontends.image_composer.cli",
+                (),
+            ),
+            "bad-frame-review": (
+                "solar_apps.frontends.radio_bad_frame_review.cli",
+                ("--open-browser",),
+            ),
+            "source-map": (
+                "solar_apps.frontends.radio.source_map.cli",
+                ("--open-browser",),
+            ),
+            "dart-spectrogram": (
+                "solar_apps.frontends.radio.dart_spectrogram.dart_spectrogram_launcher",
+                ("--browser",),
+            ),
+            "roi-lightcurve": (
+                "solar_apps.frontends.radio.roi_lightcurve.roi_lightcurve_launcher",
+                ("--browser",),
+            ),
+            "radio-composite": (
+                "solar_apps.frontends.radio.composite_figure.composite_figure_launcher",
+                ("--browser",),
+            ),
+            "source-trajectory": (
+                "solar_apps.frontends.radio.source_trajectory.source_app_launcher",
+                ("--browser",),
+            ),
+        }
+        module, arguments = targets[module_id]
+        started, process_id = QProcess.startDetached(
+            str(selected_python_executable()),
+            ["-m", module, *arguments],
+            str(self.layout.apps_root),
+        )
+        if started:
+            self.log_output.appendPlainText(
+                f"[legacy:{descriptor.title}] started process {process_id}"
+            )
+            self.statusBar().showMessage(
+                f"Opened legacy {descriptor.title} compatibility interface"
+            )
+        else:
+            message = f"Could not start legacy {descriptor.title}"
+            self.log_output.appendPlainText(f"[legacy:{descriptor.title}] {message}")
+            self.statusBar().showMessage(message)
 
     def _timeline_selection_changed(self, selection) -> None:  # type: ignore[no-untyped-def]
         source_modules = {
@@ -802,4 +1022,4 @@ class AppV1MainWindow(QMainWindow):
             self.project_panel.status.setText(f"{type(exc).__name__}: {exc}")
 
 
-__all__ = ["AppV1MainWindow", "ModulePage", "PlotSurface"]
+__all__ = ["AppV1MainWindow", "ModulePage"]

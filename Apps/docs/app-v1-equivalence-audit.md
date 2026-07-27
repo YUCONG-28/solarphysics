@@ -23,22 +23,44 @@ application chrome or framework-specific layout is pixel-identical.
 
 - App v1 runs PyQt6 in a dedicated process; PySide6 and PyQt5 are rejected if
   already loaded.
-- All long-running work uses the shared sequential `QProcess` queue. Tasks can
-  be cancelled, a confirmed batch preserves input order, the last terminal
-  task can be redrawn, and failed tasks can be queued again after the cause is
-  corrected.
+- All long-running work uses supervised `QProcess` workers. The application
+  task queue remains FIFO; a typed workflow uses 1–4 FIFO process lanes for
+  same-level nodes. A failed node blocks only its descendants, while
+  independent branches continue. Tasks and flows can be cancelled or retried.
 - Every real load, calculation, export, and cross-module transfer retains the
   input/parameter/output/workload confirmation gate.
+- Normal App 1.0 operations never start Flask, Streamlit, a browser, or
+  PySide6. Each page exposes the deprecated implementation only through
+  `More` → `Open legacy interface`, with a separate confirmation and no
+  automatic fallback.
+- Workers may emit `APP_V1_EVENT` schema 1 records for progress, logs,
+  previews, artifacts, and terminal results. Legacy line output remains
+  accepted while retained scientific commands migrate to the structured
+  protocol.
 - UTC is stored and exchanged through one coordinator and a rebuildable
   private SQLite index.
 - `.spapp.json` schema 1 projects contain modules, parameters, time-sync
   configuration, window layout, and safe relative `manifest.json` references.
-  They never embed observation bytes.
+  They never embed observation bytes. The active workflow is referenced by
+  `layout.active_flow_id`.
+- `.spflow.json` schema 1 stores function/variant IDs, all typed parameters,
+  connections, concurrency, disabled/group state, and visual layout. It does
+  not embed observations or reuse historical calculations implicitly.
+- Qt forms, argv/config construction, confirmations, migration, presets, and
+  workflow validation share the same parameter/function catalog. Free-form
+  additional arguments are not accepted; unknown legacy argv is reported and
+  blocks execution until corrected.
+- Basic plotting, path selection, ROI history/import/export, playback,
+  artifact preview, export, and parameter-form behavior each have one shared
+  App 1.0 implementation. Plot styling is data in `PlotSpec`, not a renderer
+  variant. Only choices that change numerical/scientific meaning are exposed
+  as scientific variants.
 - Parameter presets are versioned, module-scoped, and atomic. Project writes,
   established workflow manifests, composer images, and composer videos use
   atomic replacement or staging contracts.
-- Auto, Light, and Dark affect application chrome only; scientific arrays,
-  WCS, normalization, metadata, and exports are theme-invariant.
+- Auto, Light, Dark, and Dark Dimmed affect application chrome only;
+  scientific arrays, WCS, normalization, metadata, and exports are
+  theme-invariant. Auto follows only the system Light/Dark setting.
 
 The stable launcher is `Apps/run.ps1 frontend app-v1`. The
 `app-v1-preview` launcher remains a compatibility alias for one release cycle.

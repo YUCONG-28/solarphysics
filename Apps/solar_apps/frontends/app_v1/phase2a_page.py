@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QPixmap
 from PyQt6.QtWidgets import (
@@ -13,7 +15,6 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
-    QMessageBox,
     QPushButton,
     QSpinBox,
     QTabWidget,
@@ -22,9 +23,10 @@ from PyQt6.QtWidgets import (
 )
 
 from .phase2a import ImageSequenceSelection, Phase2AAdapter, TaskLaunch
+from .components import NativeModulePanel
 
 
-class Phase2APanel(QWidget):
+class Phase2APanel(NativeModulePanel):
     """One native page that adapts, but never reimplements, Phase 2A science."""
 
     task_requested = pyqtSignal(object)
@@ -34,18 +36,24 @@ class Phase2APanel(QWidget):
         adapter: Phase2AAdapter,
         parent: QWidget | None = None,
     ) -> None:
-        super().__init__(parent)
+        super().__init__(
+            "image-viewer",
+            legacy_label="legacy Image Viewer",
+            parent=parent,
+        )
         self.adapter = adapter
         self._selection: ImageSequenceSelection | None = None
         self._image_index = 0
         layout = QVBoxLayout(self)
+        note_row = QHBoxLayout()
         note = QLabel(
             "Phase 2A adapters call the existing AIA, HMI, and Image Viewer "
             "implementations. Inputs remain constrained to configured allowed roots."
         )
         note.setWordWrap(True)
         note.setProperty("muted", True)
-        layout.addWidget(note)
+        note_row.addWidget(note, 1)
+        layout.addLayout(note_row)
         self.tabs = QTabWidget()
         self.tabs.addTab(self._build_viewer_tab(), "Image Viewer")
         self.tabs.addTab(self._build_aia_tab(), "AIA Processing")
@@ -57,6 +65,7 @@ class Phase2APanel(QWidget):
         layout = QVBoxLayout(tab)
         row = QHBoxLayout()
         self.viewer_folder = QLineEdit()
+        self.configure_path_field(self.viewer_folder)
         self.viewer_folder.setPlaceholderText("Select an image folder")
         browse = QPushButton("Browse…")
         browse.clicked.connect(lambda: self._browse_into(self.viewer_folder))
@@ -94,6 +103,7 @@ class Phase2APanel(QWidget):
         tab = QWidget()
         form = QFormLayout(tab)
         self.aia_input = QLineEdit()
+        self.configure_path_field(self.aia_input)
         input_row = QWidget()
         input_layout = QHBoxLayout(input_row)
         input_layout.setContentsMargins(0, 0, 0, 0)
@@ -118,6 +128,8 @@ class Phase2APanel(QWidget):
         form = QFormLayout(tab)
         self.hmi_aia_input = QLineEdit()
         self.hmi_input = QLineEdit()
+        self.configure_path_field(self.hmi_aia_input)
+        self.configure_path_field(self.hmi_input)
         form.addRow("AIA folder", self._path_row(self.hmi_aia_input))
         form.addRow("HMI folder", self._path_row(self.hmi_input))
         self.hmi_dpi = QSpinBox()
@@ -202,6 +214,25 @@ class Phase2APanel(QWidget):
             f"{self._image_index + 1} / {len(selection.images)} — {path.name}"
         )
 
+    def handle_artifact(self, value: str) -> None:
+        """Return generated AIA/HMI image products to this native page."""
+
+        path = Path(value)
+        if path.suffix.casefold() not in {".png", ".jpg", ".jpeg", ".bmp", ".gif"}:
+            return
+        pixmap = QPixmap(str(path))
+        if pixmap.isNull():
+            return
+        self.tabs.setCurrentIndex(0)
+        self.viewer_preview.setPixmap(
+            pixmap.scaled(
+                self.viewer_preview.size(),
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+        )
+        self.viewer_status.setText(f"Generated artifact — {path.name}")
+
     def _request_aia(self) -> None:
         try:
             waves = tuple(
@@ -235,16 +266,12 @@ class Phase2APanel(QWidget):
             self.task_requested.emit(launch)
 
     def _confirm(self, title: str, summary: str) -> bool:
-        decision = QMessageBox.question(
-            self,
-            title,
-            summary,
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
-            QMessageBox.StandardButton.Cancel,
-        )
-        return decision == QMessageBox.StandardButton.Yes
+        return self.confirm(self, title, summary)
 
     def _show_error(self, message: str) -> None:
+        from PyQt6.QtWidgets import QMessageBox
+
+        self.record_diagnostic(message)
         QMessageBox.critical(self, "App 1.0 input error", message)
 
 

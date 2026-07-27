@@ -26,7 +26,7 @@ def _adapter(tmp_path: Path) -> tuple[Phase2BAdapter, Path, RuntimeLayout]:
     )
 
 
-def test_bad_frame_and_source_map_launch_in_separate_existing_frontends(
+def test_bad_frame_and_source_map_launch_native_workers_without_browser(
     tmp_path: Path,
 ) -> None:
     adapter, observations, layout = _adapter(tmp_path)
@@ -35,10 +35,12 @@ def test_bad_frame_and_source_map_launch_in_separate_existing_frontends(
     bad = adapter.build_bad_frame_review(observations)
     source_map = adapter.build_source_map_app(observations)
 
-    assert bad.python_module == "solar_apps.frontends.radio_bad_frame_review.cli"
-    assert source_map.python_module == "solar_apps.frontends.radio.source_map.cli"
-    assert "--open-browser" in bad.arguments
-    assert "--open-browser" in source_map.arguments
+    assert bad.python_module.endswith("app_v1.native_science_worker")
+    assert source_map.python_module.endswith("app_v1.native_science_worker")
+    assert bad.arguments[0] == "bad-frame-discover"
+    assert source_map.arguments[0] == "source-map-discover"
+    assert "--open-browser" not in bad.arguments
+    assert "--open-browser" not in source_map.arguments
     assert bad.output_dir.is_relative_to(layout.outputs_dir / "app_v1")
     assert source_map.output_dir.is_relative_to(layout.outputs_dir / "app_v1")
     assert "Workload: 1 FITS candidate(s)" in bad.summary
@@ -81,13 +83,19 @@ def test_roi_and_composite_launchers_receive_paths_and_private_outputs(
     roi = adapter.build_roi_lightcurve(radio, polarization="RCP")
     composite = adapter.build_radio_composite(radio, dart)
 
-    assert roi.python_module.endswith("roi_lightcurve_launcher")
+    assert roi.python_module.endswith("app_v1.native_science_worker")
+    assert roi.arguments[0] == "roi-run"
     assert roi.arguments[roi.arguments.index("--polarization") + 1] == "RCP"
-    assert composite.python_module.endswith("composite_figure_launcher")
-    assert composite.arguments[composite.arguments.index("--radio-dir") + 1] == str(
+    assert composite.python_module.endswith("app_v1.native_science_worker")
+    assert composite.arguments[0] == "radio-composite-discover"
+    assert composite.arguments[composite.arguments.index("--input-dir") + 1] == str(
         radio
     )
-    assert composite.arguments[composite.arguments.index("--dart-dir") + 1] == str(dart)
+    assert composite.arguments[composite.arguments.index("--secondary-dir") + 1] == str(
+        dart
+    )
+    assert "--browser" not in roi.arguments
+    assert "--browser" not in composite.arguments
     assert roi.output_dir.is_relative_to(layout.outputs_dir / "app_v1")
     assert composite.output_dir.is_relative_to(layout.outputs_dir / "app_v1")
 

@@ -135,8 +135,29 @@ English PyQt6 interfaces behind one process-isolated entry point:
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Apps\run.ps1 frontend app-v1
 ```
 
+On macOS or Linux, run the same native application from the repository root:
+
+```bash
+./Apps/run.sh frontend app-v1
+```
+
 The `app-v1-preview` frontend ID is a compatibility alias to that same module
 for one release cycle. It is not a separate implementation.
+
+Normal App 1.0 actions stay inside the PyQt6 window and use supervised
+headless workers. They do not start Flask, Streamlit, PySide6, or a browser.
+Every page can open its predefined typed workflow with **Edit workflow**.
+Atomic functions can be dragged into a visual DAG, connected through typed
+artifact ports, and edited through the shared Common/Advanced schema form.
+Flows are saved privately as
+`Local/workspaces/app_v1/flows/<flow-id>.spflow.json` (schema 1); observation
+data is referenced, never embedded. Unknown legacy arguments block execution
+and are retained in a migration report.
+
+Use a page's **More → Open legacy interface** action only when an explicit
+compatibility fallback is needed. The application chrome supports Auto,
+Light, Dark, and Dark Dimmed GitHub Primer-inspired themes; scientific images
+and exports are not recolored by the UI theme.
 
 The earlier frontends remain launchable but are deprecated compatibility
 surfaces:

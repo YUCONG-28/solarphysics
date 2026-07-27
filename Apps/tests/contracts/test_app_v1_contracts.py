@@ -20,6 +20,7 @@ from solar_apps.frontends.app_v1 import (
     RunStatus,
     SyncSelection,
     TimelineSource,
+    WorkerEventV1,
 )
 from solar_apps.platform.layout import RuntimeLayout
 
@@ -175,3 +176,18 @@ def test_contracts_reject_unsafe_or_ambiguous_values() -> None:
             "source-map",
             (datetime(2025, 1, 24, 4, 48),),
         )
+
+
+def test_worker_event_protocol_accepts_only_finite_version_one_json() -> None:
+    event = WorkerEventV1(
+        "run-one",
+        "source-map",
+        "preview",
+        {"path": "outputs/source-map.png", "percent": 50},
+    )
+
+    assert event.to_dict()["kind"] == "preview"
+    with pytest.raises(ValueError, match="Unsupported worker event kind"):
+        WorkerEventV1("run-one", "source-map", "unknown", {})  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="finite JSON"):
+        WorkerEventV1("run-one", "source-map", "progress", {"percent": float("nan")})

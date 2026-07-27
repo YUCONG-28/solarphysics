@@ -9,7 +9,7 @@ from dataclasses import dataclass, field, fields, is_dataclass
 from datetime import datetime, timezone
 from enum import Enum, StrEnum
 from pathlib import PurePosixPath
-from typing import Any, Mapping
+from typing import Any, Literal, Mapping
 
 SCHEMA_VERSION = 1
 _IDENTIFIER = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
@@ -250,6 +250,42 @@ class RunResult(JsonContract):
         )
 
 
+WorkerEventKind = Literal["progress", "log", "preview", "artifact", "result"]
+_WORKER_EVENT_KINDS = frozenset(
+    {"progress", "log", "preview", "artifact", "result"}
+)
+
+
+@dataclass(frozen=True, slots=True)
+class WorkerEventV1(JsonContract):
+    """One finite structured event emitted by an App 1.0 worker process."""
+
+    run_id: str
+    module_id: str
+    kind: WorkerEventKind
+    payload: dict[str, Any] = field(default_factory=dict)
+    schema_version: int = SCHEMA_VERSION
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self, "run_id", validate_identifier(self.run_id, label="run_id")
+        )
+        object.__setattr__(
+            self,
+            "module_id",
+            validate_identifier(self.module_id, label="module_id"),
+        )
+        if self.kind not in _WORKER_EVENT_KINDS:
+            raise ValueError(f"Unsupported worker event kind: {self.kind}")
+        if self.schema_version != SCHEMA_VERSION:
+            raise ValueError("Unsupported worker-event schema")
+        object.__setattr__(
+            self,
+            "payload",
+            _json_object(self.payload, label="payload"),
+        )
+
+
 @dataclass(frozen=True, slots=True)
 class TimelineSource(JsonContract):
     """UTC sample index for one time-aware module source."""
@@ -358,5 +394,7 @@ __all__ = [
     "RunStatus",
     "SyncSelection",
     "TimelineSource",
+    "WorkerEventKind",
+    "WorkerEventV1",
     "validate_identifier",
 ]

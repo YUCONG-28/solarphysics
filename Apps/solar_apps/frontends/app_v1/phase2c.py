@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import json
 import os
-import socket
 import uuid
 from pathlib import Path
 
@@ -15,10 +14,9 @@ from solar_apps.platform.paths.allowed_roots import configured_allowed_roots
 from .phase2a import TaskLaunch
 from .runtime import AppV1RuntimePaths
 
-_DART = "solar_apps.frontends.radio.dart_spectrogram.dart_spectrogram_launcher"
+_NATIVE_WORKER = "solar_apps.frontends.app_v1.native_science_worker"
 _DRIFT = "solar_apps.workflows.radio.drift_selection_cli"
 _NEWKIRK = "solar_apps.workflows.radio.physical_diagnostics_cli"
-_TRAJECTORY_APP = "solar_apps.frontends.radio.source_trajectory.source_app_launcher"
 _TRAJECTORY_EXPORT = "solar_apps.workflows.radio.trajectory_cli"
 _DEM_RADIO = "solar_apps.workflows.xray_dem.dem_radio_cli"
 _RADIO_CONFIG = "solar_apps.workflows.radio.configs.radio_20250124_config"
@@ -46,34 +44,63 @@ class Phase2CAdapter:
             )
         )
 
-    def build_dart_spectrogram(self, input_dir: str | Path) -> TaskLaunch:
+    def build_dart_spectrogram(
+        self,
+        input_dir: str | Path,
+        *,
+        center_frequencies: str = "",
+        bandwidth_mhz: float = 2.0,
+        display_mode: str = "db",
+        max_samples: int = 1200,
+        dpi: int = 150,
+    ) -> TaskLaunch:
         selected = self.validate_directory(input_dir)
+        if bandwidth_mhz <= 0:
+            raise ValueError("DART bandwidth must be positive")
+        if display_mode not in {"db", "linear"}:
+            raise ValueError("Unsupported DART display mode")
+        if max_samples < 32:
+            raise ValueError("DART sample limit must be at least 32")
+        if not 72 <= dpi <= 600:
+            raise ValueError("DART DPI must be between 72 and 600")
         output = self._new_output_dir("dart-spectrogram")
-        port = self._free_port()
         return TaskLaunch(
             "DART Spectrogram",
             "dart-spectrogram",
-            _DART,
+            _NATIVE_WORKER,
             (
+                "dart-render",
+                "--module-id",
+                "dart-spectrogram",
                 "--input-dir",
                 str(selected),
                 "--output-dir",
                 str(output),
-                "--allowed-roots",
-                self._root_list(output),
-                "--port",
-                str(port),
-                "--browser",
+                "--center-frequencies",
+                str(center_frequencies),
+                "--bandwidth-mhz",
+                str(float(bandwidth_mhz)),
+                "--display-mode",
+                display_mode,
+                "--max-frequency-samples",
+                str(int(max_samples)),
+                "--max-time-samples",
+                str(int(max_samples)),
+                "--dpi",
+                str(int(dpi)),
             ),
             output,
             "\n".join(
                 (
                     "Module: DART Spectrogram",
                     f"Input: {selected}",
-                    "Parameters: retained interactive DART workflow",
+                    (
+                        "Parameters: native spectrum; "
+                        f"display={display_mode}; centers={center_frequencies or 'none'}; "
+                        f"bandwidth={bandwidth_mhz:g} MHz"
+                    ),
                     f"Output: {output}",
                     f"Workload: {self._file_count(selected)} input file(s)",
-                    f"Endpoint: http://127.0.0.1:{port}",
                 )
             ),
         )
@@ -172,32 +199,32 @@ class Phase2CAdapter:
         center_path = self.validate_file(centers)
         aia = self._optional_directory(aia_dir)
         output = self._new_output_dir("source-trajectory")
-        port = self._free_port()
+        html = output / "radio_source_trajectory.html"
         arguments: list[str] = [
             "--centers",
             str(center_path),
-            "--allowed-roots",
-            self._root_list(output),
-            "--port",
-            str(port),
-            "--browser",
+            "--out",
+            str(html),
+            "--mode",
+            "tail",
+            "--tail-n",
+            "5",
         ]
         if aia is not None:
             arguments.extend(["--aia-dir", str(aia)])
         return TaskLaunch(
             "Source Trajectory",
             "source-trajectory",
-            _TRAJECTORY_APP,
+            _TRAJECTORY_EXPORT,
             tuple(arguments),
             output,
             "\n".join(
                 (
                     "Module: Source Trajectory",
                     f"Input: centers={center_path}; AIA={aia or 'none'}",
-                    "Parameters: retained interactive trajectory workflow",
-                    f"Output: {output}",
+                    "Parameters: native supervised static trajectory preview",
+                    f"Output: {html}",
                     f"Workload: {self._table_rows(center_path)} table row(s)",
-                    f"Endpoint: http://127.0.0.1:{port}",
                 )
             ),
         )
@@ -312,15 +339,6 @@ class Phase2CAdapter:
     def _new_output_dir(self, module_id: str) -> Path:
         run_id = f"run-{uuid.uuid4().hex[:12]}"
         return self.runtime.run_output_dir("preview", run_id, module_id)
-
-    def _root_list(self, output: Path) -> str:
-        return os.pathsep.join(map(str, (*self.allowed_roots, output)))
-
-    @staticmethod
-    def _free_port() -> int:
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
-            probe.bind(("127.0.0.1", 0))
-            return int(probe.getsockname()[1])
 
     @staticmethod
     def _file_count(directory: Path) -> int:

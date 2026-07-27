@@ -19,9 +19,10 @@ from PyQt6.QtWidgets import (
 
 from .phase2a import TaskLaunch
 from .phase2b import Phase2BAdapter
+from .components import ArtifactBrowser, NativeModulePanel
 
 
-class Phase2BPanel(QWidget):
+class Phase2BPanel(NativeModulePanel):
     """Module-specific launch controls with mandatory confirmation."""
 
     task_requested = pyqtSignal(object)
@@ -32,26 +33,36 @@ class Phase2BPanel(QWidget):
         module_id: str,
         parent: QWidget | None = None,
     ) -> None:
-        super().__init__(parent)
+        super().__init__(
+            module_id,
+            legacy_label=f"legacy {module_id.replace('-', ' ').title()}",
+            parent=parent,
+        )
         self.adapter = adapter
         self.module_id = module_id
         layout = QVBoxLayout(self)
+        note_row = QHBoxLayout()
         note = QLabel(
-            "This native page validates inputs and launches the retained scientific "
-            "or interactive implementation in a dedicated process."
+            "This native page validates inputs and runs the retained scientific "
+            "implementation in a supervised process."
         )
         note.setWordWrap(True)
         note.setProperty("muted", True)
-        layout.addWidget(note)
+        note_row.addWidget(note, 1)
+        layout.addLayout(note_row)
         form = QFormLayout()
         layout.addLayout(form)
         self.primary = QLineEdit()
+        self.configure_path_field(self.primary)
         form.addRow(self._primary_label(), self._path_row(self.primary))
         self.secondary: QLineEdit | None = None
         self.option: QComboBox | None = None
+        self.roi_bounds: QLineEdit | None = None
+        self.frequencies: QLineEdit | None = None
 
         if module_id == "radio-composite":
             self.secondary = QLineEdit()
+            self.configure_path_field(self.secondary)
             form.addRow("DART folder", self._path_row(self.secondary))
         elif module_id == "source-map":
             self.option = QComboBox()
@@ -61,6 +72,14 @@ class Phase2BPanel(QWidget):
             self.option = QComboBox()
             self.option.addItems(["L+R", "LCP", "RCP", "all"])
             form.addRow("Polarization", self.option)
+            self.roi_bounds = QLineEdit("-300,-300,300,300")
+            self.roi_bounds.setToolTip(
+                "HPLN/HPLT bounds: left,bottom,right,top in arcseconds"
+            )
+            self.frequencies = QLineEdit()
+            self.frequencies.setPlaceholderText("All frequencies")
+            form.addRow("ROI bounds (arcsec)", self.roi_bounds)
+            form.addRow("Frequencies (MHz)", self.frequencies)
 
         buttons = QHBoxLayout()
         launch = QPushButton(self._launch_label())
@@ -72,7 +91,8 @@ class Phase2BPanel(QWidget):
             buttons.addWidget(gaussian)
         buttons.addStretch(1)
         layout.addLayout(buttons)
-        layout.addStretch(1)
+        self.artifacts = ArtifactBrowser()
+        layout.addWidget(self.artifacts, 1)
 
     def _primary_label(self) -> str:
         return (
@@ -123,6 +143,16 @@ class Phase2BPanel(QWidget):
                 launch = self.adapter.build_roi_lightcurve(
                     self.primary.text(),
                     polarization=self.option.currentText() if self.option else "L+R",
+                    roi_bounds=(
+                        self.roi_bounds.text()
+                        if self.roi_bounds is not None
+                        else "-300,-300,300,300"
+                    ),
+                    frequencies=(
+                        self.frequencies.text()
+                        if self.frequencies is not None
+                        else ""
+                    ),
                 )
             else:
                 launch = self.adapter.build_radio_composite(
@@ -146,18 +176,16 @@ class Phase2BPanel(QWidget):
         self._confirm_and_emit(launch)
 
     def _confirm_and_emit(self, launch: TaskLaunch) -> None:
-        decision = QMessageBox.question(
-            self,
-            "Confirm radio task",
-            launch.summary,
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
-            QMessageBox.StandardButton.Cancel,
-        )
-        if decision == QMessageBox.StandardButton.Yes:
+        decision = self.confirm(self, "Confirm radio task", launch.summary)
+        if decision:
             self.task_requested.emit(launch)
 
     def _show_error(self, message: str) -> None:
+        self.record_diagnostic(message)
         QMessageBox.critical(self, "App 1.0 input error", message)
+
+    def handle_artifact(self, path: str) -> None:
+        self.artifacts.open_path(path)
 
 
 __all__ = ["Phase2BPanel"]
