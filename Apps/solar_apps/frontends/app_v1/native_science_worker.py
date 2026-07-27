@@ -249,7 +249,9 @@ def main(argv: list[str] | None = None) -> int:
     _event(args.module_id, "log", message=f"Starting {args.operation}")
     artifacts = operations[args.operation](args)
     for index, artifact in enumerate(artifacts, start=1):
-        kind = "preview" if artifact.suffix.casefold() in {".png", ".jpg"} else "artifact"
+        kind = (
+            "preview" if artifact.suffix.casefold() in {".png", ".jpg"} else "artifact"
+        )
         _event(
             args.module_id,
             kind,

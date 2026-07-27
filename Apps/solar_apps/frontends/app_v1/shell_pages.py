@@ -71,7 +71,7 @@ class WorkbenchNativePanel(NativeModulePanel):
         self.description.setProperty("muted", True)
         try:
             configured = configured_allowed_roots()
-        except (OSError, TypeError, ValueError):
+        except OSError, TypeError, ValueError:
             configured = ()
         self.allowed_roots = (
             *configured,
@@ -79,9 +79,7 @@ class WorkbenchNativePanel(NativeModulePanel):
             self.runtime.workspaces_dir,
             self.runtime.tmp_dir,
         )
-        self.form = SchemaForm(
-            allowed_roots=tuple(map(str, self.allowed_roots))
-        )
+        self.form = SchemaForm(allowed_roots=tuple(map(str, self.allowed_roots)))
         run = QPushButton("Review and run")
         run.setProperty("primary", True)
         run.clicked.connect(self._request_run)
@@ -200,7 +198,10 @@ class RadioWorkspaceNativePanel(NativeModulePanel):
 
         self.modules = QListWidget()
         for descriptor in MODULES:
-            if descriptor.category != "Radio" or descriptor.module_id == "radio-workspace":
+            if (
+                descriptor.category != "Radio"
+                or descriptor.module_id == "radio-workspace"
+            ):
                 continue
             item = QListWidgetItem(descriptor.title)
             item.setData(Qt.ItemDataRole.UserRole, descriptor.module_id)
@@ -233,9 +234,18 @@ class RadioWorkspaceNativePanel(NativeModulePanel):
 
     def _apply_preset(self) -> None:
         selected = str(self.preset.currentData())
-        imaging = {"bad-frame-review", "source-map", "roi-lightcurve", "radio-composite"}
+        imaging = {
+            "bad-frame-review",
+            "source-map",
+            "roi-lightcurve",
+            "radio-composite",
+        }
         spectra = {"dart-spectrogram", "source-trajectory"}
-        enabled = imaging if selected == "imaging" else spectra if selected == "spectra" else None
+        enabled = (
+            imaging
+            if selected == "imaging"
+            else spectra if selected == "spectra" else None
+        )
         for row in range(self.modules.count()):
             item = self.modules.item(row)
             module_id = str(item.data(Qt.ItemDataRole.UserRole))

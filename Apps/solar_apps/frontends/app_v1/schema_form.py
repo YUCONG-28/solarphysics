@@ -61,17 +61,13 @@ class SchemaForm(QWidget):
         scroll.setWidgetResizable(True)
         content = QWidget()
         self.content_layout = QVBoxLayout(content)
-        self.content_layout.setSizeConstraint(
-            QLayout.SizeConstraint.SetMinAndMaxSize
-        )
+        self.content_layout.setSizeConstraint(QLayout.SizeConstraint.SetMinAndMaxSize)
         self.common_group = QGroupBox("Common")
         self.common_form = QFormLayout(self.common_group)
         self.common_form.setFieldGrowthPolicy(
             QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow
         )
-        self.common_form.setRowWrapPolicy(
-            QFormLayout.RowWrapPolicy.WrapLongRows
-        )
+        self.common_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
         self.advanced_group = QGroupBox("Advanced")
         self.advanced_group.setCheckable(True)
         self.advanced_group.setChecked(False)
@@ -80,9 +76,7 @@ class SchemaForm(QWidget):
         self.advanced_form.setFieldGrowthPolicy(
             QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow
         )
-        self.advanced_form.setRowWrapPolicy(
-            QFormLayout.RowWrapPolicy.WrapLongRows
-        )
+        self.advanced_form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
         self.content_layout.addWidget(self.common_group)
         self.content_layout.addWidget(self.advanced_group)
         self.content_layout.addStretch(1)
@@ -188,9 +182,7 @@ class SchemaForm(QWidget):
             if spec.default is None and not spec.required:
                 checkbox.setTristate(True)
             editor: QWidget = checkbox
-        elif spec.kind == "integer" and (
-            spec.default is not None or spec.required
-        ):
+        elif spec.kind == "integer" and (spec.default is not None or spec.required):
             integer = QSpinBox()
             integer.setRange(
                 _MINIMUM if spec.minimum is None else int(spec.minimum),
@@ -198,9 +190,7 @@ class SchemaForm(QWidget):
             )
             integer.setSuffix(f" {spec.unit}" if spec.unit else "")
             editor = integer
-        elif spec.kind == "number" and (
-            spec.default is not None or spec.required
-        ):
+        elif spec.kind == "number" and (spec.default is not None or spec.required):
             number = QDoubleSpinBox()
             number.setDecimals(8)
             number.setRange(
@@ -312,10 +302,14 @@ class SchemaForm(QWidget):
         if self.function_spec is None:
             return
         for parameter in self.function_spec.parameters:
-            visible = not query or query in (
-                f"{parameter.parameter_id} {parameter.label} "
-                f"{parameter.help_text}"
-            ).casefold()
+            visible = (
+                not query
+                or query
+                in (
+                    f"{parameter.parameter_id} {parameter.label} "
+                    f"{parameter.help_text}"
+                ).casefold()
+            )
             if parameter.group == "advanced" and not self.advanced_group.isChecked():
                 visible = False
             label, editor = self._rows[parameter.parameter_id]

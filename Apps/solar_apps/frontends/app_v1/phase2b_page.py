@@ -149,9 +149,7 @@ class Phase2BPanel(NativeModulePanel):
                         else "-300,-300,300,300"
                     ),
                     frequencies=(
-                        self.frequencies.text()
-                        if self.frequencies is not None
-                        else ""
+                        self.frequencies.text() if self.frequencies is not None else ""
                     ),
                 )
             else:

@@ -30,7 +30,9 @@ def validate_allowed_path(
     """Resolve one path and prove it is below an explicitly allowed root."""
 
     candidate = Path(value).expanduser().resolve(strict=False)
-    roots = tuple(Path(item).expanduser().resolve(strict=False) for item in allowed_roots)
+    roots = tuple(
+        Path(item).expanduser().resolve(strict=False) for item in allowed_roots
+    )
     if not roots:
         raise ValueError("At least one allowed root must be configured")
     if not any(candidate == root or candidate.is_relative_to(root) for root in roots):
@@ -330,9 +332,7 @@ class PlaybackController(QObject):
 class ArtifactExportService:
     """The only typed artifact copier/serializer used by App 1.0."""
 
-    SUPPORTED_FORMATS = frozenset(
-        {"png", "csv", "json", "gif", "mp4", "webm", "zip"}
-    )
+    SUPPORTED_FORMATS = frozenset({"png", "csv", "json", "gif", "mp4", "webm", "zip"})
 
     def export(
         self,

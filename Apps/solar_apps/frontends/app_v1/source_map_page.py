@@ -188,9 +188,7 @@ class SourceMapNativePanel(NativeModulePanel):
         file_button = QPushButton("File…")
         file_button.clicked.connect(self._choose_source_file)
         folder_button = QPushButton("Folder…")
-        folder_button.clicked.connect(
-            lambda: self._choose_directory(self.source_path)
-        )
+        folder_button.clicked.connect(lambda: self._choose_directory(self.source_path))
         layout.addWidget(file_button)
         layout.addWidget(folder_button)
         return row
@@ -218,9 +216,7 @@ class SourceMapNativePanel(NativeModulePanel):
         self.next_button = QPushButton("Next")
         self.previous_button.setEnabled(False)
         self.next_button.setEnabled(False)
-        self.rectangle_button.clicked.connect(
-            lambda: self.canvas.set_tool("rectangle")
-        )
+        self.rectangle_button.clicked.connect(lambda: self.canvas.set_tool("rectangle"))
         self.lasso_button.clicked.connect(lambda: self.canvas.set_tool("lasso"))
         self.pan_button.clicked.connect(lambda: self.canvas.set_tool("pan"))
         self.fit_button.clicked.connect(self._fit_canvas)
@@ -518,7 +514,7 @@ class SourceMapNativePanel(NativeModulePanel):
         if artifact.suffix.casefold() == ".json":
             try:
                 payload = json.loads(artifact.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError):
+            except OSError, json.JSONDecodeError:
                 return
             if isinstance(payload, dict) and "public_candidates" in payload:
                 self._load_discovery(artifact, payload)
@@ -611,14 +607,16 @@ class SourceMapNativePanel(NativeModulePanel):
             return
         try:
             hpln, hplt = image_pixel_to_data(self._metadata, panel_id, x, y)
-        except (KeyError, TypeError, ValueError, ZeroDivisionError):
+        except KeyError, TypeError, ValueError, ZeroDivisionError:
             return
         self.coordinate_status.setText(f"HPLN {hpln:.2f} / HPLT {hplt:.2f}")
 
     def _canvas_roi_created(self, raw: dict[str, Any]) -> None:
         panel_id = self._panel_id()
         if self._metadata is None or panel_id is None:
-            self._show_error("Load a Source Map with a valid sidecar before drawing ROI.")
+            self._show_error(
+                "Load a Source Map with a valid sidecar before drawing ROI."
+            )
             self.canvas.clear_rois()
             return
         geometry = raw["geometry"]

@@ -39,7 +39,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--artifact-type", default="image")
     parser.add_argument("--input-dir")
     parser.add_argument("--extensions", default=".png,.jpg,.jpeg,.gif,.bmp,.tif,.tiff")
-    parser.add_argument("--recursive", action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument(
+        "--recursive", action=argparse.BooleanOptionalAction, default=False
+    )
     parser.add_argument("--allowed-roots", required=True)
     return parser
 

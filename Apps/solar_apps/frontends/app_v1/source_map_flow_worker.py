@@ -16,7 +16,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", required=True)
     parser.add_argument("--source-path", required=True)
-    parser.add_argument("--mode", choices=("single_band", "multi_band"), default="single_band")
+    parser.add_argument(
+        "--mode", choices=("single_band", "multi_band"), default="single_band"
+    )
     parser.add_argument("--frequencies", default="149,164,190")
     parser.add_argument("--polarization", default="RR+LL")
     parser.add_argument("--cmap", default="hot")

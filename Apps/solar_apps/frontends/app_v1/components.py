@@ -86,10 +86,7 @@ class RunConfirmationDialog(QDialog):
         values = (
             parse_confirmation_summary(summary)
             if isinstance(summary, str)
-            else {
-                field: str(summary.get(field, ""))
-                for field in _SUMMARY_FIELDS
-            }
+            else {field: str(summary.get(field, "")) for field in _SUMMARY_FIELDS}
         )
         root = QVBoxLayout(self)
         heading = QLabel("Review operation")
@@ -143,7 +140,11 @@ class RunConfirmationDialog(QDialog):
         root.addLayout(buttons)
 
         screen = self.screen() or (parent.screen() if parent is not None else None)
-        available = screen.availableGeometry() if screen is not None else QRectF(0, 0, 1200, 800)
+        available = (
+            screen.availableGeometry()
+            if screen is not None
+            else QRectF(0, 0, 1200, 800)
+        )
         width = max(660, min(920, int(available.width() * 0.68)))
         height = max(420, min(680, int(available.height() * 0.65)))
         self.resize(width, height)
@@ -300,9 +301,11 @@ class ScientificImageCanvas(QGraphicsView):
         width: float = 2.0,
     ) -> QGraphicsPathItem:
         clean = [
-            point
-            if isinstance(point, QPointF)
-            else QPointF(float(point[0]), float(point[1]))
+            (
+                point
+                if isinstance(point, QPointF)
+                else QPointF(float(point[0]), float(point[1]))
+            )
             for point in points
         ]
         path = QPainterPath()
@@ -467,9 +470,7 @@ class ArtifactBrowser(QWidget):
             self.text.setPlainText(text)
             self.stack.setCurrentWidget(self.text)
             return True
-        self.text.setPlainText(
-            f"{path.name}\n\nThis artifact is available at:\n{path}"
-        )
+        self.text.setPlainText(f"{path.name}\n\nThis artifact is available at:\n{path}")
         self.stack.setCurrentWidget(self.text)
         return True
 
@@ -488,7 +489,9 @@ class ArtifactBrowser(QWidget):
         return bool(selected) and self.open_path(selected)
 
     def _open_table(self, path: Path, delimiter: str) -> bool:
-        with path.open("r", encoding="utf-8-sig", errors="replace", newline="") as handle:
+        with path.open(
+            "r", encoding="utf-8-sig", errors="replace", newline=""
+        ) as handle:
             rows = list(csv.reader(handle, delimiter=delimiter))
         if not rows:
             self.table.setRowCount(0)

@@ -217,7 +217,9 @@ class ModulePage(QWidget):
         panel.reset_requested.connect(lambda: self._restore_panel_defaults(defaults))
 
     @staticmethod
-    def _restore_panel_defaults(defaults: dict[str, list[tuple[object, object]]]) -> None:
+    def _restore_panel_defaults(
+        defaults: dict[str, list[tuple[object, object]]],
+    ) -> None:
         for item, value in defaults["lines"]:
             item.setText(str(value))  # type: ignore[attr-defined]
         for item, value in defaults["combos"]:
@@ -500,7 +502,7 @@ class AppV1MainWindow(QMainWindow):
                 self.workflow_builder.load_flow(
                     self.workflow_builder.store.load(active_flow_id)
                 )
-            except (OSError, KeyError, TypeError, ValueError):
+            except OSError, KeyError, TypeError, ValueError:
                 pass
         self._show_parameter_document(self._current_module_id())
         self.output_list.clear()
@@ -541,7 +543,7 @@ class AppV1MainWindow(QMainWindow):
     def closeEvent(self, event: QCloseEvent) -> None:
         try:
             self._capture_parameter_document()
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             pass
         self.task_controller.shutdown()
         self.workflow_builder.shutdown()

@@ -126,13 +126,14 @@ class ParameterSpec(JsonContract):
         if self.list_style not in {"comma", "repeat", "json"}:
             raise ValueError(f"Unsupported list style: {self.list_style}")
         if self.item_kind is not None and (
-            self.kind != "list"
-            or self.item_kind not in {"integer", "number", "string"}
+            self.kind != "list" or self.item_kind not in {"integer", "number", "string"}
         ):
             raise ValueError("item_kind is supported only for typed list parameters")
         for flag in (self.cli_flag, self.negative_cli_flag, *self.cli_aliases):
             if flag in _INFRASTRUCTURE_FLAGS:
-                raise ValueError(f"Infrastructure flag cannot be user-adjustable: {flag}")
+                raise ValueError(
+                    f"Infrastructure flag cannot be user-adjustable: {flag}"
+                )
             if flag is not None and not flag.startswith("--"):
                 raise ValueError(f"CLI flag must start with '--': {flag}")
         object.__setattr__(
@@ -187,8 +188,7 @@ class ParameterSpec(JsonContract):
             normalized = str(value)
         if self.choices and normalized not in self.choices:
             raise ValueError(
-                f"{self.label} must be one of: "
-                + ", ".join(map(str, self.choices))
+                f"{self.label} must be one of: " + ", ".join(map(str, self.choices))
             )
         if isinstance(normalized, (int, float)) and not isinstance(normalized, bool):
             if self.minimum is not None and normalized < self.minimum:
@@ -222,9 +222,11 @@ class ArtifactPortSpec(JsonContract):
             self,
             "artifact_types",
             tuple(
-                item
-                if item == "*"
-                else validate_identifier(item, label="artifact_type")
+                (
+                    item
+                    if item == "*"
+                    else validate_identifier(item, label="artifact_type")
+                )
                 for item in self.artifact_types
             ),
         )
@@ -324,7 +326,11 @@ class FunctionSpec(JsonContract):
             "function_id",
             validate_identifier(self.function_id, label="function_id"),
         )
-        if not self.title.strip() or not self.category.strip() or not self.description.strip():
+        if (
+            not self.title.strip()
+            or not self.category.strip()
+            or not self.description.strip()
+        ):
             raise ValueError("Function title, category, and description are required")
         if not self.python_module.strip():
             raise ValueError("Function python_module is required")
@@ -400,9 +406,7 @@ class FunctionSpec(JsonContract):
                 if normalized.get(item) not in (None, "", False, [])
             )
             if conflicts:
-                raise ValueError(
-                    f"{spec.label} conflicts with: {', '.join(conflicts)}"
-                )
+                raise ValueError(f"{spec.label} conflicts with: {', '.join(conflicts)}")
             missing = [
                 item
                 for item in spec.requires
@@ -414,12 +418,12 @@ class FunctionSpec(JsonContract):
             normalized.get(item) not in (None, "", False, [])
             for item in self.required_any
         ):
-            raise ValueError(
-                "Provide at least one of: " + ", ".join(self.required_any)
-            )
+            raise ValueError("Provide at least one of: " + ", ".join(self.required_any))
         return normalized
 
-    def selected_module(self, variant_id: str | None = None) -> tuple[str, tuple[str, ...]]:
+    def selected_module(
+        self, variant_id: str | None = None
+    ) -> tuple[str, tuple[str, ...]]:
         if self.variant_family is None:
             if variant_id not in (None, "", "primary"):
                 raise ValueError(f"{self.function_id} has no scientific variants")
@@ -446,16 +450,17 @@ class FunctionSpec(JsonContract):
         ]
         if path_parameters:
             roots = tuple(
-                Path(item).expanduser().resolve(strict=False)
-                for item in allowed_roots
+                Path(item).expanduser().resolve(strict=False) for item in allowed_roots
             )
             if not roots:
                 raise ValueError(
                     f"{self.function_id} path parameters require allowed roots"
                 )
             for spec in path_parameters:
-                path = Path(str(normalized[spec.parameter_id])).expanduser().resolve(
-                    strict=False
+                path = (
+                    Path(str(normalized[spec.parameter_id]))
+                    .expanduser()
+                    .resolve(strict=False)
                 )
                 if not any(path == root or path.is_relative_to(root) for root in roots):
                     raise ValueError(
@@ -502,8 +507,10 @@ class FunctionSpec(JsonContract):
                     ),
                 ]
             )
-        if default_output and self.output_flag and not (
-            self.output_parameter and self.output_parameter in normalized
+        if (
+            default_output
+            and self.output_flag
+            and not (self.output_parameter and self.output_parameter in normalized)
         ):
             target = (
                 str(Path(default_output) / self.default_output_name)

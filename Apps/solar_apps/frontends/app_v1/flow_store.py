@@ -65,7 +65,9 @@ class AppV1FlowStore:
             )
             for item in payload.get("edges", ())
         )
-        saved = normalize_utc(payload.get("saved_at_utc") or datetime.now().astimezone())
+        saved = normalize_utc(
+            payload.get("saved_at_utc") or datetime.now().astimezone()
+        )
         return AppV1FlowV1(
             flow_id=str(payload["flow_id"]),
             name=str(payload["name"]),

@@ -287,4 +287,5 @@ class Phase2BAdapter:
             key=lambda item: item.name.casefold(),
         )
 
+
 __all__ = ["Phase2BAdapter"]
