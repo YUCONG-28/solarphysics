@@ -21,6 +21,20 @@ def test_configure_chinese_fonts_returns_selected_font(monkeypatch):
     assert selected == "Microsoft YaHei"
 
 
+def test_plotting_font_setup_uses_installed_font_selector(monkeypatch):
+    from solar_toolkit.visualization import plotting
+
+    calls: list[object] = []
+    monkeypatch.setattr(
+        "solar_toolkit.visualization.configure_chinese_fonts",
+        lambda: calls.append(True),
+    )
+
+    plotting.setup_chinese_font()
+
+    assert calls == [True]
+
+
 def test_media_fallback_uses_the_running_python_environment():
     from solar_toolkit.visualization import media
 

@@ -7,7 +7,15 @@ import math
 from datetime import timezone
 from pathlib import Path
 
-from PyQt6.QtCore import QByteArray, QDataStream, QIODevice, QPointF, Qt, pyqtSignal
+from PyQt6.QtCore import (
+    QByteArray,
+    QDataStream,
+    QIODevice,
+    QPointF,
+    QSize,
+    Qt,
+    pyqtSignal,
+)
 from PyQt6.QtGui import QBrush, QColor, QDrag, QPainter, QPen, QPixmap
 from PyQt6.QtWidgets import (
     QAbstractItemView,
@@ -43,7 +51,7 @@ from solar_apps.frontends.image_composer.models import (
 from solar_apps.frontends.image_composer.project import load_project, save_project
 
 from .phase4 import Phase4ComposerAdapter
-from .components import NativeModulePanel
+from .components import NativeModulePanel, load_preview_pixmap
 
 _FOLDER_MIME = "application/x-app-v1-composer-folder"
 
@@ -459,7 +467,7 @@ class Phase4ComposerPanel(NativeModulePanel):
     def _add_graphics_item(self, slot: LayoutSlot) -> None:
         folder = self.project.folder_map().get(slot.folder_id)
         record = folder.record_by_ordinal(slot.preview_ordinal) if folder else None
-        pixmap = QPixmap(str(record.path)) if record is not None else QPixmap()
+        pixmap = self._slot_pixmap(slot, record.path if record is not None else None)
         item = SlotGraphicsItem(self, slot, pixmap)
         self.scene.addItem(item)
         self._items[slot.id] = item
@@ -513,7 +521,9 @@ class Phase4ComposerPanel(NativeModulePanel):
         item.setRotation(item.slot.rotation)
         folder = self.project.folder_map()[item.slot.folder_id]
         record = folder.record_by_ordinal(item.slot.preview_ordinal)
-        item.set_pixmap(QPixmap(str(record.path)) if record else QPixmap())
+        item.set_pixmap(
+            self._slot_pixmap(item.slot, record.path if record is not None else None)
+        )
 
     def slot_geometry_changed(self, item: SlotGraphicsItem) -> None:
         if item.isSelected():
@@ -577,7 +587,11 @@ class Phase4ComposerPanel(NativeModulePanel):
             item.slot.height = height
             folder = self.project.folder_map()[item.slot.folder_id]
             record = folder.record_by_ordinal(item.slot.preview_ordinal)
-            item.set_pixmap(QPixmap(str(record.path)) if record else QPixmap())
+            item.set_pixmap(
+                self._slot_pixmap(
+                    item.slot, record.path if record is not None else None
+                )
+            )
 
     def auto_grid(self) -> None:
         items = list(self._items.values())
@@ -597,7 +611,11 @@ class Phase4ComposerPanel(NativeModulePanel):
             item.setPos(column * cell_width, row * cell_height)
             folder = self.project.folder_map()[item.slot.folder_id]
             record = folder.record_by_ordinal(item.slot.preview_ordinal)
-            item.set_pixmap(QPixmap(str(record.path)) if record else QPixmap())
+            item.set_pixmap(
+                self._slot_pixmap(
+                    item.slot, record.path if record is not None else None
+                )
+            )
 
     def change_layer(self, direction: int) -> None:
         items = self._selected_items()
@@ -684,10 +702,19 @@ class Phase4ComposerPanel(NativeModulePanel):
             record = nearest_record(folder, folder.selected_records(), current)
             slot.preview_ordinal = record.ordinal
             slot.preview_relative_path = record.path.name
-            self._items[slot.id].set_pixmap(QPixmap(str(record.path)))
+            self._items[slot.id].set_pixmap(self._slot_pixmap(slot, record.path))
             updated += 1
         rendered = current_time_utc.isoformat().replace("+00:00", "Z")
         self.sync_status.setText(f"UTC sync: {rendered}; updated {updated} layer(s)")
+
+    @staticmethod
+    def _slot_pixmap(slot: LayoutSlot, path: Path | None) -> QPixmap:
+        if path is None:
+            return QPixmap()
+        return load_preview_pixmap(
+            path,
+            QSize(max(1, round(slot.width)), max(1, round(slot.height))),
+        )
 
     def request_static_export(self) -> None:
         self._request(

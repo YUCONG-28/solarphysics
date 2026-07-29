@@ -54,7 +54,7 @@ class TaskRecord:
 
 
 class TaskQueueController(QObject):
-    """Execute Python modules sequentially using the launcher-selected runtime."""
+    """Execute queued Python modules with bounded supervised concurrency."""
 
     task_changed = pyqtSignal(str)
     log_line = pyqtSignal(str, str)
@@ -67,9 +67,9 @@ class TaskQueueController(QObject):
         self.layout = layout
         self._records: dict[str, TaskRecord] = {}
         self._pending: deque[str] = deque()
-        self._current_id: str | None = None
-        self._process: QProcess | None = None
-        self._stdout_buffer = ""
+        self._processes: dict[str, QProcess] = {}
+        self._stdout_buffers: dict[str, str] = {}
+        self._max_concurrency = 1
         self._shutdown = False
 
     @property
@@ -78,14 +78,31 @@ class TaskQueueController(QObject):
 
     @property
     def current_task_id(self) -> str | None:
-        return self._current_id
+        return next(iter(self._processes), None)
+
+    @property
+    def active_task_ids(self) -> tuple[str, ...]:
+        return tuple(self._processes)
+
+    @property
+    def max_concurrency(self) -> int:
+        return self._max_concurrency
 
     @property
     def process_running(self) -> bool:
-        return (
-            self._process is not None
-            and self._process.state() != QProcess.ProcessState.NotRunning
+        return any(
+            process.state() != QProcess.ProcessState.NotRunning
+            for process in self._processes.values()
         )
+
+    def set_max_concurrency(self, value: int) -> None:
+        """Set the worker bound without interrupting already-running tasks."""
+
+        clean = int(value)
+        if not 1 <= clean <= 4:
+            raise ValueError("Task concurrency must be between 1 and 4")
+        self._max_concurrency = clean
+        QTimer.singleShot(0, self._start_next)
 
     def task(self, task_id: str) -> TaskRecord:
         try:
@@ -154,7 +171,7 @@ class TaskQueueController(QObject):
         record = self.task(task_id)
         if record.status in _TERMINAL:
             return record
-        if task_id != self._current_id:
+        if task_id not in self._processes:
             try:
                 self._pending.remove(task_id)
             except ValueError:
@@ -165,10 +182,10 @@ class TaskQueueController(QObject):
 
         record.status = "cancelling"
         self.task_changed.emit(task_id)
-        process = self._process
+        process = self._processes.get(task_id)
         if process is not None and process.state() != QProcess.ProcessState.NotRunning:
             process.terminate()
-            QTimer.singleShot(1200, self._kill_if_running)
+            QTimer.singleShot(1200, lambda: self._kill_if_running(task_id))
         return record
 
     def retry(self, task_id: str) -> TaskRecord:
@@ -188,27 +205,29 @@ class TaskQueueController(QObject):
         self._shutdown = True
         for task_id in tuple(self._pending):
             self.cancel(task_id)
-        if self._current_id is None:
-            return
-        self.cancel(self._current_id)
-        process = self._process
-        if process is None:
-            return
-        if not process.waitForFinished(max(0, int(timeout_ms))):
-            process.kill()
-            process.waitForFinished(1000)
+        task_ids = tuple(self._processes)
+        for task_id in task_ids:
+            self.cancel(task_id)
+        wait_each = max(0, int(timeout_ms)) // max(1, len(task_ids))
+        for task_id in task_ids:
+            process = self._processes.get(task_id)
+            if process is None:
+                continue
+            if not process.waitForFinished(wait_each):
+                process.kill()
+                process.waitForFinished(1000)
 
     def _start_next(self) -> None:
-        if self._shutdown or self._current_id is not None:
+        if self._shutdown:
             return
-        while self._pending:
+        while self._pending and len(self._processes) < self._max_concurrency:
             task_id = self._pending.popleft()
             record = self._records[task_id]
             if record.status == "cancelled":
                 continue
             self._launch(record)
-            return
-        self.queue_idle.emit()
+        if not self._pending and not self._processes:
+            self.queue_idle.emit()
 
     def _launch(self, record: TaskRecord) -> None:
         process = QProcess(self)
@@ -217,41 +236,60 @@ class TaskQueueController(QObject):
         environment = QProcessEnvironment()
         for key, value in miniforge_subprocess_environment().items():
             environment.insert(str(key), str(value))
+        cache_root = self.layout.tmp_dir / "app_v1" / "worker-cache"
+        cache_dirs = {
+            "MPLCONFIGDIR": cache_root / "matplotlib",
+            "SUNPY_CONFIGDIR": cache_root / "sunpy",
+            "XDG_CACHE_HOME": cache_root / "xdg",
+        }
+        for key, directory in cache_dirs.items():
+            directory.mkdir(parents=True, exist_ok=True)
+            environment.insert(key, str(directory))
         environment.insert("APP_V1_RUN_ID", record.task_id)
         environment.insert("APP_V1_MODULE_ID", record.module_id)
         process.setProcessEnvironment(environment)
         process.setProgram(str(selected_python_executable()))
         process.setArguments(["-m", record.python_module, *record.arguments])
-        process.readyReadStandardOutput.connect(self._read_output)
-        process.started.connect(self._process_started)
-        process.errorOccurred.connect(self._process_error)
-        process.finished.connect(self._process_finished)
-        self._current_id = record.task_id
-        self._process = process
-        self._stdout_buffer = ""
+        task_id = record.task_id
+        process.readyReadStandardOutput.connect(
+            lambda task_id=task_id: self._read_output(task_id)
+        )
+        process.started.connect(lambda task_id=task_id: self._process_started(task_id))
+        process.errorOccurred.connect(
+            lambda error, task_id=task_id: self._process_error(task_id, error)
+        )
+        process.finished.connect(
+            lambda exit_code, exit_status, task_id=task_id: self._process_finished(
+                task_id,
+                exit_code,
+                exit_status,
+            )
+        )
+        self._processes[task_id] = process
+        self._stdout_buffers[task_id] = ""
         record.status = "starting"
-        self.task_changed.emit(record.task_id)
+        self.task_changed.emit(task_id)
         process.start()
 
-    def _process_started(self) -> None:
-        record = self._current_record()
+    def _process_started(self, task_id: str) -> None:
+        record = self._records.get(task_id)
         if record is None:
             return
         record.status = "running"
         self.task_changed.emit(record.task_id)
 
-    def _read_output(self) -> None:
-        process = self._process
-        record = self._current_record()
+    def _read_output(self, task_id: str) -> None:
+        process = self._processes.get(task_id)
+        record = self._records.get(task_id)
         if process is None or record is None:
             return
-        text = self._stdout_buffer + bytes(process.readAllStandardOutput()).decode(
-            "utf-8", errors="replace"
-        )
+        text = self._stdout_buffers.get(task_id, "") + bytes(
+            process.readAllStandardOutput()
+        ).decode("utf-8", errors="replace")
         lines = text.splitlines(keepends=True)
-        self._stdout_buffer = ""
+        self._stdout_buffers[task_id] = ""
         if lines and not lines[-1].endswith(("\n", "\r")):
-            self._stdout_buffer = lines.pop()
+            self._stdout_buffers[task_id] = lines.pop()
         for line in lines:
             self._process_output_line(record, line.rstrip("\r\n"))
 
@@ -306,8 +344,12 @@ class TaskQueueController(QObject):
         self.worker_event.emit(record.task_id, event)
         return True
 
-    def _process_error(self, _error: QProcess.ProcessError) -> None:
-        record = self._current_record()
+    def _process_error(
+        self,
+        task_id: str,
+        _error: QProcess.ProcessError,
+    ) -> None:
+        record = self._records.get(task_id)
         if record is None or record.status == "cancelling":
             return
         record.logs.append("The worker process could not be started or continued.")
@@ -315,15 +357,16 @@ class TaskQueueController(QObject):
 
     def _process_finished(
         self,
+        task_id: str,
         exit_code: int,
         _exit_status: QProcess.ExitStatus,
     ) -> None:
-        self._read_output()
-        record = self._current_record()
+        self._read_output(task_id)
+        record = self._records.get(task_id)
         if record is not None:
-            if self._stdout_buffer:
-                self._process_output_line(record, self._stdout_buffer)
-                self._stdout_buffer = ""
+            buffer = self._stdout_buffers.get(task_id, "")
+            if buffer:
+                self._process_output_line(record, buffer)
             record.return_code = int(exit_code)
             if record.status == "cancelling":
                 record.status = "cancelled"
@@ -334,9 +377,8 @@ class TaskQueueController(QObject):
             else:
                 record.status = "failed"
             self.task_changed.emit(record.task_id)
-        process = self._process
-        self._current_id = None
-        self._process = None
+        process = self._processes.pop(task_id, None)
+        self._stdout_buffers.pop(task_id, None)
         if process is not None:
             process.deleteLater()
         QTimer.singleShot(0, self._start_next)
@@ -358,15 +400,10 @@ class TaskQueueController(QObject):
             record.artifacts.append(rendered)
             self.artifact_ready.emit(record.task_id, rendered)
 
-    def _kill_if_running(self) -> None:
-        process = self._process
+    def _kill_if_running(self, task_id: str) -> None:
+        process = self._processes.get(task_id)
         if process is not None and process.state() != QProcess.ProcessState.NotRunning:
             process.kill()
-
-    def _current_record(self) -> TaskRecord | None:
-        if self._current_id is None:
-            return None
-        return self._records.get(self._current_id)
 
 
 __all__ = ["TaskQueueController", "TaskRecord"]

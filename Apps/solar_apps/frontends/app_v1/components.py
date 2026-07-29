@@ -7,7 +7,7 @@ import csv
 import json
 from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
-from PyQt6.QtCore import QPointF, QRectF, Qt, pyqtSignal
+from PyQt6.QtCore import QPointF, QRectF, QSize, Qt, pyqtSignal
 from PyQt6.QtGui import (
     QAction,
     QBrush,
@@ -15,6 +15,7 @@ from PyQt6.QtGui import (
     QPainter,
     QPainterPath,
     QPen,
+    QImageReader,
     QPixmap,
 )
 from PyQt6.QtWidgets import (
@@ -44,6 +45,37 @@ from PyQt6.QtWidgets import (
 )
 
 _SUMMARY_FIELDS = ("Module", "Input", "Parameters", "Output", "Workload")
+
+
+def load_preview_pixmap(
+    value: str | Path,
+    target_size: QSize,
+    *,
+    minimum_size: QSize = QSize(320, 240),
+    maximum_size: QSize = QSize(2048, 2048),
+) -> QPixmap:
+    """Decode an image near its on-screen size to avoid large QImage allocations."""
+
+    reader = QImageReader(str(value))
+    reader.setAutoTransform(True)
+    source_size = reader.size()
+    width = min(max(target_size.width(), minimum_size.width()), maximum_size.width())
+    height = min(
+        max(target_size.height(), minimum_size.height()),
+        maximum_size.height(),
+    )
+    if source_size.isValid():
+        scaled = source_size.scaled(
+            QSize(width, height),
+            Qt.AspectRatioMode.KeepAspectRatio,
+        )
+        if (
+            scaled.width() < source_size.width()
+            or scaled.height() < source_size.height()
+        ):
+            reader.setScaledSize(scaled)
+    image = reader.read()
+    return QPixmap.fromImage(image) if not image.isNull() else QPixmap()
 
 
 def parse_confirmation_summary(summary: str) -> dict[str, str]:
@@ -86,10 +118,7 @@ class RunConfirmationDialog(QDialog):
         values = (
             parse_confirmation_summary(summary)
             if isinstance(summary, str)
-            else {
-                field: str(summary.get(field, ""))
-                for field in _SUMMARY_FIELDS
-            }
+            else {field: str(summary.get(field, "")) for field in _SUMMARY_FIELDS}
         )
         root = QVBoxLayout(self)
         heading = QLabel("Review operation")
@@ -143,7 +172,11 @@ class RunConfirmationDialog(QDialog):
         root.addLayout(buttons)
 
         screen = self.screen() or (parent.screen() if parent is not None else None)
-        available = screen.availableGeometry() if screen is not None else QRectF(0, 0, 1200, 800)
+        available = (
+            screen.availableGeometry()
+            if screen is not None
+            else QRectF(0, 0, 1200, 800)
+        )
         width = max(660, min(920, int(available.width() * 0.68)))
         height = max(420, min(680, int(available.height() * 0.65)))
         self.resize(width, height)
@@ -300,9 +333,11 @@ class ScientificImageCanvas(QGraphicsView):
         width: float = 2.0,
     ) -> QGraphicsPathItem:
         clean = [
-            point
-            if isinstance(point, QPointF)
-            else QPointF(float(point[0]), float(point[1]))
+            (
+                point
+                if isinstance(point, QPointF)
+                else QPointF(float(point[0]), float(point[1]))
+            )
             for point in points
         ]
         path = QPainterPath()
@@ -438,7 +473,7 @@ class ArtifactBrowser(QWidget):
         self.current_path = path
         suffix = path.suffix.casefold()
         if suffix in {".png", ".jpg", ".jpeg", ".bmp", ".gif"}:
-            pixmap = QPixmap(str(path))
+            pixmap = load_preview_pixmap(path, self.image.size())
             if not pixmap.isNull():
                 target = self.image.size()
                 self.image.setPixmap(
@@ -467,9 +502,7 @@ class ArtifactBrowser(QWidget):
             self.text.setPlainText(text)
             self.stack.setCurrentWidget(self.text)
             return True
-        self.text.setPlainText(
-            f"{path.name}\n\nThis artifact is available at:\n{path}"
-        )
+        self.text.setPlainText(f"{path.name}\n\nThis artifact is available at:\n{path}")
         self.stack.setCurrentWidget(self.text)
         return True
 
@@ -488,7 +521,9 @@ class ArtifactBrowser(QWidget):
         return bool(selected) and self.open_path(selected)
 
     def _open_table(self, path: Path, delimiter: str) -> bool:
-        with path.open("r", encoding="utf-8-sig", errors="replace", newline="") as handle:
+        with path.open(
+            "r", encoding="utf-8-sig", errors="replace", newline=""
+        ) as handle:
             rows = list(csv.reader(handle, delimiter=delimiter))
         if not rows:
             self.table.setRowCount(0)
@@ -528,5 +563,6 @@ __all__ = [
     "RunConfirmationDialog",
     "ScientificImageCanvas",
     "first_artifact",
+    "load_preview_pixmap",
     "parse_confirmation_summary",
 ]

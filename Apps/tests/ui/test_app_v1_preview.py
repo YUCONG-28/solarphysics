@@ -96,6 +96,70 @@ def test_offscreen_preview_registers_ten_pages_and_switches_themes(
     assert result["dock_count"] == 7
 
 
+def test_restored_bottom_docks_leave_the_active_page_visible(tmp_path: Path) -> None:
+    script = r"""
+import json
+import sys
+from pathlib import Path
+from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import QApplication
+from solar_apps.frontends.app_v1.window import AppV1MainWindow
+from solar_apps.platform.layout import RuntimeLayout
+
+application = QApplication(["app-v1-layout-smoke"])
+layout = RuntimeLayout.discover(
+    Path.cwd().parent,
+    environ={"SOLAR_APPS_LOCAL_ROOT": sys.argv[1]},
+).ensure()
+window = AppV1MainWindow(layout)
+window.resize(1280, 800)
+window.show()
+application.processEvents()
+window.resizeDocks([window.task_dock], [700], Qt.Orientation.Vertical)
+application.processEvents()
+window._constrain_bottom_docks()
+application.processEvents()
+print("APP_V1_LAYOUT " + json.dumps({
+    "page_height": window.page_stack.height(),
+    "minimum_page_height": window.page_stack.minimumHeight(),
+    "dock_height": window.task_dock.height(),
+    "window_height": window.height(),
+}))
+window.close()
+application.processEvents()
+"""
+    environment = dict(os.environ)
+    environment.update(
+        {
+            "QT_QPA_PLATFORM": "offscreen",
+            "PYTHONNOUSERSITE": "1",
+        }
+    )
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            script,
+            str(tmp_path / "Local"),
+        ],
+        cwd=APPS_ROOT,
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=30,
+    )
+    assert completed.returncode == 0, completed.stderr
+    line = next(
+        item
+        for item in completed.stdout.splitlines()
+        if item.startswith("APP_V1_LAYOUT ")
+    )
+    result = json.loads(line.removeprefix("APP_V1_LAYOUT "))
+    assert result["page_height"] >= result["minimum_page_height"] == 360
+    assert result["dock_height"] <= 260
+
+
 def test_offscreen_preview_cancels_worker_without_leaving_a_process(
     tmp_path: Path,
 ) -> None:

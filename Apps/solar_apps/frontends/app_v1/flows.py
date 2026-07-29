@@ -110,7 +110,9 @@ class AppV1FlowV1(JsonContract):
         for edge in self.edges:
             children[edge.source_node].append(edge.target_node)
             indegree[edge.target_node] += 1
-        ready = deque(item.node_id for item in self.nodes if indegree[item.node_id] == 0)
+        ready = deque(
+            item.node_id for item in self.nodes if indegree[item.node_id] == 0
+        )
         ordered: list[str] = []
         while ready:
             node_id = ready.popleft()
@@ -181,16 +183,25 @@ class FunctionCatalog:
             source = self.get(nodes[edge.source_node].function_id)
             target = self.get(nodes[edge.target_node].function_id)
             try:
-                output = next(item for item in source.outputs if item.port_id == edge.source_port)
-                input_port = next(item for item in target.inputs if item.port_id == edge.target_port)
+                output = next(
+                    item for item in source.outputs if item.port_id == edge.source_port
+                )
+                input_port = next(
+                    item for item in target.inputs if item.port_id == edge.target_port
+                )
             except StopIteration as exc:
-                raise ValueError("Flow edge references an unknown function port") from exc
+                raise ValueError(
+                    "Flow edge references an unknown function port"
+                ) from exc
             if not input_port.accepts(output.artifact_types):
                 raise ValueError(
                     f"Incompatible artifact edge: {source.function_id}.{output.port_id} "
                     f"→ {target.function_id}.{input_port.port_id}"
                 )
-            if not input_port.multiple and edge.target_port in connected_inputs[edge.target_node]:
+            if (
+                not input_port.multiple
+                and edge.target_port in connected_inputs[edge.target_node]
+            ):
                 raise ValueError(
                     f"Input {edge.target_node}.{edge.target_port} accepts one connection"
                 )

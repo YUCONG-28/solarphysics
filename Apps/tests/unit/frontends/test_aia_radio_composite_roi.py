@@ -129,7 +129,9 @@ def test_radio_frame_uses_existing_radio_reference_roi_selector() -> None:
     assert figure.layout.yaxis.range == (-70.0, 70.0)
     assert figure.layout.meta["roi_coordinate_source"] == "radio_source_frame"
     assert artifact.radio_frame is not None
-    assert figure.layout.meta["radio_path"] == str(artifact.radio_frame.path)
+    assert figure.layout.meta["radio_path"] == str(
+        artifact.radio_frame.path.resolve(strict=False)
+    )
     assert figure.layout.meta["display_percentiles"] == [90.0, 99.0]
     assert figure.layout.images == ()
     assert figure.data[0].type == "heatmap"

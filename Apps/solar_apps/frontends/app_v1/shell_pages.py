@@ -10,6 +10,7 @@ from pathlib import Path
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QComboBox,
+    QFileDialog,
     QFormLayout,
     QHBoxLayout,
     QLabel,
@@ -71,7 +72,7 @@ class WorkbenchNativePanel(NativeModulePanel):
         self.description.setProperty("muted", True)
         try:
             configured = configured_allowed_roots()
-        except (OSError, TypeError, ValueError):
+        except OSError, TypeError, ValueError:
             configured = ()
         self.allowed_roots = (
             *configured,
@@ -79,9 +80,7 @@ class WorkbenchNativePanel(NativeModulePanel):
             self.runtime.workspaces_dir,
             self.runtime.tmp_dir,
         )
-        self.form = SchemaForm(
-            allowed_roots=tuple(map(str, self.allowed_roots))
-        )
+        self.form = SchemaForm(allowed_roots=tuple(map(str, self.allowed_roots)))
         run = QPushButton("Review and run")
         run.setProperty("primary", True)
         run.clicked.connect(self._request_run)
@@ -173,6 +172,9 @@ class RadioWorkspaceNativePanel(NativeModulePanel):
     """Native module/preset coordinator that keeps work inside App 1.0."""
 
     navigate_requested = pyqtSignal(str)
+    batch_requested = pyqtSignal(object)
+    concurrency_changed = pyqtSignal(int)
+    allowed_root_requested = pyqtSignal(str)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(
@@ -190,17 +192,33 @@ class RadioWorkspaceNativePanel(NativeModulePanel):
         self.concurrency = QSpinBox()
         self.concurrency.setRange(1, 4)
         self.concurrency.setValue(1)
+        self.concurrency.valueChanged.connect(self.concurrency_changed)
         self.allowed_root = QLineEdit()
         self.configure_path_field(self.allowed_root)
+        root_row = QWidget()
+        root_layout = QHBoxLayout(root_row)
+        root_layout.setContentsMargins(0, 0, 0, 0)
+        root_layout.addWidget(self.allowed_root, 1)
+        browse_root = QPushButton("Browse…")
+        browse_root.clicked.connect(self._browse_root)
+        apply_root = QPushButton("Apply")
+        apply_root.clicked.connect(
+            lambda: self.allowed_root_requested.emit(self.allowed_root.text().strip())
+        )
+        root_layout.addWidget(browse_root)
+        root_layout.addWidget(apply_root)
         form.addRow("Workspace", self.workspace_name)
         form.addRow("Preset", self.preset)
         form.addRow("Concurrent workers", self.concurrency)
-        form.addRow("Allowed root", self.allowed_root)
+        form.addRow("Allowed root", root_row)
         root.addLayout(form)
 
         self.modules = QListWidget()
         for descriptor in MODULES:
-            if descriptor.category != "Radio" or descriptor.module_id == "radio-workspace":
+            if (
+                descriptor.category != "Radio"
+                or descriptor.module_id == "radio-workspace"
+            ):
                 continue
             item = QListWidgetItem(descriptor.title)
             item.setData(Qt.ItemDataRole.UserRole, descriptor.module_id)
@@ -215,12 +233,16 @@ class RadioWorkspaceNativePanel(NativeModulePanel):
         open_selected = QPushButton("Open selected module")
         open_selected.setProperty("primary", True)
         open_selected.clicked.connect(self._open_selected)
+        queue_batch = QPushButton("Review and queue checked")
+        queue_batch.setProperty("primary", True)
+        queue_batch.clicked.connect(self._request_batch)
         figure_studio = QPushButton("Open Figure Studio")
         figure_studio.clicked.connect(
             lambda: self.navigate_requested.emit("image-composer")
         )
         actions.addWidget(apply_preset)
         actions.addWidget(open_selected)
+        actions.addWidget(queue_batch)
         actions.addWidget(figure_studio)
         actions.addStretch(1)
         root.addLayout(actions)
@@ -231,11 +253,35 @@ class RadioWorkspaceNativePanel(NativeModulePanel):
         self.status.setProperty("muted", True)
         root.addWidget(self.status)
 
+        results_row = QHBoxLayout()
+        results_row.addWidget(QLabel("Results"))
+        self.result_filter = QComboBox()
+        self.result_filter.addItem("All", "all")
+        for status in ("queued", "running", "succeeded", "failed", "cancelled"):
+            self.result_filter.addItem(status.title(), status)
+        self.result_filter.currentIndexChanged.connect(self._filter_results)
+        results_row.addWidget(self.result_filter)
+        results_row.addStretch(1)
+        root.addLayout(results_row)
+        self.results = QListWidget()
+        self.results.setMaximumHeight(160)
+        root.addWidget(self.results)
+        self._result_records: tuple[object, ...] = ()
+
     def _apply_preset(self) -> None:
         selected = str(self.preset.currentData())
-        imaging = {"bad-frame-review", "source-map", "roi-lightcurve", "radio-composite"}
+        imaging = {
+            "bad-frame-review",
+            "source-map",
+            "roi-lightcurve",
+            "radio-composite",
+        }
         spectra = {"dart-spectrogram", "source-trajectory"}
-        enabled = imaging if selected == "imaging" else spectra if selected == "spectra" else None
+        enabled = (
+            imaging
+            if selected == "imaging"
+            else spectra if selected == "spectra" else None
+        )
         for row in range(self.modules.count()):
             item = self.modules.item(row)
             module_id = str(item.data(Qt.ItemDataRole.UserRole))
@@ -253,6 +299,49 @@ class RadioWorkspaceNativePanel(NativeModulePanel):
 
     def _navigate_item(self, item: QListWidgetItem) -> None:
         self.navigate_requested.emit(str(item.data(Qt.ItemDataRole.UserRole)))
+
+    def _request_batch(self) -> None:
+        selected = tuple(
+            str(item.data(Qt.ItemDataRole.UserRole))
+            for row in range(self.modules.count())
+            if (item := self.modules.item(row)).checkState() == Qt.CheckState.Checked
+        )
+        if not selected:
+            self.status.setText("Check at least one configured module")
+            return
+        self.batch_requested.emit(selected)
+
+    def _browse_root(self) -> None:
+        selected = QFileDialog.getExistingDirectory(
+            self,
+            "Select allowed radio workspace root",
+            self.allowed_root.text().strip(),
+            QFileDialog.Option.ShowDirsOnly,
+        )
+        if selected:
+            self.allowed_root.setText(selected)
+
+    def set_task_records(self, records: tuple[object, ...]) -> None:
+        """Refresh the native result filter from the shared task controller."""
+
+        self._result_records = records
+        self._filter_results()
+
+    def _filter_results(self) -> None:
+        selected = str(self.result_filter.currentData())
+        self.results.clear()
+        for record in self._result_records:
+            status = str(getattr(record, "status", "unknown"))
+            if selected != "all" and status != selected:
+                continue
+            title = str(getattr(record, "title", "Untitled task"))
+            artifacts = len(getattr(record, "artifacts", ()))
+            self.results.addItem(
+                f"{status.upper()} · {title} · {artifacts} artifact(s)"
+            )
+
+    def set_status(self, message: str) -> None:
+        self.status.setText(message)
 
 
 __all__ = ["RadioWorkspaceNativePanel", "WorkbenchNativePanel"]

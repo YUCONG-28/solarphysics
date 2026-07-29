@@ -75,12 +75,15 @@ def scan_fits(
 def get_sorted_fits_files(
     input_dir: str | Path,
     min_size_kb: int = 1,
+    *,
+    recursive: bool = False,
 ) -> list[tuple[Path, dt.datetime]]:
     """Return valid ``.fits`` files paired with parsed times, sorted by time."""
 
     files: list[tuple[Path, dt.datetime]] = []
     input_path = Path(input_dir)
-    for path in input_path.iterdir():
+    iterator = input_path.rglob("*") if recursive else input_path.iterdir()
+    for path in iterator:
         if path.suffix.lower() != ".fits":
             continue
         try:

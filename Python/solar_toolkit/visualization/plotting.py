@@ -21,12 +21,11 @@ def get_aia_wavelength_config(wavelength: int) -> dict[str, Any]:
 
 
 def setup_chinese_font() -> None:
-    """Apply the historical Matplotlib CJK font fallback list."""
+    """Select one installed font instead of requesting missing font families."""
 
-    import matplotlib.pyplot as plt
+    from solar_toolkit.visualization import configure_chinese_fonts
 
-    plt.rcParams["font.family"] = ["SimHei", "Microsoft YaHei", "sans-serif"]
-    plt.rcParams["axes.unicode_minus"] = False
+    configure_chinese_fonts()
 
 
 def create_figure_with_white_background(

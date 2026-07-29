@@ -41,9 +41,7 @@ def radio_workspace_functions(
             if action.id == "cso-legacy-mode":
                 continue
             aliases = (
-                ("cso-legacy-mode",)
-                if action.id == "dynamic-spectrum-drift"
-                else ()
+                ("cso-legacy-mode",) if action.id == "dynamic-spectrum-drift" else ()
             )
             parameters = tuple(
                 _parameter(field, action)
@@ -142,9 +140,7 @@ def _parameter(field: dict[str, Any], action: object) -> ParameterSpec:
             else str(field["config_path"])
         ),
         path_extensions=tuple(field.get("extensions") or ()),
-        allow_empty=not (
-            bool(field.get("required")) or name in required_fields
-        ),
+        allow_empty=not (bool(field.get("required")) or name in required_fields),
         item_kind="string" if field_type == "multiselect" else None,
     )
 

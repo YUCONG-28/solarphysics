@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import csv
 import json
+import math
 import shutil
 from collections.abc import Mapping, Sequence
 from pathlib import Path
@@ -30,7 +31,9 @@ def validate_allowed_path(
     """Resolve one path and prove it is below an explicitly allowed root."""
 
     candidate = Path(value).expanduser().resolve(strict=False)
-    roots = tuple(Path(item).expanduser().resolve(strict=False) for item in allowed_roots)
+    roots = tuple(
+        Path(item).expanduser().resolve(strict=False) for item in allowed_roots
+    )
     if not roots:
         raise ValueError("At least one allowed root must be configured")
     if not any(candidate == root or candidate.is_relative_to(root) for root in roots):
@@ -131,6 +134,8 @@ def validate_roi(value: Mapping[str, Any]) -> dict[str, Any]:
             clean_geometry = {name: float(geometry[name]) for name in names}
         except (KeyError, TypeError, ValueError) as exc:
             raise ValueError("Rectangle ROI requires finite bounds") from exc
+        if not all(math.isfinite(item) for item in clean_geometry.values()):
+            raise ValueError("Rectangle ROI requires finite bounds")
         if clean_geometry["left"] >= clean_geometry["right"]:
             raise ValueError("Rectangle ROI left must be below right")
         if clean_geometry["top"] == clean_geometry["bottom"]:
@@ -145,12 +150,39 @@ def validate_roi(value: Mapping[str, Any]) -> dict[str, Any]:
             }
         except (IndexError, TypeError, ValueError) as exc:
             raise ValueError("Invalid lasso ROI point") from exc
+        if not all(
+            math.isfinite(coordinate)
+            for point in clean_geometry["points"]
+            for coordinate in point
+        ):
+            raise ValueError("Invalid lasso ROI point")
+    name = str(value.get("name") or f"{roi_type.title()} ROI").strip()
+    if not name:
+        raise ValueError("ROI name must not be blank")
+    raw_style = value.get("style")
+    style = dict(raw_style) if isinstance(raw_style, Mapping) else {}
+    color = str(style.get("color") or "#00d4ff").strip()
+    try:
+        line_width = float(style.get("line_width", 3.0))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("ROI line width must be finite and positive") from exc
+    if not color:
+        raise ValueError("ROI color must not be blank")
+    if not math.isfinite(line_width) or line_width <= 0:
+        raise ValueError("ROI line width must be finite and positive")
     clean = dict(value)
     clean.update(
         {
             "schema_version": 1,
+            "name": name,
             "type": roi_type,
             "geometry": clean_geometry,
+            "visible": bool(value.get("visible", True)),
+            "style": {
+                "color": color,
+                "line_width": line_width,
+                "show_label": bool(style.get("show_label", True)),
+            },
         }
     )
     return clean
@@ -172,14 +204,26 @@ class RoiController(QObject):
         return tuple(dict(item) for item in self._items)
 
     def add(self, value: Mapping[str, Any]) -> dict[str, Any]:
-        clean = validate_roi(value)
+        candidate = dict(value)
+        if not str(candidate.get("name") or "").strip():
+            used = {str(item.get("name") or "").casefold() for item in self._items}
+            index = len(self._items) + 1
+            while f"roi {index}".casefold() in used:
+                index += 1
+            candidate["name"] = f"ROI {index}"
+        clean = validate_roi(candidate)
         self._remember()
         self._items.append(clean)
         self.changed.emit(self.items)
         return clean
 
     def replace(self, values: Sequence[Mapping[str, Any]]) -> None:
-        clean = [validate_roi(item) for item in values]
+        clean = [
+            validate_roi(
+                {**item, "name": str(item.get("name") or f"ROI {index}").strip()}
+            )
+            for index, item in enumerate(values, start=1)
+        ]
         self._remember()
         self._items = clean
         self.changed.emit(self.items)
@@ -213,7 +257,12 @@ class RoiController(QObject):
         if not isinstance(values, Sequence):
             raise TypeError("ROI document must contain a list")
         self._remember()
-        self._items = [validate_roi(item) for item in values]
+        self._items = [
+            validate_roi(
+                {**item, "name": str(item.get("name") or f"ROI {index}").strip()}
+            )
+            for index, item in enumerate(values, start=1)
+        ]
         self.changed.emit(self.items)
         return self.items
 
@@ -330,9 +379,7 @@ class PlaybackController(QObject):
 class ArtifactExportService:
     """The only typed artifact copier/serializer used by App 1.0."""
 
-    SUPPORTED_FORMATS = frozenset(
-        {"png", "csv", "json", "gif", "mp4", "webm", "zip"}
-    )
+    SUPPORTED_FORMATS = frozenset({"png", "csv", "json", "gif", "mp4", "webm", "zip"})
 
     def export(
         self,

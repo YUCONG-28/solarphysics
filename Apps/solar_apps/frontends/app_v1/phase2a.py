@@ -39,6 +39,15 @@ class ImageSequenceSelection:
     summary: str
 
 
+@dataclass(frozen=True, slots=True)
+class ImageGroupSelection:
+    """Index-synchronized image folders for native comparison and export."""
+
+    groups: tuple[ImageSequenceSelection, ...]
+    recursive: bool
+    summary: str
+
+
 class Phase2AAdapter:
     """Validate inputs and build commands without duplicating science code."""
 
@@ -89,6 +98,89 @@ class Phase2AAdapter:
             summary,
         )
 
+    def select_image_groups(
+        self,
+        folders: tuple[str | Path, ...],
+        *,
+        recursive: bool = False,
+    ) -> ImageGroupSelection:
+        groups = tuple(
+            self.select_images(folder, recursive=recursive)
+            for folder in dict.fromkeys(folders)
+        )
+        if not groups:
+            raise ValueError("Select at least one image folder")
+        summary = "\n".join(
+            (
+                "Module: Image Viewer",
+                "Input: " + "; ".join(str(group.folder) for group in groups),
+                (
+                    f"Parameters: groups={len(groups)}; "
+                    f"recursive={str(bool(recursive)).lower()}"
+                ),
+                "Output: none (read-only synchronized preview)",
+                ("Workload: " f"{sum(len(group.images) for group in groups)} image(s)"),
+            )
+        )
+        return ImageGroupSelection(groups, bool(recursive), summary)
+
+    def build_image_export(
+        self,
+        selection: ImageGroupSelection,
+        *,
+        output_format: str = "mp4",
+        composite: bool = True,
+        fps: float = 5.0,
+        workers: int = 1,
+    ) -> TaskLaunch:
+        if output_format not in {"mp4", "gif", "webm"}:
+            raise ValueError("Image export format must be MP4, GIF, or WebM")
+        if not 0.2 <= float(fps) <= 120:
+            raise ValueError("Image export FPS must be between 0.2 and 120")
+        if not 1 <= int(workers) <= 16:
+            raise ValueError("Image export workers must be between 1 and 16")
+        output = self._new_output_dir("image-viewer-export")
+        arguments: list[str] = []
+        for group in selection.groups:
+            arguments.extend(["--folder", str(group.folder)])
+        arguments.extend(
+            [
+                "--output-dir",
+                str(output),
+                "--format",
+                output_format,
+                "--mode",
+                "composite" if composite else "separate",
+                "--fps",
+                str(float(fps)),
+                "--workers",
+                str(int(workers)),
+            ]
+        )
+        if selection.recursive:
+            arguments.append("--recursive")
+        summary = "\n".join(
+            (
+                "Module: Image Viewer Export",
+                "Input: " + "; ".join(str(item.folder) for item in selection.groups),
+                (
+                    f"Parameters: format={output_format}; "
+                    f"mode={'composite' if composite else 'separate'}; "
+                    f"fps={fps:g}; workers={workers}"
+                ),
+                f"Output: {output}",
+                f"Workload: {sum(len(item.images) for item in selection.groups)} frame(s)",
+            )
+        )
+        return TaskLaunch(
+            "Image Viewer media export",
+            "image-viewer",
+            "solar_apps.frontends.app_v1.image_viewer_worker",
+            tuple(arguments),
+            output,
+            summary,
+        )
+
     def build_aia(
         self,
         input_dir: str | Path,
@@ -97,6 +189,8 @@ class Phase2AAdapter:
         waves: tuple[int, ...] = (171,),
         start: int | None = None,
         end: int | None = None,
+        test_index: int = 0,
+        workers: int = 1,
     ) -> TaskLaunch:
         selected = self.validate_input_directory(input_dir)
         if mode not in {"single", "mosaic", "test"}:
@@ -108,6 +202,10 @@ class Phase2AAdapter:
             raise ValueError("AIA start index cannot be negative")
         if end is not None and start is not None and end < start:
             raise ValueError("AIA end index cannot precede start")
+        if test_index < 0:
+            raise ValueError("AIA test index cannot be negative")
+        if workers < 1:
+            raise ValueError("AIA worker count must be positive")
         output = self._new_output_dir("aia-processing")
         arguments = [
             "--data-path",
@@ -123,12 +221,27 @@ class Phase2AAdapter:
             arguments.extend(["--start", str(start)])
         if end is not None:
             arguments.extend(["--end", str(end)])
+        arguments.extend(["--workers", str(workers)])
+        if mode == "test":
+            arguments.extend(
+                [
+                    "--test-wave",
+                    str(clean_waves[0]),
+                    "--test-index",
+                    str(test_index),
+                ]
+            )
         workload = self._count_files(selected, {".fits", ".fit", ".fts"})
         summary = "\n".join(
             (
                 "Module: AIA Processing",
                 f"Input: {selected}",
-                f"Parameters: mode={mode}; waves={','.join(map(str, clean_waves))}",
+                (
+                    f"Parameters: mode={mode}; waves={','.join(map(str, clean_waves))}; "
+                    f"start={start if start is not None else 0}; "
+                    f"end={end if end is not None else 'all'}; "
+                    f"test_index={test_index}; workers={workers}"
+                ),
                 f"Output: {output}",
                 f"Workload: {workload} FITS candidate(s)",
             )
@@ -218,6 +331,7 @@ class Phase2AAdapter:
 
 
 __all__ = [
+    "ImageGroupSelection",
     "ImageSequenceSelection",
     "Phase2AAdapter",
     "TaskLaunch",

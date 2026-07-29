@@ -68,11 +68,54 @@ def test_frontend_frequency_list_preserves_integer_directory_names(
             "background_mode": "off",
             "cmap": "hot",
             "color_range_mode": "auto",
+            "start_idx": 0,
+            "end_idx": None,
             "advanced": {},
         },
         policy=policy,
     )
     assert cfg["multi_band_freqs"] == [149, 164.5]
+    assert cfg["start_idx"] == 0
+    assert cfg["end_idx"] is None
+
+
+def test_frontend_input_slice_overrides_event_config(tmp_path: Path) -> None:
+    source = tmp_path / "radio"
+    source.mkdir()
+    policy = PathPolicy([tmp_path])
+
+    cfg = parse_request_config(
+        {
+            "mode": "single_band",
+            "source_path": str(source),
+            "output_dir": str(tmp_path / "output"),
+            "polarization": "RR",
+            "start_idx": 2,
+            "end_idx": 5,
+            "advanced": {},
+        },
+        policy=policy,
+    )
+
+    assert cfg["start_idx"] == 2
+    assert cfg["end_idx"] == 5
+
+
+def test_seven_digit_calendar_date_ignores_dated_parent_directory(
+    tmp_path: Path,
+) -> None:
+    path = (
+        tmp_path / "app-v1-realdata-20260728T051015Z" / "149MHz_2025124_044829_000.fits"
+    )
+
+    observed = workflow.radio_datetime_from_header_or_path(
+        fits.Header(),
+        str(path),
+        {"date_format": "auto"},
+    )
+
+    assert observed is not None
+    assert observed.isoformat() == "2025-01-24T04:48:29"
 
 
 def test_single_band_rr_ll_discovery_freezes_matched_pair(tmp_path: Path) -> None:

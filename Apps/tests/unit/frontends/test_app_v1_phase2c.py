@@ -94,7 +94,27 @@ def test_trajectory_and_dem_launchers_keep_science_in_existing_modules(
     for path in (aia, tb, radio):
         path.write_bytes(b"fixture")
 
-    interactive = adapter.build_source_trajectory(centers, aia_dir=aia_dir)
+    interactive = adapter.build_source_trajectory(
+        centers,
+        aia_dir=aia_dir,
+        frame_mode="all",
+        tail_n=7,
+        width=800,
+        height=600,
+        theme="dark",
+        max_frames=20,
+    )
+    media = adapter.build_trajectory_media(
+        centers,
+        aia_dir=aia_dir,
+        output_format="webm",
+        frame_mode="all",
+        tail_n=7,
+        fps=12,
+        width=800,
+        height=600,
+        theme="dark",
+    )
     export = adapter.build_trajectory_export(centers, aia_dir=aia_dir, tail_n=8)
     dem = adapter.build_dem_radio_overlay(
         aia_fits=aia,
@@ -102,15 +122,24 @@ def test_trajectory_and_dem_launchers_keep_science_in_existing_modules(
         radio_file=radio,
     )
 
-    assert interactive.python_module.endswith("trajectory_cli")
+    assert interactive.python_module.endswith("trajectory_preview_worker")
     assert "--browser" not in interactive.arguments
+    assert interactive.arguments[interactive.arguments.index("--frame-mode") + 1] == (
+        "all"
+    )
+    assert interactive.arguments[interactive.arguments.index("--max-frames") + 1] == (
+        "20"
+    )
+    assert media.python_module.endswith("trajectory_media_cli")
+    assert media.arguments[media.arguments.index("--format") + 1] == "webm"
+    assert "--use-aia" in media.arguments
     assert export.python_module.endswith("trajectory_cli")
     assert export.arguments[export.arguments.index("--tail-n") + 1] == "8"
     assert dem.python_module.endswith("dem_radio_cli")
     assert dem.arguments[dem.arguments.index("--radio-file") + 1] == str(radio)
     assert all(
         item.output_dir.is_relative_to(layout.outputs_dir / "app_v1")
-        for item in (interactive, export, dem)
+        for item in (interactive, media, export, dem)
     )
 
 

@@ -106,8 +106,7 @@ class _NodeItem(QGraphicsRectItem):
         )
         self.setPen(QPen(Qt.GlobalColor.gray, 1.2))
         label = QGraphicsTextItem(
-            f"{title}\n{node.node_id}"
-            + ("\nDisabled" if node.disabled else ""),
+            f"{title}\n{node.node_id}" + ("\nDisabled" if node.disabled else ""),
             self,
         )
         label.setTextWidth(194)
@@ -135,7 +134,7 @@ class WorkflowBuilder(QWidget):
         self.executor = FlowExecutionController(layout, catalog, self)
         try:
             roots = configured_allowed_roots(workspace_root=layout.repo_root)
-        except (OSError, TypeError, ValueError):
+        except OSError, TypeError, ValueError:
             roots = ()
         self._flow = AppV1FlowV1("untitled-flow", "Untitled Flow")
         self._undo: list[dict[str, object]] = []
@@ -333,7 +332,9 @@ class WorkflowBuilder(QWidget):
         self._checkpoint()
         self._flow = replace(
             self._flow,
-            nodes=tuple(item for item in self._flow.nodes if item.node_id != node.node_id),
+            nodes=tuple(
+                item for item in self._flow.nodes if item.node_id != node.node_id
+            ),
             edges=tuple(
                 edge
                 for edge in self._flow.edges
@@ -539,7 +540,7 @@ class WorkflowBuilder(QWidget):
             return
         try:
             values = self.form.values()
-        except (TypeError, ValueError, json.JSONDecodeError):
+        except TypeError, ValueError, json.JSONDecodeError:
             return
         updated = replace(
             node,
@@ -629,7 +630,11 @@ class WorkflowBuilder(QWidget):
         for row, node in enumerate(self._flow.nodes):
             function = self.catalog.get(node.function_id)
             state = self.executor.states.get(node.node_id)
-            values = (node.node_id, function.title, state.status if state else "not run")
+            values = (
+                node.node_id,
+                function.title,
+                state.status if state else "not run",
+            )
             for column, value in enumerate(values):
                 self.status_table.setItem(row, column, QTableWidgetItem(value))
         self.status_table.resizeColumnsToContents()

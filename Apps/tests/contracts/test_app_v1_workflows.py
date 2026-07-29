@@ -10,6 +10,7 @@ import pytest
 
 from solar_apps.frontends.app_v1.basic_services import (
     ArtifactExportService,
+    RoiController,
     validate_allowed_path,
     validate_roi,
 )
@@ -104,10 +105,7 @@ def test_radio_workspace_actions_migrate_without_freeform_arguments() -> None:
     from solar_apps.frontends.workbench.radio_workspace.catalog import MODULES
 
     runnable = {
-        action.id
-        for module in MODULES
-        for action in module.actions
-        if action.runnable
+        action.id for module in MODULES for action in module.actions if action.runnable
     }
     for action_id in runnable:
         function = DEFAULT_FUNCTION_CATALOG.get(action_id)
@@ -134,9 +132,7 @@ def test_dag_rejects_cycles_and_incompatible_artifact_types() -> None:
     flow = page_template("radio-composite")
     bad = replace(
         flow,
-        edges=(
-            FlowEdgeV1("node-1", "metadata", "node-3", "maps"),
-        ),
+        edges=(FlowEdgeV1("node-1", "metadata", "node-3", "maps"),),
     )
     with pytest.raises(ValueError, match="Incompatible"):
         DEFAULT_FUNCTION_CATALOG.validate_flow(bad)
@@ -285,12 +281,33 @@ def test_unique_foundation_contracts_and_plot_parameters(tmp_path: Path) -> None
     assert validate_allowed_path(root / "result.png", (root,)).is_relative_to(root)
     with pytest.raises(ValueError, match="outside"):
         validate_allowed_path(tmp_path / "outside.png", (root,))
-    assert validate_roi(
+    roi = validate_roi(
         {
             "type": "rectangle",
             "geometry": {"left": 0, "right": 2, "top": 0, "bottom": 3},
         }
-    )["schema_version"] == 1
+    )
+    assert roi["schema_version"] == 1
+    assert roi["name"] == "Rectangle ROI"
+    assert roi["style"] == {
+        "color": "#00d4ff",
+        "line_width": 3.0,
+        "show_label": True,
+    }
+    controller = RoiController()
+    first = controller.add(
+        {
+            "type": "rectangle",
+            "geometry": {"left": 0, "right": 2, "top": 0, "bottom": 3},
+        }
+    )
+    second = controller.add(
+        {
+            "type": "lasso",
+            "geometry": {"points": [[0, 0], [2, 0], [1, 2]]},
+        }
+    )
+    assert [first["name"], second["name"]] == ["ROI 1", "ROI 2"]
 
 
 def test_ui_process_modules_do_not_import_heavy_plot_or_legacy_frontends() -> None:

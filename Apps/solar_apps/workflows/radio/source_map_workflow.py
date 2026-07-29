@@ -1003,7 +1003,11 @@ def _parse_radio_date_part(
         if fmt in {"yyyyddd", "yyyy-ddd", "7digit"}:
             return as_yyyyddd
         if fmt == "auto":
-            if path_hint is not None and as_yyyymdd == path_hint:
+            # Seven digits are ambiguous (YYYYMDD versus YYYYDDD).  Auto mode
+            # is deliberately calendar-first so unrelated dated parent
+            # directories cannot silently change the scientific timestamp.
+            # Day-of-year inputs remain available through date_format=yyyyddd.
+            if as_yyyymdd is not None:
                 return as_yyyymdd
             if path_hint is not None and as_yyyyddd == path_hint:
                 return as_yyyyddd
@@ -1011,8 +1015,6 @@ def _parse_radio_date_part(
             valid = [d for d in (as_yyyymdd, as_yyyyddd) if d is not None]
             if target is not None and valid:
                 return min(valid, key=lambda d: abs((d - target).days))
-            if as_yyyymdd is not None:
-                return as_yyyymdd
             return as_yyyyddd
         return as_yyyymdd or as_yyyyddd
 

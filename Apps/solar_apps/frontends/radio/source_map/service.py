@@ -160,7 +160,13 @@ def parse_request_config(
             ),
         }
     )
+    if "start_idx" in payload:
+        cfg["start_idx"] = _nonnegative_int(payload.get("start_idx"), default=0)
+    if "end_idx" in payload:
+        cfg["end_idx"] = _optional_end_index(payload.get("end_idx"))
     cfg["cmap"] = cfg["radio_cmap"]
+    if cfg["end_idx"] is not None and cfg["end_idx"] < cfg["start_idx"]:
+        raise ValueError("end_idx cannot precede start_idx")
     if mode == "single_band":
         cfg["single_file_path"] = str(source) if source.is_file() else None
         cfg["data_dir"] = str(source)
@@ -460,6 +466,22 @@ def _finite_float(value: Any, label: str) -> float:
     number = float(value)
     if not math.isfinite(number):
         raise ValueError(f"{label} must be finite")
+    return number
+
+
+def _nonnegative_int(value: Any, *, default: int) -> int:
+    number = default if value in (None, "") else int(value)
+    if number < 0:
+        raise ValueError("start_idx must be non-negative")
+    return number
+
+
+def _optional_end_index(value: Any) -> int | None:
+    if value in (None, "", -1, "-1"):
+        return None
+    number = int(value)
+    if number < 0:
+        raise ValueError("end_idx must be non-negative or omitted")
     return number
 
 

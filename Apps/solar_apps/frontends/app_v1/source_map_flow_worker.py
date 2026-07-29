@@ -16,9 +16,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", required=True)
     parser.add_argument("--source-path", required=True)
-    parser.add_argument("--mode", choices=("single_band", "multi_band"), default="single_band")
+    parser.add_argument(
+        "--mode", choices=("single_band", "multi_band"), default="single_band"
+    )
     parser.add_argument("--frequencies", default="149,164,190")
     parser.add_argument("--polarization", default="RR+LL")
+    parser.add_argument("--start-idx", type=int, default=0)
+    parser.add_argument("--end-idx", type=int)
     parser.add_argument("--cmap", default="hot")
     parser.add_argument(
         "--color-range-mode",
@@ -54,7 +58,7 @@ def main(argv: list[str] | None = None) -> int:
     request = {
         "allowed_roots": allowed_roots,
         "config": {
-            "config_module": args.config,
+            "config": args.config,
             "source_path": str(source),
             "output_dir": str(output),
             "mode": args.mode,
@@ -64,21 +68,18 @@ def main(argv: list[str] | None = None) -> int:
                 if value.strip()
             ],
             "polarization": args.polarization,
-            "display": {
-                "cmap": args.cmap,
-                "color_range_mode": args.color_range_mode,
-                "fixed_vmin": args.fixed_vmin,
-                "fixed_vmax": args.fixed_vmax,
-            },
-            "features": {
-                "gaussian_overlay": args.gaussian_overlay,
-                "spectrogram_panel": args.spectrogram_panel,
-            },
-            "background": {
-                "mode": args.background_mode,
-                "apply_to_display": args.background_display,
-                "apply_to_fit": args.background_fit,
-            },
+            "start_idx": args.start_idx,
+            "end_idx": args.end_idx,
+            "cmap": args.cmap,
+            "color_range_mode": args.color_range_mode,
+            "fixed_vmin": args.fixed_vmin,
+            "fixed_vmax": args.fixed_vmax,
+            "gaussian_overlay": args.gaussian_overlay,
+            "spectrogram_panel": args.spectrogram_panel,
+            "background_mode": args.background_mode,
+            "background_display": args.background_display,
+            "background_fit": args.background_fit,
+            "advanced": {},
         },
     }
     request_file = output / "flow-source-map-request.json"

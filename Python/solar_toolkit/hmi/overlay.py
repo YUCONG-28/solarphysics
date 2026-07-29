@@ -92,9 +92,19 @@ def run_overlay_workflow(
     norm = mpl_colors.LogNorm(vmin=vmin, vmax=vmax)
 
     print("Loading AIA files...")
-    aia_files = get_sorted_fits_files(str(aia_dir))
+    direct_aia_files = any(aia_dir.glob("*.fits"))
+    default_wave_dir = aia_dir / "171"
+    aia_search_dir = (
+        default_wave_dir
+        if not direct_aia_files and default_wave_dir.is_dir()
+        else aia_dir
+    )
+    aia_files = get_sorted_fits_files(
+        str(aia_search_dir),
+        recursive=not direct_aia_files and aia_search_dir == aia_dir,
+    )
     print("Loading HMI files...")
-    hmi_files = get_sorted_fits_files(str(hmi_dir))
+    hmi_files = get_sorted_fits_files(str(hmi_dir), recursive=True)
     if not aia_files:
         raise ValueError("No valid FITS files were found in the AIA directory")
     if not hmi_files:

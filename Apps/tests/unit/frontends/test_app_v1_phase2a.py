@@ -38,6 +38,39 @@ def test_image_selection_reuses_existing_natural_sort_and_allowed_roots(
     assert "Output: none" in selection.summary
 
 
+def test_image_groups_and_media_export_use_one_synchronized_worker(
+    tmp_path: Path,
+) -> None:
+    layout = _layout(tmp_path)
+    observations = tmp_path / "observations"
+    first = observations / "171"
+    second = observations / "193"
+    first.mkdir(parents=True)
+    second.mkdir()
+    Image.new("RGB", (4, 4), "red").save(first / "frame1.png")
+    Image.new("RGB", (4, 4), "blue").save(second / "frame1.png")
+    adapter = Phase2AAdapter(layout, allowed_roots=(observations,))
+
+    selection = adapter.select_image_groups((first, second))
+    launch = adapter.build_image_export(
+        selection,
+        output_format="webm",
+        composite=False,
+        fps=12.5,
+        workers=2,
+    )
+
+    assert len(selection.groups) == 2
+    assert "groups=2" in selection.summary
+    assert launch.python_module == ("solar_apps.frontends.app_v1.image_viewer_worker")
+    assert launch.arguments.count("--folder") == 2
+    assert launch.arguments[launch.arguments.index("--format") + 1] == "webm"
+    assert launch.arguments[launch.arguments.index("--mode") + 1] == "separate"
+    assert launch.arguments[launch.arguments.index("--fps") + 1] == "12.5"
+    assert launch.arguments[launch.arguments.index("--workers") + 1] == "2"
+    assert launch.output_dir.is_relative_to(layout.outputs_dir / "app_v1")
+
+
 def test_aia_launch_targets_existing_workflow_and_private_output(
     tmp_path: Path,
 ) -> None:
@@ -48,7 +81,13 @@ def test_aia_launch_targets_existing_workflow_and_private_output(
     (aia / "aia_171.fits").write_bytes(b"fixture")
     adapter = Phase2AAdapter(layout, allowed_roots=(observations,))
 
-    launch = adapter.build_aia(aia, mode="test", waves=(171,))
+    launch = adapter.build_aia(
+        aia,
+        mode="test",
+        waves=(171,),
+        test_index=0,
+        workers=1,
+    )
 
     assert launch.python_module == "solar_apps.workflows.aia.application"
     assert launch.arguments[launch.arguments.index("--data-path") + 1] == str(aia)
@@ -58,6 +97,8 @@ def test_aia_launch_targets_existing_workflow_and_private_output(
     assert launch.output_dir.is_relative_to(layout.outputs_dir / "app_v1")
     assert not launch.output_dir.exists()
     assert "Workload: 1 FITS candidate(s)" in launch.summary
+    assert launch.arguments[launch.arguments.index("--test-index") + 1] == "0"
+    assert launch.arguments[launch.arguments.index("--workers") + 1] == "1"
 
 
 def test_hmi_launch_validates_both_inputs_and_uses_existing_overlay(

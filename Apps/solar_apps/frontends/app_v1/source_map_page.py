@@ -76,7 +76,7 @@ class SourceMapNativePanel(NativeModulePanel):
         splitter.setStretchFactor(0, 0)
         splitter.setStretchFactor(1, 1)
         splitter.setStretchFactor(2, 0)
-        splitter.setSizes([230, 620, 190])
+        splitter.setSizes([330, 520, 190])
         root.addWidget(splitter, 1)
 
     def _configuration_panel(self) -> QWidget:
@@ -90,6 +90,7 @@ class SourceMapNativePanel(NativeModulePanel):
         self.config_name = QLineEdit(
             "solar_apps.workflows.radio.configs.radio_20250124_config"
         )
+        self.config_name.setCursorPosition(0)
         self.source_path = QLineEdit()
         self.output_path = QLineEdit()
         for field in (self.config_name, self.source_path, self.output_path):
@@ -110,6 +111,15 @@ class SourceMapNativePanel(NativeModulePanel):
         form.addRow("Map mode", self.mode)
         form.addRow("Frequencies (MHz)", self.frequencies)
         form.addRow("Polarization", self.polarization)
+        self.input_start = QSpinBox()
+        self.input_start.setRange(0, 10_000_000)
+        self.input_start.setValue(0)
+        self.input_end = QSpinBox()
+        self.input_end.setRange(-1, 10_000_000)
+        self.input_end.setSpecialValueText("All")
+        self.input_end.setValue(-1)
+        form.addRow("Input start index", self.input_start)
+        form.addRow("Input end index", self.input_end)
 
         self.cmap = QComboBox()
         self.cmap.addItems(
@@ -177,7 +187,8 @@ class SourceMapNativePanel(NativeModulePanel):
         self.status.setProperty("muted", True)
         form.addRow("Status", self.status)
         scroll.setWidget(content)
-        scroll.setMinimumWidth(200)
+        scroll.setMinimumWidth(320)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         return scroll
 
     def _source_path_row(self) -> QWidget:
@@ -188,9 +199,7 @@ class SourceMapNativePanel(NativeModulePanel):
         file_button = QPushButton("File…")
         file_button.clicked.connect(self._choose_source_file)
         folder_button = QPushButton("Folder…")
-        folder_button.clicked.connect(
-            lambda: self._choose_directory(self.source_path)
-        )
+        folder_button.clicked.connect(lambda: self._choose_directory(self.source_path))
         layout.addWidget(file_button)
         layout.addWidget(folder_button)
         return row
@@ -218,9 +227,7 @@ class SourceMapNativePanel(NativeModulePanel):
         self.next_button = QPushButton("Next")
         self.previous_button.setEnabled(False)
         self.next_button.setEnabled(False)
-        self.rectangle_button.clicked.connect(
-            lambda: self.canvas.set_tool("rectangle")
-        )
+        self.rectangle_button.clicked.connect(lambda: self.canvas.set_tool("rectangle"))
         self.lasso_button.clicked.connect(lambda: self.canvas.set_tool("lasso"))
         self.pan_button.clicked.connect(lambda: self.canvas.set_tool("pan"))
         self.fit_button.clicked.connect(self._fit_canvas)
@@ -343,6 +350,8 @@ class SourceMapNativePanel(NativeModulePanel):
             "output_dir": str(self._ensure_output()),
             "frequencies": frequencies,
             "polarization": self.polarization.currentText(),
+            "start_idx": self.input_start.value(),
+            "end_idx": (None if self.input_end.value() < 0 else self.input_end.value()),
             "cmap": self.cmap.currentText(),
             "color_range_mode": self.range_mode.currentText(),
             "gaussian_overlay": self.gaussian_overlay.isChecked(),
@@ -518,13 +527,14 @@ class SourceMapNativePanel(NativeModulePanel):
         if artifact.suffix.casefold() == ".json":
             try:
                 payload = json.loads(artifact.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError):
+            except OSError, json.JSONDecodeError:
                 return
             if isinstance(payload, dict) and "public_candidates" in payload:
                 self._load_discovery(artifact, payload)
             return
         if artifact.suffix.casefold() == ".png":
-            self._load_image(artifact)
+            if sidecar_path_for(artifact).is_file():
+                self._load_image(artifact)
 
     def _load_discovery(self, path: Path, payload: dict[str, Any]) -> None:
         candidates = payload.get("public_candidates")
@@ -611,14 +621,16 @@ class SourceMapNativePanel(NativeModulePanel):
             return
         try:
             hpln, hplt = image_pixel_to_data(self._metadata, panel_id, x, y)
-        except (KeyError, TypeError, ValueError, ZeroDivisionError):
+        except KeyError, TypeError, ValueError, ZeroDivisionError:
             return
         self.coordinate_status.setText(f"HPLN {hpln:.2f} / HPLT {hplt:.2f}")
 
     def _canvas_roi_created(self, raw: dict[str, Any]) -> None:
         panel_id = self._panel_id()
         if self._metadata is None or panel_id is None:
-            self._show_error("Load a Source Map with a valid sidecar before drawing ROI.")
+            self._show_error(
+                "Load a Source Map with a valid sidecar before drawing ROI."
+            )
             self.canvas.clear_rois()
             return
         geometry = raw["geometry"]

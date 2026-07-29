@@ -18,6 +18,8 @@ _NATIVE_WORKER = "solar_apps.frontends.app_v1.native_science_worker"
 _DRIFT = "solar_apps.workflows.radio.drift_selection_cli"
 _NEWKIRK = "solar_apps.workflows.radio.physical_diagnostics_cli"
 _TRAJECTORY_EXPORT = "solar_apps.workflows.radio.trajectory_cli"
+_TRAJECTORY_MEDIA = "solar_apps.workflows.radio.trajectory_media_cli"
+_TRAJECTORY_PREVIEW = "solar_apps.frontends.app_v1.trajectory_preview_worker"
 _DEM_RADIO = "solar_apps.workflows.xray_dem.dem_radio_cli"
 _RADIO_CONFIG = "solar_apps.workflows.radio.configs.radio_20250124_config"
 
@@ -195,35 +197,133 @@ class Phase2CAdapter:
         centers: str | Path,
         *,
         aia_dir: str | Path | None = None,
+        frame_mode: str = "tail",
+        tail_n: int = 5,
+        width: int = 960,
+        height: int = 720,
+        theme: str = "light",
+        max_frames: int = 300,
     ) -> TaskLaunch:
         center_path = self.validate_file(centers)
         aia = self._optional_directory(aia_dir)
+        if frame_mode not in {"current", "tail", "all"}:
+            raise ValueError("Unsupported trajectory frame mode")
+        if tail_n <= 0:
+            raise ValueError("Trajectory tail length must be positive")
+        if not 320 <= width <= 4096 or not 240 <= height <= 4096:
+            raise ValueError("Trajectory preview size is outside the supported range")
+        if theme not in {"light", "dark"}:
+            raise ValueError("Trajectory preview theme must be light or dark")
+        if not 1 <= max_frames <= 10_000:
+            raise ValueError("Trajectory preview frame limit must be 1–10000")
         output = self._new_output_dir("source-trajectory")
-        html = output / "radio_source_trajectory.html"
         arguments: list[str] = [
             "--centers",
             str(center_path),
-            "--out",
-            str(html),
-            "--mode",
-            "tail",
+            "--output-dir",
+            str(output),
+            "--frame-mode",
+            frame_mode,
             "--tail-n",
-            "5",
+            str(int(tail_n)),
+            "--width",
+            str(int(width)),
+            "--height",
+            str(int(height)),
+            "--theme",
+            theme,
+            "--max-frames",
+            str(int(max_frames)),
         ]
         if aia is not None:
             arguments.extend(["--aia-dir", str(aia)])
         return TaskLaunch(
-            "Source Trajectory",
+            "Source Trajectory Playback",
             "source-trajectory",
-            _TRAJECTORY_EXPORT,
+            _TRAJECTORY_PREVIEW,
             tuple(arguments),
             output,
             "\n".join(
                 (
-                    "Module: Source Trajectory",
+                    "Module: Source Trajectory Playback",
                     f"Input: centers={center_path}; AIA={aia or 'none'}",
-                    "Parameters: native supervised static trajectory preview",
-                    f"Output: {html}",
+                    (
+                        f"Parameters: mode={frame_mode}; tail_n={tail_n}; "
+                        f"size={width}x{height}; theme={theme}; "
+                        f"max_frames={max_frames}"
+                    ),
+                    f"Output: {output}",
+                    f"Workload: {self._table_rows(center_path)} table row(s)",
+                )
+            ),
+        )
+
+    def build_trajectory_media(
+        self,
+        centers: str | Path,
+        *,
+        aia_dir: str | Path | None = None,
+        output_format: str = "mp4",
+        frame_mode: str = "tail",
+        tail_n: int = 5,
+        fps: float = 6.0,
+        width: int = 1280,
+        height: int = 720,
+        theme: str = "light",
+    ) -> TaskLaunch:
+        center_path = self.validate_file(centers)
+        aia = self._optional_directory(aia_dir)
+        if output_format not in {"mp4", "gif", "webm"}:
+            raise ValueError("Trajectory media format must be MP4, GIF, or WebM")
+        if frame_mode not in {"current", "tail", "all"}:
+            raise ValueError("Unsupported trajectory frame mode")
+        if tail_n <= 0:
+            raise ValueError("Trajectory tail length must be positive")
+        if not 0.2 <= fps <= 120:
+            raise ValueError("Trajectory frame rate must be 0.2–120 fps")
+        if not 320 <= width <= 4096 or not 240 <= height <= 4096:
+            raise ValueError("Trajectory media size is outside the supported range")
+        if theme not in {"light", "dark"}:
+            raise ValueError("Trajectory media theme must be light or dark")
+        output = self._new_output_dir("source-trajectory")
+        arguments = [
+            "--centers",
+            str(center_path),
+            "--output-dir",
+            str(output),
+            "--format",
+            output_format,
+            "--frame-mode",
+            frame_mode,
+            "--tail-n",
+            str(int(tail_n)),
+            "--fps",
+            str(float(fps)),
+            "--width",
+            str(int(width)),
+            "--height",
+            str(int(height)),
+            "--theme",
+            theme,
+        ]
+        if aia is not None:
+            arguments.extend(["--aia-dir", str(aia), "--use-aia"])
+        return TaskLaunch(
+            "Source Trajectory Media",
+            "source-trajectory",
+            _TRAJECTORY_MEDIA,
+            tuple(arguments),
+            output,
+            "\n".join(
+                (
+                    "Module: Source Trajectory Media",
+                    f"Input: centers={center_path}; AIA={aia or 'none'}",
+                    (
+                        f"Parameters: format={output_format}; mode={frame_mode}; "
+                        f"tail_n={tail_n}; fps={fps:g}; size={width}x{height}; "
+                        f"theme={theme}"
+                    ),
+                    f"Output: {output}",
                     f"Workload: {self._table_rows(center_path)} table row(s)",
                 )
             ),

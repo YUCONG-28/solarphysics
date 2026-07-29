@@ -16,9 +16,7 @@ from .flows import AppV1FlowV1, FlowNodeV1, FunctionCatalog
 from .runtime import AppV1RuntimePaths
 from .tasks import TaskQueueController
 
-_TERMINAL = frozenset(
-    {"succeeded", "failed", "blocked", "cancelled", "skipped"}
-)
+_TERMINAL = frozenset({"succeeded", "failed", "blocked", "cancelled", "skipped"})
 
 
 @dataclass(slots=True)
@@ -50,7 +48,7 @@ class FlowExecutionController(QObject):
         self.runtime = AppV1RuntimePaths.from_layout(layout)
         try:
             configured = configured_allowed_roots(workspace_root=layout.repo_root)
-        except (OSError, TypeError, ValueError):
+        except OSError, TypeError, ValueError:
             configured = ()
         self.allowed_roots = (
             *configured,
@@ -163,7 +161,9 @@ class FlowExecutionController(QObject):
                 state = self.states[node_id]
                 if state.status != "pending":
                     continue
-                parent_states = [self.states[item].status for item in dependencies[node_id]]
+                parent_states = [
+                    self.states[item].status for item in dependencies[node_id]
+                ]
                 if any(
                     status in {"failed", "blocked", "cancelled", "skipped"}
                     for status in parent_states
@@ -208,9 +208,7 @@ class FlowExecutionController(QObject):
             return
         function = self.catalog.get(node.function_id)
         parameters = dict(node.parameters)
-        edges = [
-            edge for edge in self.flow.edges if edge.target_node == node.node_id
-        ]
+        edges = [edge for edge in self.flow.edges if edge.target_node == node.node_id]
         inputs_by_id = {item.port_id: item for item in function.inputs}
         for edge in edges:
             port = inputs_by_id[edge.target_port]
@@ -239,7 +237,9 @@ class FlowExecutionController(QObject):
         )
         record = lane.enqueue_python_module(
             title=function.title,
-            module_id=function.page_templates[0] if function.page_templates else "workbench",
+            module_id=(
+                function.page_templates[0] if function.page_templates else "workbench"
+            ),
             python_module=module,
             arguments=arguments,
             output_dir=str(output),

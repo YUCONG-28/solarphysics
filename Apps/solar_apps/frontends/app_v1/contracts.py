@@ -251,9 +251,7 @@ class RunResult(JsonContract):
 
 
 WorkerEventKind = Literal["progress", "log", "preview", "artifact", "result"]
-_WORKER_EVENT_KINDS = frozenset(
-    {"progress", "log", "preview", "artifact", "result"}
-)
+_WORKER_EVENT_KINDS = frozenset({"progress", "log", "preview", "artifact", "result"})
 
 
 @dataclass(frozen=True, slots=True)

@@ -1616,31 +1616,53 @@ def _run_single_batch(cfg: AIAConfig) -> None:
     batch_generated_at = dt.datetime.now(dt.UTC)
 
     print(f"Single-band mode: {len(selected_files)} files")
-    print(f"Starting multiprocessing, allocated cores: {workers} ...")
+    print(
+        "Starting serial processing ..."
+        if workers == 1
+        else f"Starting multiprocessing, allocated cores: {workers} ..."
+    )
 
-    with ProcessPoolExecutor(max_workers=workers) as executor:
-        futures = {
-            executor.submit(
-                _process_single_worker,
-                file_path,
-                cfg,
-                sequence,
-                batch_generated_at,
-            ): file_path
+    if workers == 1:
+        results = (
+            _process_single_worker(file_path, cfg, sequence, batch_generated_at)
             for sequence, file_path in enumerate(selected_files, start=1)
-        }
-        for future in tqdm(
-            as_completed(futures),
+        )
+        iterator = tqdm(
+            results,
             total=len(selected_files),
             desc="Processing",
             unit="file",
-        ):
-            success, msg = future.result()
+        )
+        for success, msg in iterator:
             if success:
                 success_count += 1
             else:
                 error_count += 1
                 tqdm.write(f"\n  [Failed] {msg}")
+    else:
+        with ProcessPoolExecutor(max_workers=workers) as executor:
+            futures = {
+                executor.submit(
+                    _process_single_worker,
+                    file_path,
+                    cfg,
+                    sequence,
+                    batch_generated_at,
+                ): file_path
+                for sequence, file_path in enumerate(selected_files, start=1)
+            }
+            for future in tqdm(
+                as_completed(futures),
+                total=len(selected_files),
+                desc="Processing",
+                unit="file",
+            ):
+                success, msg = future.result()
+                if success:
+                    success_count += 1
+                else:
+                    error_count += 1
+                    tqdm.write(f"\n  [Failed] {msg}")
 
     elapsed = time.time() - start_time
     print(
@@ -1680,28 +1702,56 @@ def _run_mosaic_batch(cfg: AIAConfig) -> None:
     )
     print(f"Mosaic memory-safe workers: {workers}")
 
-    with ProcessPoolExecutor(max_workers=workers) as executor:
-        futures = {
-            executor.submit(
-                _process_multi_band_worker,
+    if workers == 1:
+        results = (
+            _process_multi_band_worker(
                 idx,
                 slots[idx],
                 waves,
                 cfg,
                 slots[idx - 1] if idx > 0 else None,
                 batch_generated_at,
-            ): idx
+            )
             for idx in range(len(slots))
-        }
-        for future in tqdm(
-            as_completed(futures), total=len(slots), desc="Multi-band", unit="slot"
-        ):
-            success, msg = future.result()
+        )
+        iterator = tqdm(
+            results,
+            total=len(slots),
+            desc="Multi-band",
+            unit="slot",
+        )
+        for success, msg in iterator:
             if success:
                 success_count += 1
             else:
                 error_count += 1
                 tqdm.write(f"\n  [Failed] {msg}")
+    else:
+        with ProcessPoolExecutor(max_workers=workers) as executor:
+            futures = {
+                executor.submit(
+                    _process_multi_band_worker,
+                    idx,
+                    slots[idx],
+                    waves,
+                    cfg,
+                    slots[idx - 1] if idx > 0 else None,
+                    batch_generated_at,
+                ): idx
+                for idx in range(len(slots))
+            }
+            for future in tqdm(
+                as_completed(futures),
+                total=len(slots),
+                desc="Multi-band",
+                unit="slot",
+            ):
+                success, msg = future.result()
+                if success:
+                    success_count += 1
+                else:
+                    error_count += 1
+                    tqdm.write(f"\n  [Failed] {msg}")
 
     elapsed = time.time() - start_time
     print(
@@ -1750,20 +1800,18 @@ def _run_difference_batch(cfg: AIAConfig) -> None:
     error_count = 0
     batch_generated_at = dt.datetime.now(dt.UTC)
 
-    with ProcessPoolExecutor(max_workers=workers) as executor:
-        futures = {
-            executor.submit(
-                _process_difference_band_worker,
-                wave,
-                cfg,
-                batch_generated_at,
-            ): wave
+    if workers == 1:
+        results = (
+            _process_difference_band_worker(wave, cfg, batch_generated_at)
             for wave in waves
-        }
-        for future in tqdm(
-            as_completed(futures), total=len(futures), desc="Difference", unit="band"
-        ):
-            success, msg = future.result()
+        )
+        iterator = tqdm(
+            results,
+            total=len(waves),
+            desc="Difference",
+            unit="band",
+        )
+        for success, msg in iterator:
             if success:
                 success_count += 1
                 if msg:
@@ -1771,6 +1819,31 @@ def _run_difference_batch(cfg: AIAConfig) -> None:
             else:
                 error_count += 1
                 tqdm.write(f"\n  [Failed] {msg}")
+    else:
+        with ProcessPoolExecutor(max_workers=workers) as executor:
+            futures = {
+                executor.submit(
+                    _process_difference_band_worker,
+                    wave,
+                    cfg,
+                    batch_generated_at,
+                ): wave
+                for wave in waves
+            }
+            for future in tqdm(
+                as_completed(futures),
+                total=len(futures),
+                desc="Difference",
+                unit="band",
+            ):
+                success, msg = future.result()
+                if success:
+                    success_count += 1
+                    if msg:
+                        tqdm.write(f"  [OK] {msg}")
+                else:
+                    error_count += 1
+                    tqdm.write(f"\n  [Failed] {msg}")
 
     elapsed = time.time() - start_time
     print(

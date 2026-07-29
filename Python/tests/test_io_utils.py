@@ -25,6 +25,21 @@ def test_scan_files_natural_sort_and_min_size(tmp_path):
     ]
 
 
+def test_sorted_fits_discovery_can_recurse_into_instrument_folders(
+    tmp_path,
+) -> None:
+    from solar_toolkit.io.discovery import get_sorted_fits_files
+
+    nested = tmp_path / "171" / "aia_2025-01-24T044800Z.fits"
+    nested.parent.mkdir()
+    nested.write_bytes(b"x" * 2048)
+
+    assert get_sorted_fits_files(tmp_path) == []
+    discovered = get_sorted_fits_files(tmp_path, recursive=True)
+
+    assert [path for path, _timestamp in discovered] == [nested]
+
+
 def test_read_fits_data_header_and_manifest_roundtrip(tmp_path):
     from solar_toolkit.io import read_fits_data_header, read_manifest, write_manifest
 

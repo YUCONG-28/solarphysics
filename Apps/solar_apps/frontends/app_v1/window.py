@@ -5,10 +5,11 @@ from __future__ import annotations
 
 import base64
 import json
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from PyQt6.QtCore import QProcess, Qt, pyqtSignal
+from PyQt6.QtCore import QProcess, QTimer, Qt, pyqtSignal
 from PyQt6.QtGui import QCloseEvent
 from PyQt6.QtWidgets import (
     QAbstractItemView,
@@ -86,6 +87,7 @@ class ModulePage(QWidget):
         self.descriptor = descriptor
         self.time_status: QLabel | None = None
         self.phase4_panel: Phase4ComposerPanel | None = None
+        self.radio_workspace_panel: RadioWorkspaceNativePanel | None = None
         self.native_panels: list[NativeModulePanel] = []
         layout = QVBoxLayout(self)
         header = QHBoxLayout()
@@ -132,6 +134,7 @@ class ModulePage(QWidget):
             active_phase = "5 native"
         elif descriptor.module_id == "radio-workspace":
             workspace = RadioWorkspaceNativePanel()
+            self.radio_workspace_panel = workspace
             workspace.navigate_requested.connect(self.navigate_requested)
             self._register_native_panel(workspace)
             layout.addWidget(workspace, 1)
@@ -217,7 +220,9 @@ class ModulePage(QWidget):
         panel.reset_requested.connect(lambda: self._restore_panel_defaults(defaults))
 
     @staticmethod
-    def _restore_panel_defaults(defaults: dict[str, list[tuple[object, object]]]) -> None:
+    def _restore_panel_defaults(
+        defaults: dict[str, list[tuple[object, object]]],
+    ) -> None:
         for item, value in defaults["lines"]:
             item.setText(str(value))  # type: ignore[attr-defined]
         for item, value in defaults["combos"]:
@@ -317,6 +322,7 @@ class AppV1MainWindow(QMainWindow):
             initial_mode=initial_theme,
         )
         self.task_controller = TaskQueueController(layout, self)
+        self._prepared_launches: dict[str, TaskLaunch] = {}
         self.module_pages: dict[str, ModulePage] = {}
         self.page_containers: dict[str, QScrollArea] = {}
         self._module_rows: dict[str, int] = {}
@@ -340,6 +346,7 @@ class AppV1MainWindow(QMainWindow):
             [220],
             Qt.Orientation.Vertical,
         )
+        QTimer.singleShot(0, self._constrain_bottom_docks)
         self._connect_signals()
         self._select_module("workbench")
         if self.timeline_load_warning:
@@ -495,12 +502,14 @@ class AppV1MainWindow(QMainWindow):
             self.restoreGeometry(base64.b64decode(geometry))
         if isinstance(dock_state, str):
             self.restoreState(base64.b64decode(dock_state))
+            self._constrain_bottom_docks()
+            QTimer.singleShot(0, self._constrain_bottom_docks)
         if isinstance(active_flow_id, str):
             try:
                 self.workflow_builder.load_flow(
                     self.workflow_builder.store.load(active_flow_id)
                 )
-            except (OSError, KeyError, TypeError, ValueError):
+            except OSError, KeyError, TypeError, ValueError:
                 pass
         self._show_parameter_document(self._current_module_id())
         self.output_list.clear()
@@ -541,7 +550,7 @@ class AppV1MainWindow(QMainWindow):
     def closeEvent(self, event: QCloseEvent) -> None:
         try:
             self._capture_parameter_document()
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             pass
         self.task_controller.shutdown()
         self.workflow_builder.shutdown()
@@ -616,6 +625,7 @@ class AppV1MainWindow(QMainWindow):
             QAbstractItemView.SelectionMode.SingleSelection
         )
         self.page_stack = QStackedWidget()
+        self.page_stack.setMinimumHeight(360)
         splitter.addWidget(self.navigation)
         splitter.addWidget(self.page_stack)
         splitter.setStretchFactor(0, 0)
@@ -644,6 +654,23 @@ class AppV1MainWindow(QMainWindow):
             self.page_containers[descriptor.module_id] = viewport
             self.page_stack.addWidget(viewport)
         self.navigation.expandAll()
+
+    def _constrain_bottom_docks(self) -> None:
+        """Keep restored bottom docks from obscuring the active native page."""
+
+        docks = [
+            dock
+            for dock in (self.task_dock, self.log_dock, self.flow_dock)
+            if not dock.isHidden()
+        ]
+        if not docks:
+            return
+        target = max(140, min(260, round(self.height() * 0.28)))
+        self.resizeDocks(
+            docks,
+            [target] * len(docks),
+            Qt.Orientation.Vertical,
+        )
 
     def _build_parameter_dock(self) -> None:
         self.parameter_dock = QDockWidget("Parameters", self)
@@ -767,6 +794,15 @@ class AppV1MainWindow(QMainWindow):
             page.legacy_interface_requested.connect(self._open_legacy_interface)
             page.navigate_requested.connect(self._select_module)
             page.edit_flow_requested.connect(self._open_flow_builder)
+            workspace = page.radio_workspace_panel
+            if workspace is not None:
+                workspace.concurrency_changed.connect(
+                    self.task_controller.set_max_concurrency
+                )
+                workspace.batch_requested.connect(self._queue_workspace_batch)
+                workspace.allowed_root_requested.connect(
+                    self._apply_radio_workspace_root
+                )
         self.task_controller.task_changed.connect(self._refresh_task)
         self.task_controller.log_line.connect(self._append_log)
         self.task_controller.artifact_ready.connect(self._artifact_ready)
@@ -839,6 +875,9 @@ class AppV1MainWindow(QMainWindow):
         for column, value in enumerate(values):
             self.task_table.setItem(row, column, QTableWidgetItem(value))
         self._update_task_actions()
+        workspace = self.module_pages["radio-workspace"].radio_workspace_panel
+        if workspace is not None:
+            workspace.set_task_records(self.task_controller.records)
         self.statusBar().showMessage(f"{record.title}: {record.status}")
         if record.status == "succeeded":
             if record.output_dir:
@@ -987,6 +1026,7 @@ class AppV1MainWindow(QMainWindow):
         self.statusBar().showMessage(f"UTC time synchronized: {current}")
 
     def _enqueue_launch(self, launch: TaskLaunch) -> None:
+        self._prepared_launches[launch.module_id] = launch
         self.task_controller.enqueue_python_module(
             title=launch.title,
             module_id=launch.module_id,
@@ -994,6 +1034,110 @@ class AppV1MainWindow(QMainWindow):
             arguments=launch.arguments,
             output_dir=str(launch.output_dir),
         )
+
+    def _queue_workspace_batch(self, module_ids: object) -> None:
+        requested = tuple(str(item) for item in module_ids)
+        launches = [
+            self._clone_launch(self._prepared_launches[module_id])
+            for module_id in requested
+            if module_id in self._prepared_launches
+        ]
+        workspace = self.module_pages["radio-workspace"].radio_workspace_panel
+        missing = [
+            self.module_pages[module_id].descriptor.title
+            for module_id in requested
+            if module_id not in self._prepared_launches
+        ]
+        if not launches:
+            if workspace is not None:
+                workspace.set_status(
+                    "Configure and run at least one checked module once before "
+                    "queueing a reusable batch."
+                )
+            return
+        summary = {
+            "Module": "Radio Workspace batch",
+            "Input": f"{len(launches)} prepared native module task(s)",
+            "Parameters": (
+                f"concurrency={self.task_controller.max_concurrency}; FIFO within "
+                "the ready queue"
+            ),
+            "Output": "A fresh isolated App 1.0 output directory per task",
+            "Workload": "; ".join(launch.title for launch in launches),
+        }
+        if missing:
+            summary["Parameters"] += "; skipped unconfigured: " + ", ".join(missing)
+        if not RunConfirmationDialog.confirm(
+            self,
+            "Queue Radio Workspace batch",
+            summary,
+        ):
+            return
+        records = self.task_controller.enqueue_batch(launches)
+        if workspace is not None:
+            workspace.set_status(
+                f"Queued {len(records)} task(s) with concurrency "
+                f"{self.task_controller.max_concurrency}."
+            )
+
+    def _clone_launch(self, launch: TaskLaunch) -> TaskLaunch:
+        output = self.runtime_paths.run_output_dir(
+            "preview",
+            f"run-{uuid.uuid4().hex[:12]}",
+            launch.module_id,
+        )
+        previous = str(launch.output_dir)
+        arguments = tuple(
+            str(output) if argument == previous else argument
+            for argument in launch.arguments
+        )
+        return TaskLaunch(
+            launch.title,
+            launch.module_id,
+            launch.python_module,
+            arguments,
+            output,
+            launch.summary.replace(previous, str(output)),
+        )
+
+    def _apply_radio_workspace_root(self, value: str) -> None:
+        workspace = self.module_pages["radio-workspace"].radio_workspace_panel
+        candidate = Path(value).expanduser().resolve(strict=False)
+        configured: set[Path] = set()
+        for page in self.module_pages.values():
+            if page.descriptor.category != "Radio":
+                continue
+            for panel in page.native_panels:
+                adapter = getattr(panel, "adapter", None)
+                configured.update(getattr(adapter, "allowed_roots", ()))
+        if (
+            not candidate.is_dir()
+            or not configured
+            or not any(
+                candidate == root or candidate.is_relative_to(root)
+                for root in configured
+            )
+        ):
+            if workspace is not None:
+                workspace.set_status(
+                    "The selected root must exist inside an already configured "
+                    "allowed root."
+                )
+            return
+        updated = 0
+        for page in self.module_pages.values():
+            if page.descriptor.category != "Radio":
+                continue
+            for panel in page.native_panels:
+                adapter = getattr(panel, "adapter", None)
+                if adapter is not None and hasattr(adapter, "allowed_roots"):
+                    adapter.allowed_roots = (candidate,)
+                    updated += 1
+        if workspace is not None:
+            workspace.set_status(
+                f"Applied allowed root to {updated} native radio adapter(s): "
+                f"{candidate}"
+            )
 
     def _read_parameter_document(self) -> dict[str, object]:
         payload = json.loads(self.parameter_document.toPlainText() or "{}")

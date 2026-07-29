@@ -216,7 +216,15 @@ jobs:
       - name: Run Apps tests and repository contracts
         run: |
           conda run --no-capture-output -n solarphysics_env_latest `
-            python -m pytest Apps\tests --basetemp Local\tmp\pytest-apps-ci
+            python -m pytest Apps\tests `
+              --ignore=Apps\tests\ui\test_image_composer_ui.py `
+              --basetemp Local\tmp\pytest-apps-ci
+
+      - name: Run PySide6 Image Composer UI tests in isolation
+        run: |
+          conda run --no-capture-output -n solarphysics_env_latest `
+            python -m pytest Apps\tests\ui\test_image_composer_ui.py `
+              --basetemp Local\tmp\pytest-image-composer-ui-ci
 
       - name: Smoke canonical frontend help
         run: |
@@ -350,7 +358,12 @@ jobs:
           conda run --no-capture-output -n solarphysics_env_latest \
             python -m black --check Apps/solar_apps Apps/tests
           conda run --no-capture-output -n solarphysics_env_latest \
-            python -m pytest Apps/tests --basetemp Local/tmp/pytest-apps-macos-ci
+            python -m pytest Apps/tests \
+              --ignore=Apps/tests/ui/test_image_composer_ui.py \
+              --basetemp Local/tmp/pytest-apps-macos-ci
+          conda run --no-capture-output -n solarphysics_env_latest \
+            python -m pytest Apps/tests/ui/test_image_composer_ui.py \
+              --basetemp Local/tmp/pytest-image-composer-ui-macos-ci
 
       - name: Smoke all canonical frontend help
         run: |
