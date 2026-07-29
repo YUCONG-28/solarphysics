@@ -1,0 +1,28 @@
+schema_version: 1
+problem: spike_topping_solar_jet
+status: planned
+normalization:
+  length_mm: 10.0
+  magnetic_field_gauss: 10.0
+  electron_density_cm3: 1.0e9
+  mean_mass_per_electron: 1.2
+athena:
+  problem:
+    guide_field_ratio: 0.5
+    dipole_depth: 0.5
+    null_height: 2.0
+    drive_converge: 0.02
+    drive_shear: 0.01
+    eta_background: 1.0e-5
+    eta_anomalous: 2.0e-4
+  output1:
+    dt: 0.0157
+  output2:
+    dt: 0.314
+  output3:
+    dt: 3.77
+physics_stages:
+  adiabatic: implemented
+  field_aligned_conduction: planned
+  optically_thin_radiation: planned
+  background_heating: planned

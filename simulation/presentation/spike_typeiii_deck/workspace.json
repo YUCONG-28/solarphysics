@@ -1,0 +1,16 @@
+{
+  "workspace_version": 1,
+  "deck_title": "Spike-Topping Type III \u5c04\u7535\u66b4\u9ad8\u4fdd\u771f\u53ef\u89c6\u5316\u6a21\u62df",
+  "deck_slug": "spike-topping-type-iii",
+  "style_contract": "style_contract.json",
+  "content_plan": "content_plan.json",
+  "design_brief": "design_brief.json",
+  "evidence_plan": "evidence_plan.json",
+  "outline": "outline.json",
+  "asset_plan": "asset_plan.json",
+  "notes": "notes.md",
+  "assets_dir": "assets",
+  "staged_assets_dir": "assets/staged",
+  "build_dir": "build",
+  "reference_pptx": null
+}

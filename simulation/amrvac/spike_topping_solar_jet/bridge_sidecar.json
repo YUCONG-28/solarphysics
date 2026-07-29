@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "case_id": "spike_topping_solar_jet_2p5d_dev",
+  "gamma": 1.6666666666666667,
+  "resistivity": 0.00001,
+  "viscosity": 0.0,
+  "source_content_hash": "computed-by-isolated-build",
+  "background_magnetic_field": {
+    "kind": "open_dipole",
+    "amplitude": 1.0,
+    "depth": 0.5,
+    "null_height": 2.0,
+    "guide_ratio": 0.5
+  },
+  "diagnostic_geometry": {
+    "kind": "open_solar_jet",
+    "boundary_mode": "open",
+    "sheet_normal": "y",
+    "local_outflow_direction": "x",
+    "global_jet_direction": "y",
+    "sheet_half_width": 0.2,
+    "centers_normal": [2.0],
+    "x_points": [0.0]
+  },
+  "normalization": {
+    "system": "code-and-solar-reference",
+    "length_mm": 10.0,
+    "temperature_k": 1500000.0,
+    "electron_density_cm3": 1000000000.0,
+    "magnetic_field_gauss": 10.0
+  }
+}

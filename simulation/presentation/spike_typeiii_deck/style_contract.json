@@ -1,0 +1,24 @@
+{
+  "workspace_version": 1,
+  "deck_title": "Spike-Topping Type III 射电暴可视化模拟",
+  "deck_slug": "spike-topping-type-iii",
+  "build": {
+    "style_preset": "lab-report",
+    "font_pair": "system_clean_v1",
+    "palette_key": null,
+    "output_pptx": "build/Spike_Topping_TypeIII_visual_simulation_optimized.pptx",
+    "qa_dir": "build/qa",
+    "qa_report": "build/qa/report.json"
+  },
+  "layout_rules": {
+    "slide_count": 10,
+    "white_background_only": true,
+    "decorative_symbols_allowed": false,
+    "cards_and_shadows_allowed": false,
+    "alignment_first": true,
+    "zero_overlap_required": true,
+    "title_subtitle_stack_dynamic": true,
+    "footer_safe_region_required": true,
+    "scientific_figures_keep_native_annotations": true
+  }
+}

@@ -1,0 +1,15 @@
+ &filelist
+        base_filename  = '_4step_hll_mc'
+ /
+
+ &methodlist
+        time_stepper=  'fourstep'
+        time_integrator= 'jameson'
+        flux_scheme =    20*'hll'
+        limiter=  20*'woodward'
+        typeboundspeed  = 'cmaxmean'
+ /
+
+ &paramlist
+        courantpar = 0.9
+ /

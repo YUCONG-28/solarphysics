@@ -1,0 +1,96 @@
+{
+  "aia_jet": {
+    "axis_status": "pending_measurement",
+    "height_status": "pending_measurement",
+    "width_status": "pending_measurement"
+  },
+  "cadence_s": 0.401374,
+  "core_end_utc": "2025-01-24T04:49:00Z",
+  "core_start_utc": "2025-01-24T04:48:30Z",
+  "data_ids": [
+    "AIA_LEVEL1_EVENT_WINDOW",
+    "HMI_LOS_EVENT_WINDOW",
+    "RADIO_DYNAMIC_SPECTRUM_140_464MHZ",
+    "RADIO_IMAGING_SIX_BANDS"
+  ],
+  "drifts": [
+    {
+      "drift_id": "drift_001",
+      "end_utc": "2025-01-24T04:49:00Z",
+      "frequency_end_mhz": 140.0,
+      "frequency_start_mhz": 464.5,
+      "speed_fraction_c": 0.044,
+      "start_utc": "2025-01-24T04:48:30Z",
+      "status": "confirmed",
+      "uncertainty_fraction_c": null
+    },
+    {
+      "drift_id": "drift_003",
+      "end_utc": "2025-01-24T04:49:00Z",
+      "frequency_end_mhz": 140.0,
+      "frequency_start_mhz": 464.5,
+      "speed_fraction_c": null,
+      "start_utc": "2025-01-24T04:48:30Z",
+      "status": "candidate",
+      "uncertainty_fraction_c": null
+    },
+    {
+      "drift_id": "drift_004",
+      "end_utc": "2025-01-24T04:49:00Z",
+      "frequency_end_mhz": 140.0,
+      "frequency_start_mhz": 464.5,
+      "speed_fraction_c": null,
+      "start_utc": "2025-01-24T04:48:30Z",
+      "status": "candidate",
+      "uncertainty_fraction_c": null
+    },
+    {
+      "drift_id": "drift_007",
+      "end_utc": "2025-01-24T04:49:00Z",
+      "frequency_end_mhz": 140.0,
+      "frequency_start_mhz": 464.5,
+      "speed_fraction_c": null,
+      "start_utc": "2025-01-24T04:48:30Z",
+      "status": "candidate",
+      "uncertainty_fraction_c": null
+    },
+    {
+      "drift_id": "drift_010",
+      "end_utc": "2025-01-24T04:49:00Z",
+      "frequency_end_mhz": 140.0,
+      "frequency_start_mhz": 464.5,
+      "speed_fraction_c": null,
+      "start_utc": "2025-01-24T04:48:30Z",
+      "status": "candidate",
+      "uncertainty_fraction_c": null
+    }
+  ],
+  "event_id": "SOLAR_EVENT_20250124",
+  "frequency_range_mhz": [
+    140.003,
+    464.5
+  ],
+  "notes": [
+    "Forward-model constraint bundle; not an event inversion.",
+    "Electron-beam speeds are not MHD jet bulk speeds.",
+    "Candidate drifts are excluded from fitting truth until reviewed."
+  ],
+  "radio_sources": [
+    {
+      "frequencies_mhz": [
+        149.0,
+        164.0,
+        190.0,
+        205.0,
+        223.0,
+        238.0
+      ],
+      "status": "centroid_covariance_pending_review"
+    }
+  ],
+  "roi": {
+    "frame": "helioprojective",
+    "status": "pending_sanitized_measurement"
+  },
+  "schema_version": 1
+}

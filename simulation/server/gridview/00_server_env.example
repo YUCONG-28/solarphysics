@@ -1,0 +1,6 @@
+# Copy to server_env.sh, fill only on the server, and never upload that file.
+export PROJECT_ROOT="${HOME}/spike_typeiii_project"
+export RESULT_ROOT="${SCRATCH:-${HOME}/scratch}/spike_typeiii_results"
+export CONDA_ENV_NAME="solar_simulation"
+export SEED="20260726"
+export PYTHONUNBUFFERED="1"

@@ -1,0 +1,16 @@
+#!/bin/sh
+#BATCH -J=jet3d
+#SBATCH -p AMD7742
+#SBATCH -N 1
+#SBATCH -n 128
+
+
+# load the environment
+#module purge      #clean the environment
+#module load /public/software/compiler/intel/2021.3.0
+#module load /public/software/mpi/intelmpi/2021.3.0
+export I_MPI_PMI_LIBRARY=/opt/gridview/slurm/lib/libpmi.so
+module load mpi/mpich-x86_64
+# running the command
+#mpiicc -g -pthread -o main.x main.c
+srun -n 128 -N 1 ./amrvac -i amrvac.par 

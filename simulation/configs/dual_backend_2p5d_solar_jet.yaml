@@ -1,0 +1,51 @@
+schema_version: 1
+case_id: spike_topping_solar_jet_2p5d
+status: development_validation
+domain:
+  x_mm: [-60.0, 60.0]
+  y_mm: [0.0, 200.0]
+  dimensionality: 2.5D
+normalization:
+  length_mm: 10.0
+  magnetic_field_gauss: 10.0
+  electron_density_cm3: 1.0e9
+  temperature_corona_k: 1.5e6
+atmosphere:
+  temperature_chromosphere_k: 2.0e4
+  temperature_corona_k: 1.5e6
+  transition_height_mm: 2.5
+  transition_width_mm: 0.4
+  gravity: constant_solar_surface_development_baseline
+magnetic_field:
+  topology: open_field_plus_buried_2d_dipole
+  b0_gauss: 10.0
+  guide_field_ratio: 0.5
+  buried_depth_mm: 5.0
+  null_height_mm: 20.0
+boundaries:
+  lower: line_tied
+  upper: diode
+  sides: diode_with_sponge_planned
+stages:
+  - name: static
+    driver: false
+    thermal_conduction: false
+    status: development_smoke
+  - name: adiabatic_driven
+    driver: true
+    thermal_conduction: false
+    status: planned
+  - name: field_aligned_conduction
+    driver: true
+    thermal_conduction: true
+    status: manufactured_solution_required
+solver_roles:
+  athena:
+    method: fixed_grid_HLLD_CTU_CT
+    role: historical_verified_baseline_and_reference_grid
+  amrvac:
+    method: AMR_HLLD_Powell
+    role: independent_AMR_and_nonadiabatic_cross_check
+radio_condition:
+  joint_activity: local_reconnection_and_global_upward_jet
+  empty_policy: no_event

@@ -1,0 +1,63 @@
+# Operating-system, editor, and test caches.
+.DS_Store
+**/.DS_Store
+**/__pycache__/
+**/.ipynb_checkpoints/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.readme-pdf/
+
+# Presentation build and inspection workspaces. Final PPTX files at the
+# simulation root remain versioned deliverables.
+.pptx-athena/
+.pptx-dual-backend/
+**/node_modules/
+presentation/spike_typeiii_deck/build/
+Spike_Topping_TypeIII_SDU_Qingdao_teacher_report/
+*.pptx.inspect.ndjson
+
+# Locally rendered server templates and machine-specific configuration.
+server_scripts/
+server_env.sh
+
+# Numerical outputs, checkpoints, animations, and solver build products.
+spike_typeIII_visual/outputs/
+**/rmhd_checkpoint.npz
+*.h5
+*.hdf5
+*.npz
+*.npy
+*.gif
+*.mp4
+*.mkv
+*.bin
+*.dat
+*.vtu
+*.vtk
+*.rst
+*.o
+*.mod
+*.a
+*.log
+
+# Transfer bundles and redundant source archives.
+*.zip
+*.tar.gz
+Spike_TypeIII_scientific_complete_*.zip
+Spike_Topping_TypeIII_Windows_WSL2_20260728*/
+fluxrope_demo/athena4.2.tar.gz
+fluxrope_demo/run_case_01/
+amrvac/amrvac_*.tar.gz
+
+# Legacy AMRVAC runtime products. Source/configuration files remain tracked.
+amrvac/solar_reconnection/amrvac
+
+# Mercury source is versioned, while observations and generated analysis stay
+# local. The two portable folders are redundant delivery copies.
+Mercury/201312_01s/
+Mercury/Mercury_BowShock_Portable*/
+Mercury/**/results/
+Mercury/bowshock_analysis/*.csv
+Mercury/bowshock_analysis/*.png
+Mercury/bowshock_analysis/*.mat

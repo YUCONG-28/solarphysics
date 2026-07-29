@@ -1,0 +1,77 @@
+<comment>
+problem = 2.5D stratified open-field solar jet
+configure = --with-problem=spike_topping_solar_jet --with-gas=mhd --with-eos=adiabatic --with-order=3 --with-flux=hlld --with-integrator=ctu --enable-resistivity --enable-viscosity
+units = coordinates and time use L0=10 Mm and t0=L0/vA0
+
+<job>
+problem_id = spike_topping_solar_jet
+maxout = 3
+num_domains = 1
+
+<output1>
+out_fmt = hst
+dt = 0.0157
+
+<output2>
+out_fmt = bin
+dt = 0.314
+out = prim
+
+<output3>
+out_fmt = rst
+dt = 3.77
+
+<time>
+cour_no = 0.3
+nlim = 100000000
+tlim = 37.7
+
+<domain1>
+level = 0
+Nx1 = 256
+x1min = -6.0
+x1max = 6.0
+bc_ix1 = 4
+bc_ox1 = 4
+Nx2 = 512
+x2min = 0.0
+x2max = 20.0
+bc_ix2 = 4
+bc_ox2 = 4
+Nx3 = 1
+x3min = -0.05
+x3max = 0.05
+bc_ix3 = 4
+bc_ox3 = 4
+AutoWithNProc = 0
+NGrid_x1 = 1
+NGrid_x2 = 1
+NGrid_x3 = 1
+
+<problem>
+CASE             = 2
+drive_enabled    = 1
+gamma = 1.6666666666666667
+gravity = 0.12
+temperature_ch = 0.013333333333
+temperature_cor = 1.0
+transition_height = 0.25
+transition_width = 0.04
+base_pressure = 20.0
+b_open = 1.0
+guide_field_ratio = 0.5
+dipole_depth = 0.5
+null_height = 2.0
+drive_converge = 0.02
+drive_shear = 0.01
+drive_width = 1.0
+drive_start = 7.5
+drive_ramp = 3.75
+drive_hold = 18.75
+drive_end = 22.5
+eta_background = 1.0e-5
+eta_anomalous = 2.0e-4
+current_threshold = 5.0
+density_floor    = 1.0e-10
+pressure_floor   = 1.0e-10
+nu_iso = 1.0e-5

@@ -1,0 +1,40 @@
+* text=auto
+
+*.c text eol=lf
+*.h text eol=lf
+*.f text eol=lf
+*.t text eol=lf
+*.m text eol=lf
+*.py text eol=lf
+*.sh text eol=lf
+*.ps1 text eol=crlf
+*.md text eol=lf
+*.txt text eol=lf
+*.json text eol=lf
+*.ndjson text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.toml text eol=lf
+*.par text eol=lf
+*.in text eol=lf
+*.ac text eol=lf
+*.pl text eol=lf
+*.mjs text eol=lf
+*.js text eol=lf
+*.csv text eol=lf
+*.ipynb text eol=lf
+
+Makefile text eol=lf
+makefile text eol=lf
+
+*.pptx binary
+*.pdf binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+
+# Preserve historical vendor snapshots byte-for-byte apart from the LF policy.
+# Their upstream source contains intentional or legacy trailing whitespace.
+amrvac/amrvac/** whitespace=-blank-at-eol,-blank-at-eof,-space-before-tab,-conflict-marker
+fluxrope_demo/** whitespace=-blank-at-eol,-blank-at-eof,-space-before-tab,-conflict-marker
+*.webp binary
