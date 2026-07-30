@@ -49,6 +49,7 @@ def build_parser() -> argparse.ArgumentParser:
             "project",
             "workflow",
             "recovery",
+            "data-download",
         ),
         help="Run an offscreen lifecycle check and print a JSON result.",
     )
@@ -87,6 +88,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         _schedule_workflow_smoke(application, window, smoke)
     elif args.smoke_test == "recovery":
         _schedule_recovery_smoke(application, window, smoke)
+    elif args.smoke_test == "data-download":
+        _schedule_data_download_smoke(application, window, smoke)
     elif args.auto_close_ms:
         QTimer.singleShot(args.auto_close_ms, window.close)
         QTimer.singleShot(args.auto_close_ms + 100, application.quit)
@@ -332,6 +335,26 @@ def _schedule_recovery_smoke(
 
     window.task_controller.task_changed.connect(changed)
     QTimer.singleShot(10000, application.quit)
+
+
+def _schedule_data_download_smoke(
+    application: QApplication,
+    window: AppV1MainWindow,
+    result: dict[str, object],
+) -> None:
+    def run() -> None:
+        page = window.module_pages["data-download"]
+        panel = page.native_panels[0]
+        result["module_id"] = panel.module_id
+        result["product_count"] = panel.product.count()
+        result["default_product"] = panel.product.currentData()
+        result["download_enabled"] = panel.download_button.isEnabled()
+        result["observation_root"] = panel.observation_root.text()
+        window.close()
+        application.quit()
+
+    QTimer.singleShot(50, run)
+    QTimer.singleShot(8000, application.quit)
 
 
 if __name__ == "__main__":

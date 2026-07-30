@@ -202,11 +202,13 @@ class NativeModulePanel(QWidget):
         module_id: str,
         *,
         legacy_label: str | None = None,
+        legacy_enabled: bool = True,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self.module_id = module_id
         self.legacy_label = legacy_label or "legacy interface"
+        self.legacy_enabled = bool(legacy_enabled)
         self._diagnostics: list[str] = []
 
     def build_more_button(self) -> QToolButton:
@@ -225,8 +227,9 @@ class NativeModulePanel(QWidget):
         )
         menu.addAction(reset)
         menu.addAction(copy)
-        menu.addSeparator()
-        menu.addAction(legacy)
+        if self.legacy_enabled:
+            menu.addSeparator()
+            menu.addAction(legacy)
         button.setMenu(menu)
         return button
 

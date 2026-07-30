@@ -81,12 +81,12 @@ def test_preview_help_accepts_all_themes(theme: str) -> None:
     assert "frontend app-v1" in completed.stdout
 
 
-def test_offscreen_preview_registers_ten_pages_and_switches_themes(
+def test_offscreen_preview_registers_eleven_pages_and_switches_themes(
     tmp_path: Path,
 ) -> None:
     result = _run_smoke(tmp_path, "basic")
 
-    assert len(result["registered_modules"]) == 10
+    assert len(result["registered_modules"]) == 11
     assert result["themes"]["light"] == "light"
     assert result["themes"]["dark"] == "dark"
     assert result["themes"]["dark_dimmed"] == "dark_dimmed"

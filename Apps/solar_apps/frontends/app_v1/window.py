@@ -47,6 +47,7 @@ from solar_apps.ui.state import frontend_state_store
 from .catalog import MODULES
 from .components import NativeModulePanel, RunConfirmationDialog
 from .contracts import AppV1ProjectV1, ModuleDescriptor
+from .data_download_page import DataDownloadPanel
 from .function_catalog import page_template
 from .phase2a import Phase2AAdapter, TaskLaunch
 from .phase2a_page import Phase2APanel
@@ -106,6 +107,7 @@ class ModulePage(QWidget):
         self.header_menu_panel = NativeModulePanel(
             descriptor.module_id,
             legacy_label=f"legacy {descriptor.title}",
+            legacy_enabled=descriptor.legacy_interface is not None,
             parent=self,
         )
         self.header_menu_panel.legacy_interface_requested.connect(
@@ -131,6 +133,14 @@ class ModulePage(QWidget):
             workbench.task_requested.connect(self.task_launch_requested)
             self._register_native_panel(workbench)
             layout.addWidget(workbench, 1)
+            active_phase = "5 native"
+        elif descriptor.module_id == "data-download":
+            data_download = DataDownloadPanel(
+                AppV1RuntimePaths.from_layout(runtime_layout)
+            )
+            data_download.task_requested.connect(self.task_launch_requested)
+            self._register_native_panel(data_download)
+            layout.addWidget(data_download, 1)
             active_phase = "5 native"
         elif descriptor.module_id == "radio-workspace":
             workspace = RadioWorkspaceNativePanel()
@@ -275,6 +285,11 @@ class ModulePage(QWidget):
             return (
                 "Navigation and task aggregation for radio interfaces. "
                 "It does not duplicate radio science implementations."
+            )
+        if self.descriptor.module_id == "data-download":
+            return (
+                "Search remote solar archives, review exact records, and download "
+                "selected observations into the private Local runtime."
             )
         return (
             f"{self.descriptor.title} is registered for Phase "

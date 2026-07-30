@@ -20,6 +20,7 @@ class AppV1RuntimePaths:
     outputs_dir: Path
     logs_dir: Path
     tmp_dir: Path
+    observations_dir: Path | None = None
 
     @classmethod
     def from_layout(cls, layout: RuntimeLayout) -> "AppV1RuntimePaths":
@@ -29,6 +30,7 @@ class AppV1RuntimePaths:
             outputs_dir=layout.outputs_dir / "app_v1",
             logs_dir=layout.logs_dir / "app_v1",
             tmp_dir=layout.tmp_dir / "app_v1",
+            observations_dir=layout.observations_dir,
         )
 
     @property
@@ -58,6 +60,8 @@ class AppV1RuntimePaths:
             self.tmp_dir,
         ):
             directory.mkdir(parents=True, exist_ok=True)
+        if self.observations_dir is not None:
+            self.observations_dir.mkdir(parents=True, exist_ok=True)
         return self
 
 

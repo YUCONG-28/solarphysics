@@ -17,6 +17,7 @@ _SUBMODULES = {
     "downloads": "solar_toolkit.net.downloads",
     "jsoc": "solar_toolkit.net.jsoc",
     "links": "solar_toolkit.net.links",
+    "observations": "solar_toolkit.net.observations",
     "soar": "solar_toolkit.net.soar",
     "stereo": "solar_toolkit.net.stereo",
     "suvi": "solar_toolkit.net.suvi",

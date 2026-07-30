@@ -128,7 +128,7 @@ Run every command from the repository root.
 
 ## Applications and interfaces
 
-Solar Physics App 1.0 is the stable native application. It contains ten
+Solar Physics App 1.0 is the stable native application. It contains eleven
 English PyQt6 interfaces behind one process-isolated entry point:
 
 ```powershell
@@ -153,6 +153,12 @@ Flows are saved privately as
 `Local/workspaces/app_v1/flows/<flow-id>.spflow.json` (schema 1); observation
 data is referenced, never embedded. Unknown legacy arguments block execution
 and are retained in a migration report.
+
+The native **Data Download** page provides one search-preview-select-download
+entry point for SDO/AIA and HMI, STEREO-A/B EUVI, SOHO/LASCO C1/C2/C3,
+GOES-16/18 SUVI, and Solar Orbiter/EUI. Downloaded science data is archived
+below `Local/observations/`; task manifests, search results, and receipts stay
+below `Local/outputs/app_v1/.../data-download/`.
 
 Use a page's **More → Open legacy interface** action only when an explicit
 compatibility fallback is needed. The application chrome supports Auto,

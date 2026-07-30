@@ -138,6 +138,115 @@ FUNCTIONS: tuple[FunctionSpec, ...] = (
         page_templates=("workbench", "radio-workspace"),
     ),
     FunctionSpec(
+        "observation-search",
+        "Search Remote Observations",
+        "Data",
+        "Search a registered solar archive and persist a selectable record set.",
+        "solar_apps.frontends.app_v1.data_download_worker",
+        parameters=(
+            _p(
+                "product_id",
+                "Product",
+                "enum",
+                required=True,
+                flag="--product-id",
+                choices=(
+                    "sdo-aia-euv",
+                    "sdo-aia-uv",
+                    "sdo-hmi-los",
+                    "stereo-euvi",
+                    "soho-lasco",
+                    "goes-suvi",
+                    "solar-orbiter-eui",
+                ),
+            ),
+            _p("start_utc", "Start UTC", "time", required=True, flag="--start-utc"),
+            _p("end_utc", "End UTC", "time", required=True, flag="--end-utc"),
+            _p("spacecraft", "Spacecraft", "list", flag="--spacecraft"),
+            _p("detectors", "Detectors", "list", flag="--detectors"),
+            _p(
+                "wavelengths",
+                "Wavelengths",
+                "list",
+                flag="--wavelengths",
+                item_kind="integer",
+            ),
+            _p("level", "Level", flag="--level", advanced=True),
+            _p(
+                "sample_seconds",
+                "Sample cadence",
+                "integer",
+                flag="--sample-seconds",
+                minimum=1,
+                unit="s",
+                advanced=True,
+            ),
+            OUTPUT_DIR,
+        ),
+        outputs=(
+            _out(
+                "records",
+                "Remote observations",
+                "remote-observation-set",
+            ),
+        ),
+        fixed_arguments=("search",),
+        page_templates=("data-download", "workbench"),
+    ),
+    FunctionSpec(
+        "observation-download",
+        "Download Selected Observations",
+        "Data",
+        "Download a selected remote-observation set into an allowed local root.",
+        "solar_apps.frontends.app_v1.data_download_worker",
+        parameters=(
+            _p(
+                "selection",
+                "Observation selection",
+                "file",
+                required=True,
+                flag="--selection",
+                extensions=(".json",),
+            ),
+            _p(
+                "observation_root",
+                "Observation root",
+                "directory",
+                required=True,
+                flag="--observation-root",
+            ),
+            _p(
+                "max_workers",
+                "Download workers",
+                "integer",
+                default=2,
+                flag="--max-workers",
+                minimum=1,
+                maximum=4,
+                advanced=True,
+            ),
+            OUTPUT_DIR,
+        ),
+        inputs=(
+            _in(
+                "records",
+                "Remote observations",
+                "remote-observation-set",
+                required=True,
+                parameter_id="selection",
+            ),
+        ),
+        outputs=(
+            _out(
+                "collection",
+                "Observation collection",
+                "observation-collection",
+            ),
+        ),
+        fixed_arguments=("download",),
+        page_templates=("data-download", "workbench"),
+    ),
+    FunctionSpec(
         "image-discover",
         "Discover Image Sequence",
         "Data",
@@ -1686,6 +1795,7 @@ DEFAULT_FUNCTION_CATALOG = FunctionCatalog(FUNCTIONS)
 
 PAGE_TEMPLATE_FUNCTIONS: dict[str, tuple[str, ...]] = {
     "workbench": tuple(function.function_id for function in FUNCTIONS),
+    "data-download": ("observation-search", "observation-download"),
     "radio-workspace": tuple(
         function.function_id
         for function in FUNCTIONS
@@ -1738,6 +1848,8 @@ def page_template(module_id: str) -> AppV1FlowV1:
         )
     elif module_id == "source-trajectory":
         edges.append(FlowEdgeV1("node-1", "centers", "node-2", "centers_input"))
+    elif module_id == "data-download":
+        edges.append(FlowEdgeV1("node-1", "records", "node-2", "records"))
     return AppV1FlowV1(
         flow_id=f"{module_id}-default",
         name=f"{module_id.replace('-', ' ').title()} Default",

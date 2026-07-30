@@ -3,6 +3,12 @@
 
 from __future__ import annotations
 
+from solar_toolkit.net.observations import (
+    ObservationCollectionV1,
+    ObservationQueryV1,
+    RemoteObservationV1,
+)
+
 from .catalog import MODULES, module_by_id
 from .contracts import (
     AppV1ProjectV1,
@@ -41,11 +47,14 @@ __all__ = [
     "FunctionSpec",
     "InputReference",
     "ModuleDescriptor",
+    "ObservationCollectionV1",
+    "ObservationQueryV1",
     "ParameterSpec",
     "PlotSpec",
     "RunRequest",
     "RunResult",
     "RunStatus",
+    "RemoteObservationV1",
     "SyncSelection",
     "TimelineSource",
     "WorkerEventV1",

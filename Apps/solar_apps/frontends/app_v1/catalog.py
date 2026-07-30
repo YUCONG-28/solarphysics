@@ -7,6 +7,7 @@ from .contracts import ModuleDescriptor
 
 MODULES: tuple[ModuleDescriptor, ...] = (
     ModuleDescriptor("workbench", "Workbench", "General", "1", "workbench"),
+    ModuleDescriptor("data-download", "Data Download", "Data", "5"),
     ModuleDescriptor(
         "radio-workspace",
         "Radio Workspace",

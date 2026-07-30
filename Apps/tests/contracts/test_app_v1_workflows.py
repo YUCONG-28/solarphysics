@@ -90,8 +90,8 @@ def test_infrastructure_flags_can_never_be_exposed_as_business_parameters() -> N
     assert not exposed.intersection(INFRASTRUCTURE_FLAGS)
 
 
-def test_all_ten_pages_have_schema_one_editable_flow_templates() -> None:
-    assert len(PAGE_TEMPLATE_FUNCTIONS) == 10
+def test_all_eleven_pages_have_schema_one_editable_flow_templates() -> None:
+    assert len(PAGE_TEMPLATE_FUNCTIONS) == 11
     for module_id in PAGE_TEMPLATE_FUNCTIONS:
         flow = page_template(module_id)
         assert flow.schema_version == 1
@@ -99,6 +99,18 @@ def test_all_ten_pages_have_schema_one_editable_flow_templates() -> None:
         assert all(
             DEFAULT_FUNCTION_CATALOG.get(node.function_id) for node in flow.nodes
         )
+
+
+def test_data_download_template_connects_search_to_download() -> None:
+    flow = page_template("data-download")
+
+    assert [node.function_id for node in flow.nodes] == [
+        "observation-search",
+        "observation-download",
+    ]
+    assert flow.edges == (
+        FlowEdgeV1("node-1", "records", "node-2", "records"),
+    )
 
 
 def test_radio_workspace_actions_migrate_without_freeform_arguments() -> None:

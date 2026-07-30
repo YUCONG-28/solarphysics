@@ -28,9 +28,9 @@ APPS_ROOT = Path(__file__).resolve().parents[2]
 APP_V1_ROOT = APPS_ROOT / "solar_apps" / "frontends" / "app_v1"
 
 
-def test_all_ten_interfaces_have_unique_implementation_phases() -> None:
-    assert len(MODULES) == 10
-    assert len({module.module_id for module in MODULES}) == 10
+def test_all_eleven_interfaces_have_unique_implementation_phases() -> None:
+    assert len(MODULES) == 11
+    assert len({module.module_id for module in MODULES}) == 11
     assert {module.target_phase for module in MODULES} <= {
         "1",
         "2A",
@@ -40,7 +40,14 @@ def test_all_ten_interfaces_have_unique_implementation_phases() -> None:
         "4",
         "5",
     }
-    assert all(module.legacy_interface for module in MODULES)
+    assert all(
+        module.legacy_interface
+        for module in MODULES
+        if module.module_id != "data-download"
+    )
+    assert next(
+        module for module in MODULES if module.module_id == "data-download"
+    ).legacy_interface is None
 
 
 def test_app_v1_import_safe_modules_import_no_qt_binding() -> None:
@@ -90,6 +97,8 @@ def test_runtime_paths_extend_only_the_existing_local_layout(tmp_path: Path) -> 
     paths = AppV1RuntimePaths.from_layout(layout).ensure()
 
     assert paths.outputs_dir == layout.outputs_dir / "app_v1"
+    assert paths.observations_dir == layout.observations_dir
+    assert paths.observations_dir.is_dir()
     assert paths.project_file("event-one").name == "event-one.spapp.json"
     assert paths.time_index_path == layout.state_dir / "app_v1" / "time_index.sqlite3"
     assert paths.run_output_dir("event-one", "run-one", "source-map").is_relative_to(

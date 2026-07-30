@@ -29,6 +29,7 @@ def test_runtime_layout_defaults_to_repo_local_and_supports_override(
             overridden.state_dir,
             overridden.workspaces_dir,
             overridden.outputs_dir,
+            overridden.observations_dir,
             overridden.logs_dir,
             overridden.tmp_dir,
         )

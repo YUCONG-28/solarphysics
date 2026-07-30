@@ -19,6 +19,7 @@ summarized in the equivalence audit.
 | Shared plotting | Per-page Matplotlib helpers | One worker-only Matplotlib Agg `ScientificPlotRenderer` driven by versioned `PlotSpec`; style remains editable data | 1 |
 | Shared interaction/export | Per-page path, ROI, playback, preview, and export helpers | One allowed-root path field, image canvas, ROI controller, playback controller, artifact browser, export service, and schema form | 1 |
 | Unified Workbench | Flask Workbench | Native Qt dashboard and task summary | 1 |
+| Multi-mission data download | JSOC, VSO, NOAA SUVI, and SOAR clients | Registered SDO, STEREO-A/B, SOHO/LASCO, GOES-16/18, and Solar Orbiter products with native search, selection, atomic download, checksum receipt, and DAG functions | 5 |
 | Radio Workspace | Flask Radio Workspace | Native Qt grouped navigation | 1 |
 | Task, log, parameter, output panels | Existing per-frontend controls | Shared process-backed Qt shell | 1 |
 | AIA read and plot | AIA workflow and `solar_toolkit` | Qt adapter and confirmation | 2A |
@@ -41,7 +42,7 @@ summarized in the equivalence audit.
 | Project and parameter save | State stores and `.fic.json` | Versioned `.spapp.json` project | 5 |
 | One-click redraw and batch processing | Individual workflow CLIs | Confirmed process queue plus 1–4 lane DAG execution, branch-safe failure propagation, cancellation, and retry | 5 |
 | Video generation | Existing media and composite exporters | Shared project-aware orchestration | 5 |
-| Stable App 1.0 release | Nine compatibility launchers and ten interfaces | Normal operations stay native; legacy launch is an explicit per-page More action | 5 |
+| Stable App 1.0 release | Nine compatibility launchers and eleven interfaces | Normal operations stay native; legacy launch is an explicit per-page More action where a predecessor exists | 5 |
 
 GPU acceleration, new DEM algorithms, AI event detection/classification, a
 remote Web service, and multi-user collaboration remain App 2.0 scope.

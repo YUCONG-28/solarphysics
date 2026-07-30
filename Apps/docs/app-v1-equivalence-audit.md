@@ -1,6 +1,6 @@
 # App 1.0 Interface Equivalence Audit
 
-This audit maps each of the ten approved App 1.0 interfaces to its retained
+This audit maps each of the eleven approved App 1.0 interfaces to its retained
 scientific implementation and native PyQt6 surface. "Equivalent" means that
 the user can reach the established workflow, pass the same scientific inputs
 and parameters, and retain its outputs and metadata. It does not mean that
@@ -9,6 +9,7 @@ application chrome or framework-specific layout is pixel-identical.
 | App 1.0 interface | Retained implementation | Native surface and parity result |
 | --- | --- | --- |
 | Workbench | Existing workflow launchers and artifact contracts | Equivalent as the application home, module navigation, project context, task queue, logs, outputs, and recovery surface. It does not duplicate science. |
+| Data Download | JSOC, VSO, NOAA SUVI, and SOAR provider clients in `solar_toolkit.net` | Native two-stage search, unchecked preview, explicit selection, atomic download, cancellation, retry, SHA-256 receipt, and typed Workbench/DAG functions. Scientific observations remain under `Local/observations`; generated task records remain under App 1.0 outputs. |
 | Radio Workspace | Existing radio frontends and workflows | Equivalent as grouped radio navigation, time broadcast, and task aggregation. Calculations remain in their dedicated modules. |
 | Image Viewer | Image Viewer, AIA workflow, and HMI overlay workflow | Equivalent adapter for image discovery, AIA rendering, HMI overlay, confirmation, and process-isolated execution. |
 | Image Composer | Existing schema 1 model, matching, and export logic | Equivalent PyQt6 composer with drag/move, overlap, z-order, opacity, alignment, grid, aspect-preserving sizing, multi-panel layout, UTC selection, high-resolution PNG, and sequence video. Existing `.fic.json` schema 1 projects remain importable. |
@@ -30,9 +31,9 @@ application chrome or framework-specific layout is pixel-identical.
 - Every real load, calculation, export, and cross-module transfer retains the
   input/parameter/output/workload confirmation gate.
 - Normal App 1.0 operations never start Flask, Streamlit, a browser, or
-  PySide6. Each page exposes the deprecated implementation only through
+  PySide6. Pages with a deprecated predecessor expose it only through
   `More` → `Open legacy interface`, with a separate confirmation and no
-  automatic fallback.
+  automatic fallback. Data Download is native-only.
 - Workers may emit `APP_V1_EVENT` schema 1 records for progress, logs,
   previews, artifacts, and terminal results. Legacy line output remains
   accepted while retained scientific commands migrate to the structured

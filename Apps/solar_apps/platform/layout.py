@@ -37,6 +37,7 @@ class RuntimeLayout:
     state_dir: Path
     workspaces_dir: Path
     outputs_dir: Path
+    observations_dir: Path
     logs_dir: Path
     tmp_dir: Path
 
@@ -71,6 +72,7 @@ class RuntimeLayout:
             state_dir=local / "state",
             workspaces_dir=local / "workspaces",
             outputs_dir=local / "outputs",
+            observations_dir=local / "observations",
             logs_dir=local / "logs",
             tmp_dir=local / "tmp",
         )
@@ -90,6 +92,7 @@ class RuntimeLayout:
             self.state_dir,
             self.workspaces_dir,
             self.outputs_dir,
+            self.observations_dir,
             self.logs_dir,
             self.tmp_dir,
         ):

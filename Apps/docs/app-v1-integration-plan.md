@@ -27,7 +27,7 @@ request, result, artifact, project, timeline, and runtime-path contracts.
 
 Add the `app-v1-preview` entry point, main window, navigation, plot surface,
 parameter panel, task queue, logs, outputs, themes, cancellation, and explicit
-placeholder pages for all ten target interfaces.
+placeholder pages for the original ten target interfaces.
 
 ### Phase 2: Scientific integration
 
@@ -55,7 +55,7 @@ high-resolution export behavior.
 ### Phase 5: Research workflow and release
 
 Add `.spapp.json` projects, presets, redraw, batch queues, video, atomic output,
-recovery, and the ten-interface parity audit. Promote the implementation to a
+recovery, and the original ten-interface parity audit. Promote the implementation to a
 stable `app-v1` frontend only after the gate passes. Retain existing frontends
 as deprecated compatibility surfaces; deletion is outside this plan.
 
@@ -74,7 +74,9 @@ after each Phase 2 batch until the user authorizes the next gate.
 
 The public App 1.0 contracts are `ModuleDescriptor`, `RunRequest`, `RunResult`,
 `ArtifactManifestV1`, `TimelineSource`, `SyncSelection`, and
-`AppV1ProjectV1`. Version 1 contracts exchange JSON-compatible values and UTC
+`AppV1ProjectV1`. The Data Download extension adds `ObservationQueryV1`,
+`RemoteObservationV1`, and `ObservationCollectionV1`. Version 1 contracts
+exchange JSON-compatible values and UTC
 timestamps. Input references may contain allowed-root locators and checksums;
 they never embed original observation bytes.
 
@@ -85,6 +87,9 @@ App 1.0 extends the existing `RuntimeLayout` only:
 - time index: `Local/state/app_v1/time_index.sqlite3`;
 - logs and temporary files: the corresponding existing `Local/logs/` and
   `Local/tmp/` roots, each below `app_v1/`.
+- downloaded observations: `Local/observations/<mission>/...`; generated
+  search sets, receipts, and manifests remain below
+  `Local/outputs/app_v1/.../data-download/`.
 
 Each completed module run may contain `images/`, `data/`, `media/`, and
 `manifest.json`. The manifest records the request parameters, UTC range, input
