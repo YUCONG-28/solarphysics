@@ -12,6 +12,7 @@
 # simulation root remain versioned deliverables.
 .pptx-athena/
 .pptx-dual-backend/
+.pptx-sdu-yunnan/
 **/node_modules/
 presentation/spike_typeiii_deck/build/
 Spike_Topping_TypeIII_SDU_Qingdao_teacher_report/

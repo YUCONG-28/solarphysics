@@ -1,11 +1,4 @@
-# Spike-Topping Type III 完整教师汇报讲稿
-
-对应文件：`Spike_Topping_TypeIII_complete_teacher_report.pptx`
-
-建议时长：主报告 15 分钟，附录用于答疑。
-
-汇报对象：太阳物理、等离子体物理或数值模拟方向教师。
-结果口径：正式 CPU 与 CUDA 结果均使用 seed `20260726`、双精度和同一科学配置。
+# Spike-Topping Type III Simulation Report
 
 ## 汇报前的口径
 
