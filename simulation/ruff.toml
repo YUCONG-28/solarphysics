@@ -1,5 +1,0 @@
-target-version = "py314"
-
-[lint]
-# Public package name is a retained compatibility interface.
-ignore = ["N999"]

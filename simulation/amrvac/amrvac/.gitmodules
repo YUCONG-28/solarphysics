@@ -1,3 +1,0 @@
-[submodule "external_libs/octree-mg"]
-	path = external_libs/octree-mg
-	url = https://github.com/jannisteunissen/octree-mg.git

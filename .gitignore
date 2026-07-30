@@ -27,3 +27,6 @@
 /Apps/outputs/
 /Apps/logs/
 /Apps/tmp/
+
+# Simulation sources and outputs remain local and are not published.
+/simulation/

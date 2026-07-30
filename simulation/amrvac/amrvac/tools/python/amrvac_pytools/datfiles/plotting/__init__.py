@@ -1,1 +1,0 @@
-from .amrvac_plotter import amrplot, rgplot
