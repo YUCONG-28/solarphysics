@@ -40,8 +40,7 @@ def _record(
     observed = dt.datetime(2025, 1, 1, tzinfo=UTC)
     if not locator.startswith("https://stereo-ssc.nascom.nasa.gov/"):
         locator = (
-            "https://stereo-ssc.nascom.nasa.gov/data/ins_data/"
-            + Path(locator).name
+            "https://stereo-ssc.nascom.nasa.gov/data/ins_data/" + Path(locator).name
         )
     return RemoteObservationV1(
         "record-" + hashlib.sha256(locator.encode()).hexdigest()[:24],
@@ -112,6 +111,23 @@ def test_remote_contract_rejects_path_traversal_and_round_trips(tmp_path: Path) 
         replace(record, remote_locator="https://example.invalid/example.fts")
 
 
+def test_lasco_contract_accepts_vso_archive_fileids_only() -> None:
+    observations._validate_remote_locator(
+        "sdac",
+        "/archive/soho/private/data/processed/lasco/level_05/250101/c2/example.fts",
+    )
+    observations._validate_remote_locator("sdac", "archive/soho/lasco/example.fts")
+
+    for locator in (
+        "/etc/passwd",
+        "https://example.invalid/example.fts",
+        "archive/../escape.fts",
+        r"archive\escape.fts",
+    ):
+        with pytest.raises(ValueError, match="VSO fileid"):
+            observations._validate_remote_locator("sdac", locator)
+
+
 def test_stereo_search_deduplicates_by_spacecraft_and_fileid(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -172,9 +188,7 @@ def test_search_json_round_trip_and_target_layout(tmp_path: Path) -> None:
     assert payload["record_count"] == 1
     assert payload["total_size_bytes"] == 1024
     assert read_remote_records(target) == [record]
-    assert record.target_relative_path.startswith(
-        "stereo-a/euvi/20250101/171/"
-    )
+    assert record.target_relative_path.startswith("stereo-a/euvi/20250101/171/")
 
 
 def test_atomic_download_hash_and_history_skip(

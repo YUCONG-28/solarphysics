@@ -3,13 +3,22 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
+
+import numpy as np
 
 from solar_apps.frontends.app_v1.phase2b import Phase2BAdapter
 from solar_apps.frontends.app_v1.radio_composite_worker import (
+    _clip_dart_result,
+    _intersect_observation_coverage,
     _normalize_candidate_contract,
 )
 from solar_apps.platform.layout import RuntimeLayout
+from solar_toolkit.radio.dart_spectrogram import (
+    DartNarrowbandCurve,
+    DartNarrowbandResult,
+)
 
 
 def _adapter(tmp_path: Path) -> tuple[Phase2BAdapter, Path, RuntimeLayout]:
@@ -181,3 +190,36 @@ def test_composite_candidate_contract_uses_manifest_mhz_and_time(
     assert candidates[0]["id"] == "149mhz-file-0000"
     assert candidates[0]["frequencies_mhz"] == [149.0]
     assert candidates[0]["observation_time"] == "2025-01-24T04:48:29.108Z"
+
+
+def test_composite_clips_broader_radio_coverage_to_dart_observation() -> None:
+    radio_start = datetime(2025, 1, 24, 4, 37, tzinfo=UTC)
+    radio_end = datetime(2025, 1, 24, 5, 1, tzinfo=UTC)
+    dart_start = datetime(2025, 1, 24, 4, 45, tzinfo=UTC)
+    times = tuple(dart_start + timedelta(seconds=index) for index in range(4))
+    dart_end = times[-1]
+    curve = DartNarrowbandCurve(
+        center_frequency_mhz=149.0,
+        bandwidth_mhz=2.0,
+        requested_frequency_range_mhz=(148.0, 150.0),
+        sampled_frequency_range_mhz=(148.0, 150.0),
+        channel_count=3,
+        stokes_i_db=np.asarray([1.0, 2.0, 3.0, 4.0]),
+    )
+    result = DartNarrowbandResult(time_utc=times, curves=(curve,))
+
+    start, end = _intersect_observation_coverage(
+        radio_start,
+        radio_end,
+        dart_start,
+        dart_end,
+    )
+    clipped = _clip_dart_result(
+        result,
+        start=start + timedelta(seconds=1),
+        end=end,
+    )
+
+    assert (start, end) == (dart_start, dart_end)
+    assert clipped.time_utc == times[1:]
+    assert clipped.curves[0].stokes_i_db.tolist() == [2.0, 3.0, 4.0]

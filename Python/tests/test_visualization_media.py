@@ -107,9 +107,7 @@ def test_pyav_stream_initializes_before_lazy_frames_and_flushes(
     assert not list(tmp_path.glob(".media-*.mp4"))
 
 
-def test_pyav_runtime_error_cleans_partial_output(
-    tmp_path: Path, monkeypatch
-) -> None:
+def test_pyav_runtime_error_cleans_partial_output(tmp_path: Path, monkeypatch) -> None:
     events: list[str] = []
     frame = np.zeros((4, 6, 3), dtype=np.uint8)
     monkeypatch.setattr(media, "resolve_ffprobe", lambda: None)
@@ -281,7 +279,9 @@ def test_frame_source_error_is_not_downgraded_to_encoder_false(monkeypatch) -> N
         def kill(self):
             self.returncode = -9
 
-    monkeypatch.setattr(media.subprocess, "Popen", lambda *args, **kwargs: FakeProcess())
+    monkeypatch.setattr(
+        media.subprocess, "Popen", lambda *args, **kwargs: FakeProcess()
+    )
 
     with pytest.raises(media.MediaProcessingError, match="composite frame failed"):
         media._run_ffmpeg_stream(

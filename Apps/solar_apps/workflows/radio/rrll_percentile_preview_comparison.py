@@ -29,7 +29,10 @@ __all__ = [
     "run_percentile_preview_comparison",
 ]
 
-CONFIG_NAME = "radio_20250124_center_pm2min_9band_raw_rrll_full_config"
+CONFIG_NAME = (
+    "solar_apps.workflows.radio.configs."
+    "radio_20250124_center_pm2min_9band_raw_rrll_full_config"
+)
 DEFAULT_OUTPUT_DIR = Path("outputs/radio/2025-01-24")
 DEFAULT_RUN_STEM = "rrll_spec_percentile_compare_20260712"
 PERCENTILE_GROUPS: tuple[tuple[float, float], ...] = (

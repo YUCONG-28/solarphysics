@@ -45,9 +45,12 @@ def test_all_eleven_interfaces_have_unique_implementation_phases() -> None:
         for module in MODULES
         if module.module_id != "data-download"
     )
-    assert next(
-        module for module in MODULES if module.module_id == "data-download"
-    ).legacy_interface is None
+    assert (
+        next(
+            module for module in MODULES if module.module_id == "data-download"
+        ).legacy_interface
+        is None
+    )
 
 
 def test_app_v1_import_safe_modules_import_no_qt_binding() -> None:

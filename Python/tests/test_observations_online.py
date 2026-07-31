@@ -53,7 +53,7 @@ LIVE_QUERIES = (
         "2012-06-01T00:00:00",
         minutes=10,
         spacecraft=("stereo-a", "stereo-b"),
-        wavelengths=(171,),
+        wavelengths=(195,),
     ),
     _query(
         "online-lasco-c23",

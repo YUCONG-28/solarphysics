@@ -191,15 +191,11 @@ def _download(args: argparse.Namespace) -> int:
         encoding="utf-8",
     )
     failures = [item for item in collection.items if item.status == "failed"]
-    cancelled_items = [
-        item for item in collection.items if item.status == "cancelled"
-    ]
+    cancelled_items = [item for item in collection.items if item.status == "cancelled"]
     status = (
         RunStatus.FAILED
         if failures
-        else RunStatus.CANCELLED
-        if cancelled_items
-        else RunStatus.SUCCEEDED
+        else RunStatus.CANCELLED if cancelled_items else RunStatus.SUCCEEDED
     )
     manifest = _manifest(
         output,

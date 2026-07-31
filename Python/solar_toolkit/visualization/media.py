@@ -1224,9 +1224,7 @@ def _transfer_probe_cache(source: Path, destination: Path) -> None:
         return
     with _PROBE_CACHE_LOCK:
         matches = [
-            (key, value)
-            for key, value in _PROBE_CACHE.items()
-            if key[0] == source_name
+            (key, value) for key, value in _PROBE_CACHE.items() if key[0] == source_name
         ]
         for key, value in matches:
             published_key = (

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import json
 from dataclasses import replace
 from pathlib import Path
 
@@ -108,9 +109,7 @@ def test_data_download_template_connects_search_to_download() -> None:
         "observation-search",
         "observation-download",
     ]
-    assert flow.edges == (
-        FlowEdgeV1("node-1", "records", "node-2", "records"),
-    )
+    assert flow.edges == (FlowEdgeV1("node-1", "records", "node-2", "records"),)
 
 
 def test_radio_workspace_actions_migrate_without_freeform_arguments() -> None:
@@ -224,6 +223,45 @@ def test_scientific_variant_changes_algorithm_and_round_trips_selection() -> Non
     assert ("--centroid", "weighted") == primary_args[:2]
     assert ("--centroid", "geometric") == alternate_args[:2]
     assert node.to_dict()["variant_id"] == "geometric"
+
+
+def test_gaussian_catalog_forces_single_file_mode() -> None:
+    function = DEFAULT_FUNCTION_CATALOG.get("gaussian-fit")
+    _module, arguments, _values = function.build_arguments(
+        {
+            "single_file_path": "/data/radio/149MHz/RR/example.fits",
+            "source_count": 3,
+            "polarization": "RR",
+        },
+        default_output="/outputs/run",
+        allowed_roots=("/data", "/outputs"),
+    )
+
+    payload = json.loads(arguments[arguments.index("--workspace-config-json") + 1])
+    assert payload["mode"] == "single_band"
+    assert payload["features"]["spectrogram_panel"] is False
+    assert payload["data"]["single_file_path"].endswith("example.fits")
+    assert payload["gaussian"]["multi_gaussian_source_count"] == 3
+
+
+def test_rrll_preview_uses_qualified_config_and_explicit_paths(
+    tmp_path: Path,
+) -> None:
+    from solar_apps.workflows.radio.rrll_percentile_preview_comparison import (
+        CONFIG_NAME,
+        _base_user_config,
+    )
+
+    radio_root = tmp_path / "radio"
+    spectrum = tmp_path / "spectrum.fits"
+    user_config, _newkirk_config = _base_user_config(
+        radio_root=radio_root,
+        spectrogram_file=spectrum,
+    )
+
+    assert CONFIG_NAME.startswith("solar_apps.workflows.radio.configs.")
+    assert user_config["data"]["multi_band_root"] == str(radio_root)
+    assert user_config["spectrogram"]["file_path"] == str(spectrum)
 
 
 def test_aia_business_parser_flags_are_covered_by_parameter_schema() -> None:

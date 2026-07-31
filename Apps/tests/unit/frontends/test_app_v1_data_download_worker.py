@@ -52,7 +52,9 @@ def test_download_worker_reports_partial_failure(
 ) -> None:  # type: ignore[no-untyped-def]
     selection = tmp_path / "selection.json"
     selection.write_text('{"records":[{"record_id":"placeholder"}]}', encoding="utf-8")
-    monkeypatch.setattr(data_download_worker, "read_remote_records", lambda _path: [object()])
+    monkeypatch.setattr(
+        data_download_worker, "read_remote_records", lambda _path: [object()]
+    )
     collection = ObservationCollectionV1(
         "collection-test",
         (

@@ -76,7 +76,11 @@ class WorkbenchNativePanel(NativeModulePanel):
             configured = ()
         self.allowed_roots = (
             *configured,
-            *((self.runtime.observations_dir,) if self.runtime.observations_dir else ()),
+            *(
+                (self.runtime.observations_dir,)
+                if self.runtime.observations_dir
+                else ()
+            ),
             self.runtime.outputs_dir,
             self.runtime.workspaces_dir,
             self.runtime.tmp_dir,

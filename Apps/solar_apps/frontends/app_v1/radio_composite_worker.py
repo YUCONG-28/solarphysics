@@ -7,6 +7,7 @@ import argparse
 import json
 import math
 import traceback
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -180,6 +181,30 @@ def _run(args: argparse.Namespace, output: Path) -> list[tuple[Path, str]]:
     )
     grouped = group_candidates_by_frequency(candidates, frequencies)
     start, end = common_candidate_time_coverage(grouped)
+    bands = build_centered_frequency_bands(
+        frequencies,
+        float(args.dart_bandwidth_mhz),
+    )
+    dart_full = extract_dart_narrowband_lightcurves(
+        dart,
+        frequencies,
+        next(iter(bands.values())).bandwidth_mhz,
+    )
+    start, end = _intersect_observation_coverage(
+        start,
+        end,
+        dart_full.time_utc[0],
+        dart_full.time_utc[-1],
+    )
+    combined_dart = _clip_dart_result(dart_full, start=start, end=end)
+    shared_times = tuple(combined_dart.time_utc)
+    dart_results: dict[float, DartNarrowbandResult] = {
+        frequency: DartNarrowbandResult(
+            time_utc=shared_times,
+            curves=(combined_dart.curves[index],),
+        )
+        for index, frequency in enumerate(frequencies)
+    }
     reference_frequency = frequencies[0]
     reference_candidate = grouped[reference_frequency][0]
     reference_time = _utc(reference_candidate["observation_time"])
@@ -211,23 +236,6 @@ def _run(args: argparse.Namespace, output: Path) -> list[tuple[Path, str]]:
         )
         for frequency, paths in radio_paths.items()
     }
-    bands = build_centered_frequency_bands(
-        frequencies,
-        float(args.dart_bandwidth_mhz),
-    )
-    dart_results: dict[float, DartNarrowbandResult] = {}
-    for frequency, band in bands.items():
-        dart_results[frequency] = extract_dart_narrowband_lightcurves(
-            dart,
-            [frequency],
-            band.bandwidth_mhz,
-            time_range_utc=(start, end),
-        )
-    shared_times = tuple(dart_results[reference_frequency].time_utc)
-    combined_dart = DartNarrowbandResult(
-        time_utc=shared_times,
-        curves=tuple(dart_results[frequency].curves[0] for frequency in frequencies),
-    )
     map_png, map_metadata, _map_result = render_source_map_candidate(
         configs[reference_frequency],
         reference_candidate,
@@ -379,6 +387,40 @@ def _utc(value: object) -> datetime:
     else:
         stamp = stamp.tz_convert("UTC")
     return stamp.to_pydatetime().astimezone(UTC)
+
+
+def _intersect_observation_coverage(
+    radio_start: datetime,
+    radio_end: datetime,
+    dart_start: datetime,
+    dart_end: datetime,
+) -> tuple[datetime, datetime]:
+    """Return the shared radio/DART coverage required by composite exports."""
+
+    start = max(_utc(radio_start), _utc(dart_start))
+    end = min(_utc(radio_end), _utc(dart_end))
+    if start >= end:
+        raise ValueError("Radio and DART observations have no shared UTC coverage")
+    return start, end
+
+
+def _clip_dart_result(result, *, start: datetime, end: datetime):
+    """Clip a DART result without rereading its large Stokes-I FITS plane."""
+
+    indices = [
+        index
+        for index, value in enumerate(result.time_utc)
+        if start <= _utc(value) <= end
+    ]
+    if not indices:
+        raise ValueError("No DART time samples fall inside shared UTC coverage")
+    return type(result)(
+        time_utc=tuple(result.time_utc[index] for index in indices),
+        curves=tuple(
+            replace(curve, stokes_i_db=curve.stokes_i_db[indices])
+            for curve in result.curves
+        ),
+    )
 
 
 def _manifest_paths(

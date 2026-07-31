@@ -194,7 +194,9 @@ class ObservationQueryV1:
         try:
             spec = PRODUCTS[self.product_id]
         except KeyError as exc:
-            raise ValueError(f"Unsupported observation product: {self.product_id}") from exc
+            raise ValueError(
+                f"Unsupported observation product: {self.product_id}"
+            ) from exc
         if self.source_id not in (None, spec.provider):
             raise ValueError(
                 f"Product {self.product_id} requires source {spec.provider}"
@@ -376,9 +378,14 @@ def _record_id(provider: str, locator: str) -> str:
 def _validate_remote_locator(provider: str, locator: str) -> None:
     if provider == "sdac":
         relative = PurePosixPath(locator)
+        is_vso_archive_fileid = relative.is_absolute() and locator.startswith(
+            "/archive/"
+        )
         if (
             "://" in locator
-            or relative.is_absolute()
+            or "\\" in locator
+            or "\0" in locator
+            or (relative.is_absolute() and not is_vso_archive_fileid)
             or ".." in relative.parts
             or not relative.parts
         ):
@@ -631,7 +638,9 @@ def _search_lasco(query: ObservationQueryV1) -> list[RemoteObservationV1]:
                 observed = _astropy_time(row["Start Time"])
                 ended = _astropy_time(row["End Time"])
                 fileid = str(row["fileid"])
-                filename = _safe_name(fileid, f"lasco_{detector}_{observed:%Y%m%dT%H%M%S}.fts")
+                filename = _safe_name(
+                    fileid, f"lasco_{detector}_{observed:%Y%m%dT%H%M%S}.fts"
+                )
                 records.append(
                     RemoteObservationV1(
                         _record_id("sdac", fileid),
@@ -749,14 +758,20 @@ def _search_soar(query: ObservationQueryV1) -> list[RemoteObservationV1]:
             continue
         observed = _parse_provider_time(str(row["begin_time"]))
         ended = _parse_provider_time(str(row.get("end_time") or row["begin_time"]))
-        filename = _safe_name(str(row["filename"]), f"eui_{observed:%Y%m%dT%H%M%S}.fits")
+        filename = _safe_name(
+            str(row["filename"]), f"eui_{observed:%Y%m%dT%H%M%S}.fits"
+        )
         data_id = str(row["data_item_id"])
-        remote = SOAR_DATA_URL + "?" + urllib.parse.urlencode(
-            {
-                "retrieval_type": "LAST_PRODUCT",
-                "product_type": "SCIENCE",
-                "data_item_id": data_id,
-            }
+        remote = (
+            SOAR_DATA_URL
+            + "?"
+            + urllib.parse.urlencode(
+                {
+                    "retrieval_type": "LAST_PRODUCT",
+                    "product_type": "SCIENCE",
+                    "data_item_id": data_id,
+                }
+            )
         )
         records.append(
             RemoteObservationV1(
@@ -784,9 +799,7 @@ def _search_soar(query: ObservationQueryV1) -> list[RemoteObservationV1]:
                 level=level,
                 format=Path(filename).suffix.lstrip(".") or "fits",
                 size_bytes=(
-                    None
-                    if row.get("filesize") in (None, "")
-                    else int(row["filesize"])
+                    None if row.get("filesize") in (None, "") else int(row["filesize"])
                 ),
                 metadata={
                     "data_item_id": data_id,
@@ -808,8 +821,7 @@ def _parse_provider_time(value: str) -> dt.datetime:
         from astropy.time import Time
 
         return _utc(
-            Time(rendered, format="isot", scale="tai")
-            .utc.to_datetime(timezone=dt.UTC),
+            Time(rendered, format="isot", scale="tai").utc.to_datetime(timezone=dt.UTC),
             label="provider time",
         )
     return _utc(rendered, label="provider time")
@@ -892,9 +904,7 @@ def _resolve_lasco_urls(
         wanted = {item.remote_locator: item.record_id for item in selected}
         for table in response:
             indices = [
-                index
-                for index, row in enumerate(table)
-                if str(row["fileid"]) in wanted
+                index for index, row in enumerate(table) if str(row["fileid"]) in wanted
             ]
             if not indices:
                 continue
@@ -906,12 +916,12 @@ def _resolve_lasco_urls(
                 response_type(client.api.service.GetData(request))
             )
             for response_item in payload.get("getdataresponseitem") or ():
-                data_item = (response_item.get("getdataitem") or {}).get("dataitem") or ()
+                data_item = (response_item.get("getdataitem") or {}).get(
+                    "dataitem"
+                ) or ()
                 for item in data_item:
                     url = str(item.get("url") or "")
-                    fileids = (
-                        (item.get("fileiditem") or {}).get("fileid") or ()
-                    )
+                    fileids = (item.get("fileiditem") or {}).get("fileid") or ()
                     for fileid in fileids:
                         record_id = wanted.get(str(fileid))
                         if record_id and url:

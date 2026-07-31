@@ -979,6 +979,10 @@ FUNCTIONS: tuple[FunctionSpec, ...] = (
         config_json_flag="--workspace-config-json",
         output_flag="--output-dir",
         output_parameter="output_dir",
+        base_config={
+            "mode": "single_band",
+            "features": {"spectrogram_panel": False},
+        },
         page_templates=("source-map",),
         aliases=("fit-gaussian",),
     ),

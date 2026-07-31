@@ -142,9 +142,7 @@ class DataDownloadPanel(NativeModulePanel):
                 "Target",
             )
         )
-        self.results.setSelectionBehavior(
-            QTableWidget.SelectionBehavior.SelectRows
-        )
+        self.results.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.results.itemChanged.connect(self._selection_changed)
         root.addWidget(self.results, 1)
         self._product_changed()
@@ -268,7 +266,9 @@ class DataDownloadPanel(NativeModulePanel):
                 json.dumps(parameters, sort_keys=True),
             )
         )
-        self.summary.setText("Search queued. Existing results remain until it succeeds.")
+        self.summary.setText(
+            "Search queued. Existing results remain until it succeeds."
+        )
 
     def _request_download(self) -> None:
         selected = self.selected_records()
@@ -360,9 +360,7 @@ class DataDownloadPanel(NativeModulePanel):
         count = len(self.selected_records())
         self.download_button.setEnabled(count > 0)
         if self._records:
-            self.summary.setText(
-                f"{len(self._records)} result(s); {count} selected."
-            )
+            self.summary.setText(f"{len(self._records)} result(s); {count} selected.")
 
     def handle_artifact(self, path: str | Path) -> None:
         artifact = Path(path)
