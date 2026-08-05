@@ -3,6 +3,23 @@
 /Local/
 /Local-migration-backup/
 
+# Athena C is configured and compiled only in Local/athena/.  Keep any
+# accidental in-source products and raw simulation dumps private as well.
+/Athena-Cversion/config.log
+/Athena-Cversion/config.status
+/Athena-Cversion/autom4te.cache/
+/Athena-Cversion/bin/
+/Athena-Cversion/src/*.o
+/Athena-Cversion/src/*/*.o
+/Athena-Cversion/src/problem.c
+/Athena-Cversion/tst/2D-mhd/*.bin
+/Athena-Cversion/tst/2D-mhd/*.hst
+/Athena-Cversion/tst/2D-mhd/*.vtk
+/Athena-Cversion/tst/2D-mhd/*.rst
+/Athena-Cversion/tst/2D-mhd/*.ppm
+/athena_postprocess/*.csv
+/athena_postprocess/*.png
+
 # Observation data remain local and outside the public source partitions.
 /2023/
 /2024/
