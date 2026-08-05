@@ -158,6 +158,60 @@ def test_stereo_search_deduplicates_by_spacecraft_and_fileid(
     ]
 
 
+def test_stereo_vso_query_uses_secchi_detector_and_nominal_wavelengths(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import astropy.units as u
+    from sunpy.net import Fido
+
+    observed = dt.datetime(2025, 1, 24, 4, 30, tzinfo=UTC)
+    rows = [
+        {
+            "Start Time": observed,
+            "End Time": observed + dt.timedelta(seconds=2),
+            "Wavelength": [171, 175] * u.AA,
+            "fileid": "secchi/L0/a/img/euvi/20250124/171.fts",
+            "Size": 8_409_600 * u.byte,
+        },
+        {
+            "Start Time": observed + dt.timedelta(seconds=15),
+            "End Time": observed + dt.timedelta(seconds=17),
+            "Wavelength": [195, 195] * u.AA,
+            "fileid": "secchi/L0/a/img/euvi/20250124/195.fts",
+            "Size": 8_409_600 * u.byte,
+        },
+        {
+            "Start Time": observed + dt.timedelta(seconds=30),
+            "End Time": observed + dt.timedelta(seconds=32),
+            "Wavelength": [304, 304] * u.AA,
+            "fileid": "secchi/L0/a/img/euvi/20250124/304.fts",
+            "Size": 8_409_600 * u.byte,
+        },
+    ]
+    searches: list[tuple[object, ...]] = []
+
+    def search(*attrs: object) -> list[list[dict[str, object]]]:
+        searches.append(attrs)
+        return [rows]
+
+    monkeypatch.setattr(Fido, "search", search)
+    query = replace(
+        _query(),
+        start_utc=observed,
+        end_utc=observed + dt.timedelta(minutes=30),
+        spacecraft=("stereo-a",),
+        wavelengths=(171, 304),
+    )
+
+    result = observations._search_stereo(query)
+
+    assert [item.wavelength for item in result] == [171, 304]
+    values = {type(attr).__name__: getattr(attr, "value", None) for attr in searches[0]}
+    assert values["Instrument"] == "SECCHI"
+    assert values["Detector"] == "EUVI"
+    assert values["Source"] == "STEREO_A"
+
+
 def test_native_cadence_is_default_and_sampling_is_per_stream(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

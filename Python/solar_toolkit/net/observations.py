@@ -573,7 +573,8 @@ def _search_stereo(query: ObservationQueryV1) -> list[RemoteObservationV1]:
         source = spacecraft.replace("-", "_").upper()
         attrs: list[Any] = [
             a.Time(query.start_utc, query.end_utc),
-            a.Instrument("EUVI"),
+            a.Instrument("SECCHI"),
+            a.Detector("EUVI"),
             a.Source(source),
         ]
         if query.sample_seconds:
@@ -581,7 +582,10 @@ def _search_stereo(query: ObservationQueryV1) -> list[RemoteObservationV1]:
         result = Fido.search(*attrs)
         for table in result:
             for row in table:
-                wave = _quantity_wavelength(row["Wavelength"])
+                wave = _quantity_wavelength(
+                    row["Wavelength"],
+                    supported=PRODUCTS[query.product_id].wavelengths,
+                )
                 if wanted and wave not in wanted:
                     continue
                 observed = _astropy_time(row["Start Time"])
@@ -835,10 +839,19 @@ def _astropy_time(value: Any) -> dt.datetime:
     return _utc(str(value), label="astropy time")
 
 
-def _quantity_wavelength(value: Any) -> int:
+def _quantity_wavelength(
+    value: Any,
+    *,
+    supported: Sequence[int] = (),
+) -> int:
     raw = getattr(value, "value", value)
     if hasattr(raw, "__len__") and not isinstance(raw, str):
-        values = list(raw)
+        values = [float(item) for item in raw]
+        if supported and values:
+            low, high = min(values), max(values)
+            matches = [wave for wave in supported if low <= wave <= high]
+            if len(matches) == 1:
+                return matches[0]
         raw = sum(float(item) for item in values) / len(values)
     return int(round(float(raw)))
 
