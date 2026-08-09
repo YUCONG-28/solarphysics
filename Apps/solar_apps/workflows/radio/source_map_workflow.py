@@ -25,6 +25,7 @@ __all__ = [
 import argparse
 import csv
 import datetime
+import hashlib
 import json
 import math
 import os
@@ -2521,6 +2522,10 @@ def _sorted_fits_for_band(band_dir: str, start_idx: int, end_idx) -> list:
     if not os.path.isdir(band_dir):
         raise ValueError(f"波段目录不存在：{band_dir}")
 
+    frozen = _frozen_files_for_band(Path(band_dir))
+    if frozen is not None:
+        return [str(path) for path in frozen]
+
     all_files = sorted(
         os.path.join(band_dir, f)
         for f in os.listdir(band_dir)
@@ -2534,6 +2539,44 @@ def _sorted_fits_for_band(band_dir: str, start_idx: int, end_idx) -> list:
     selected = all_files[start_idx:end]
     if not selected:
         raise ValueError(f"索引范围 [{start_idx}, {end}) 内没有文件")
+    return selected
+
+
+def _frozen_files_for_band(band_dir: Path) -> list[Path] | None:
+    """Return and verify an explicit collection, bypassing positional slices."""
+
+    manifest = next(
+        (
+            parent / ".frozen-collection-v1.json"
+            for parent in (band_dir, *band_dir.parents)
+            if (parent / ".frozen-collection-v1.json").is_file()
+        ),
+        None,
+    )
+    if manifest is None:
+        return None
+    root = manifest.parent.resolve()
+    payload = json.loads(manifest.read_text(encoding="utf-8"))
+    if payload.get("schema") != "solar-radio-frozen-collection-v1":
+        raise ValueError(f"Unsupported frozen collection: {manifest}")
+    resolved_band = band_dir.resolve()
+    selected: list[Path] = []
+    for item in payload.get("records", []):
+        path = (root / str(item["relative_path"])).resolve()
+        try:
+            path.relative_to(root)
+        except ValueError as exc:
+            raise ValueError("Frozen collection path escaped its root") from exc
+        if path.parent != resolved_band:
+            continue
+        if not path.is_file() or path.stat().st_size != int(item["bytes"]):
+            raise ValueError(f"Frozen collection file missing/size mismatch: {path}")
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        if digest != item["sha256"]:
+            raise ValueError(f"Frozen collection SHA mismatch: {path}")
+        selected.append(path)
+    if not selected:
+        raise ValueError(f"Frozen collection has no records for {band_dir}")
     return selected
 
 
