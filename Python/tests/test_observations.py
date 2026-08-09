@@ -286,6 +286,18 @@ def test_atomic_download_hash_and_history_skip(
     assert second.items[0].status == "exists"
     assert second.items[0].sha256 == expected
 
+    # A same-size mutation must not bypass the previously recorded digest.
+    destination.write_bytes(b"X" + payload[1:])
+    third = download_observations(
+        [record],
+        root,
+        collection_id="collection-third",
+        max_workers=1,
+        attempts=1,
+    )
+    assert third.items[0].status == "downloaded"
+    assert destination.read_bytes() == payload
+
 
 def test_download_retries_and_cleans_partial_file(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch

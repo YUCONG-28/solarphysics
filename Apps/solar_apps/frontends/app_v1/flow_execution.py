@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -26,6 +27,9 @@ class FlowNodeExecution:
     task_id: str | None = None
     output_dir: str | None = None
     artifacts: list[str] = field(default_factory=list)
+    artifact_identities: dict[str, list[dict[str, object]]] = field(
+        default_factory=dict
+    )
     error: str = ""
 
 
@@ -214,13 +218,30 @@ class FlowExecutionController(QObject):
             port = inputs_by_id[edge.target_port]
             if port.parameter_id is None:
                 continue
-            artifacts = self.states[edge.source_node].artifacts
-            if not artifacts:
+            source_function = self.catalog.get(
+                next(
+                    item.function_id
+                    for item in self.flow.nodes
+                    if item.node_id == edge.source_node
+                )
+            )
+            identities = self.states[edge.source_node].artifact_identities.get(
+                edge.source_port,
+                [],
+            )
+            if not identities:
                 raise ValueError(
                     f"{edge.source_node}.{edge.source_port} produced no artifact"
                 )
+            if not any(item.port_id == edge.source_port for item in source_function.outputs):
+                raise ValueError(f"Unknown source port: {edge.source_port}")
             parameter = function.parameter(port.parameter_id)
-            value = Path(artifacts[0])
+            value = Path(str(identities[0]["path"]))
+            if _sha256(value) != identities[0]["sha256"]:
+                raise ValueError(
+                    f"Artifact changed after production: {edge.source_node}."
+                    f"{edge.source_port}"
+                )
             if parameter.kind == "directory" and value.is_file():
                 value = value.parent
             parameters[port.parameter_id] = str(value)
@@ -262,6 +283,17 @@ class FlowExecutionController(QObject):
         state = self.states[node_id]
         state.status = record.status
         state.artifacts = list(record.artifacts)
+        if record.status == "succeeded":
+            function_id = next(
+                item.function_id
+                for item in self.flow.nodes
+                if item.node_id == node_id
+            )
+            function = self.catalog.get(function_id)
+            state.artifact_identities = _bind_artifacts_to_ports(
+                function.outputs,
+                state.artifacts,
+            )
         if record.status != "succeeded":
             state.error = "\n".join(record.logs[-3:]) or record.status
         self._lane_nodes.pop(lane, None)
@@ -286,3 +318,37 @@ class FlowExecutionController(QObject):
 
 
 __all__ = ["FlowExecutionController", "FlowNodeExecution"]
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _bind_artifacts_to_ports(outputs, artifacts: list[str]):
+    """Bind ordered worker artifacts to their declared output ports.
+
+    A multiple port consumes all artifacts not reserved for later scalar
+    ports.  This preserves the existing worker protocol while making edge
+    routing honor ``source_port`` and recording a content identity.
+    """
+
+    remaining = [Path(item) for item in artifacts]
+    result: dict[str, list[dict[str, object]]] = {}
+    for index, output in enumerate(outputs):
+        later_scalars = sum(not item.multiple for item in outputs[index + 1 :])
+        count = max(0, len(remaining) - later_scalars) if output.multiple else 1
+        selected, remaining = remaining[:count], remaining[count:]
+        result[output.port_id] = [
+            {
+                "path": str(path),
+                "bytes": path.stat().st_size,
+                "sha256": _sha256(path),
+            }
+            for path in selected
+            if path.is_file()
+        ]
+    return result

@@ -15,6 +15,8 @@ from solar_apps.frontends.app_v1.function_catalog import (
     page_template,
 )
 from solar_apps.frontends.app_v1.flow_execution import FlowExecutionController
+from solar_apps.frontends.app_v1.flow_execution import _bind_artifacts_to_ports
+from solar_apps.frontends.app_v1.function_specs import ArtifactPortSpec
 from solar_apps.frontends.app_v1.flows import (
     AppV1FlowV1,
     FlowEdgeV1,
@@ -126,3 +128,24 @@ def test_flow_executor_keeps_independent_branch_after_failure(
     assert result["failed"] == 1
     assert result["blocked"] == 1
     assert application is QApplication.instance()
+
+
+def test_multi_output_artifacts_bind_to_declared_source_port(tmp_path: Path) -> None:
+    images = [tmp_path / f"image-{index}.png" for index in range(2)]
+    manifest = tmp_path / "manifest.json"
+    for path in images:
+        path.write_bytes(path.name.encode())
+    manifest.write_text("{}", encoding="utf-8")
+    outputs = (
+        ArtifactPortSpec("images", "Images", ("image",), multiple=True),
+        ArtifactPortSpec("manifest", "Manifest", ("manifest",)),
+    )
+
+    bound = _bind_artifacts_to_ports(
+        outputs,
+        [*(str(path) for path in images), str(manifest)],
+    )
+
+    assert [Path(item["path"]) for item in bound["images"]] == images
+    assert Path(bound["manifest"][0]["path"]) == manifest
+    assert all(len(str(item["sha256"])) == 64 for values in bound.values() for item in values)

@@ -1042,7 +1042,9 @@ def _download_record(
             and existing_hash
             and existing_hash.lower() == expected_sha256.lower()
         )
-        if size_matches or hash_matches:
+        # A known digest is authoritative.  File size is only a weak reuse
+        # preflight when the upstream source supplied no historical digest.
+        if hash_matches or (expected_sha256 is None and size_matches):
             return ObservationDownloadItemV1(
                 record.record_id,
                 str(destination),
