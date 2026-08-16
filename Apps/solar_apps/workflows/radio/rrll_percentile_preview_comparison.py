@@ -155,8 +155,13 @@ def _collect_band_log_values(cfg: dict, freq: float) -> np.ndarray:
     end_idx = cfg.get("end_idx")
     rr_dir = os.path.join(root, pattern.format(freq=freq, polar=cfg["rr_dir_suffix"]))
     ll_dir = os.path.join(root, pattern.format(freq=freq, polar=cfg["ll_dir_suffix"]))
-    rr_files = workflow._sorted_fits_for_band(rr_dir, start_idx, end_idx)
-    ll_files = workflow._sorted_fits_for_band(ll_dir, start_idx, end_idx)
+    study_mode = cfg.get("study_mode")
+    rr_files = workflow._sorted_fits_for_band(
+        rr_dir, start_idx, end_idx, study_mode=study_mode
+    )
+    ll_files = workflow._sorted_fits_for_band(
+        ll_dir, start_idx, end_idx, study_mode=study_mode
+    )
     rr_files = workflow._filter_bad_radio_files(
         rr_files, freq, cfg["rr_dir_suffix"], cfg, drop_bad=True
     )

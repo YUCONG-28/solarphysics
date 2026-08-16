@@ -29,6 +29,7 @@ import hashlib
 import json
 import math
 import os
+import re
 import time
 import warnings
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
@@ -240,6 +241,7 @@ DEFAULT_CONFIG = {
     # File range (only effective in batch mode)
     "start_idx": 1588,  # start index (inclusive)
     "end_idx": 1666,  # end index (exclusive)
+    "study_mode": None,  # must be explicit: exploratory or confirmatory
     # ---------- Multi-band mode configuration ----------
     "multi_band_root": "data/radio",
     "multi_band_freqs": [149, 164, 190, 205, 223, 238],
@@ -500,6 +502,8 @@ def build_config(user_config, default_config):
     user_config = user_config or {}
     if user_config.get("mode") is not None:
         cfg["mode"] = user_config["mode"]
+    if user_config.get("study_mode") is not None:
+        cfg["study_mode"] = user_config["study_mode"]
 
     for key, value in user_config.get("data", {}).items():
         cfg[key] = value
@@ -1471,8 +1475,18 @@ def _estimate_safe_workers(file_list: list, requested, memory_per_worker_mb) -> 
 # ──────────────────────────────────────────────────────────────
 
 
-def get_sorted_fits(data_dir: str, start: int, end: int) -> list:
+def get_sorted_fits(
+    data_dir: str,
+    start: int,
+    end: int | None,
+    *,
+    study_mode: str | None = None,
+) -> list:
     """Return sorted list of FITS file paths within the specified range."""
+    mode = _require_study_mode(study_mode)
+    frozen = _frozen_files_for_band(Path(data_dir), required=mode == "confirmatory")
+    if frozen is not None:
+        return [str(path) for path in frozen]
     all_files = sorted(
         os.path.join(data_dir, f)
         for f in os.listdir(data_dir)
@@ -2517,12 +2531,21 @@ def get_polar_from_header(header):
     return str(header.get("POLAR", "StokesI")).strip()
 
 
-def _sorted_fits_for_band(band_dir: str, start_idx: int, end_idx) -> list:
+def _sorted_fits_for_band(
+    band_dir: str,
+    start_idx: int,
+    end_idx,
+    *,
+    study_mode: str | None = None,
+) -> list:
     """Get sorted list of FITS files in the specified band directory"""
     if not os.path.isdir(band_dir):
         raise ValueError(f"波段目录不存在：{band_dir}")
 
-    frozen = _frozen_files_for_band(Path(band_dir))
+    mode = _require_study_mode(study_mode)
+    frozen = _frozen_files_for_band(
+        Path(band_dir), required=mode == "confirmatory"
+    )
     if frozen is not None:
         return [str(path) for path in frozen]
 
@@ -2542,7 +2565,43 @@ def _sorted_fits_for_band(band_dir: str, start_idx: int, end_idx) -> list:
     return selected
 
 
-def _frozen_files_for_band(band_dir: Path) -> list[Path] | None:
+def _require_study_mode(value: object) -> str:
+    mode = str(value or "").strip().casefold()
+    if mode not in {"exploratory", "confirmatory"}:
+        raise ValueError("radio study_mode must be explicit: exploratory or confirmatory")
+    return mode
+
+
+def _parse_utc_z(value: object, *, label: str) -> datetime.datetime:
+    if not isinstance(value, str) or re.fullmatch(
+        r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z", value
+    ) is None:
+        raise ValueError(f"Frozen collection {label} must be UTC with a Z suffix")
+    try:
+        parsed = datetime.datetime.fromisoformat(value.removesuffix("Z") + "+00:00")
+    except ValueError as exc:
+        raise ValueError(f"Frozen collection {label} is invalid") from exc
+    if parsed.utcoffset() != datetime.timedelta(0):
+        raise ValueError(f"Frozen collection {label} must be UTC")
+    return parsed
+
+
+def _utc_z_millis(value: datetime.datetime) -> str:
+    return value.astimezone(datetime.timezone.utc).isoformat(
+        timespec="milliseconds"
+    ).replace("+00:00", "Z")
+
+
+def _expected_frozen_record_id(
+    observed: datetime.datetime, relative_path: str
+) -> str:
+    identity = f"{_utc_z_millis(observed)}\0{relative_path}"
+    return "radio-" + hashlib.sha256(identity.encode()).hexdigest()[:24]
+
+
+def _frozen_files_for_band(
+    band_dir: Path, *, required: bool = False
+) -> list[Path] | None:
     """Return and verify an explicit collection, bypassing positional slices."""
 
     manifest = next(
@@ -2554,30 +2613,85 @@ def _frozen_files_for_band(band_dir: Path) -> list[Path] | None:
         None,
     )
     if manifest is None:
+        if required:
+            raise FileNotFoundError(
+                f"Confirmatory radio selection requires .frozen-collection-v1.json: "
+                f"{band_dir}"
+            )
         return None
     root = manifest.parent.resolve()
     payload = json.loads(manifest.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("Frozen collection must be a JSON object")
     if payload.get("schema") != "solar-radio-frozen-collection-v1":
         raise ValueError(f"Unsupported frozen collection: {manifest}")
+    selection = payload.get("selection")
+    if not isinstance(selection, dict):
+        raise ValueError("Frozen collection selection must be an object")
+    start = _parse_utc_z(selection.get("start_utc"), label="selection.start_utc")
+    end = _parse_utc_z(selection.get("end_utc"), label="selection.end_utc")
+    if end <= start:
+        raise ValueError("Frozen collection selection must satisfy end_utc > start_utc")
+    records = payload.get("records")
+    if not isinstance(records, list) or not records:
+        raise ValueError("Frozen collection records must be a non-empty list")
+    record_count = payload.get("record_count")
+    if (
+        not isinstance(record_count, int)
+        or isinstance(record_count, bool)
+        or record_count != len(records)
+    ):
+        raise ValueError("Frozen collection record_count mismatch")
     resolved_band = band_dir.resolve()
-    selected: list[Path] = []
-    for item in payload.get("records", []):
-        path = (root / str(item["relative_path"])).resolve()
+    selected: list[tuple[datetime.datetime, str, Path]] = []
+    record_ids: set[str] = set()
+    paths: set[str] = set()
+    for item in records:
+        if not isinstance(item, dict):
+            raise ValueError("Frozen collection record must be an object")
+        record_id = item.get("record_id")
+        if not isinstance(record_id, str) or not record_id.startswith("radio-"):
+            raise ValueError("Frozen collection record_id is invalid")
+        if record_id in record_ids:
+            raise ValueError(f"Frozen collection duplicate record_id: {record_id}")
+        record_ids.add(record_id)
+        observed = _parse_utc_z(item.get("observed_utc"), label="record.observed_utc")
+        if not start <= observed < end:
+            raise ValueError(f"Frozen record outside selection interval: {record_id}")
+        relative_path = item.get("relative_path")
+        if not isinstance(relative_path, str) or not relative_path:
+            raise ValueError(f"Frozen record path is invalid: {record_id}")
+        if relative_path in paths:
+            raise ValueError(f"Frozen collection duplicate path: {relative_path}")
+        paths.add(relative_path)
+        expected_record_id = _expected_frozen_record_id(observed, relative_path)
+        if record_id != expected_record_id:
+            raise ValueError(
+                f"Frozen record_id is not bound to UTC/path: {record_id}"
+            )
+        path = (root / relative_path).resolve()
         try:
             path.relative_to(root)
         except ValueError as exc:
             raise ValueError("Frozen collection path escaped its root") from exc
-        if path.parent != resolved_band:
-            continue
-        if not path.is_file() or path.stat().st_size != int(item["bytes"]):
+        size = item.get("bytes")
+        if not isinstance(size, int) or isinstance(size, bool) or size < 0:
+            raise ValueError(f"Frozen record bytes is invalid: {record_id}")
+        digest_value = item.get("sha256")
+        if not isinstance(digest_value, str) or re.fullmatch(
+            r"[0-9a-f]{64}", digest_value
+        ) is None:
+            raise ValueError(f"Frozen record SHA is invalid: {record_id}")
+        if not path.is_file() or path.stat().st_size != size:
             raise ValueError(f"Frozen collection file missing/size mismatch: {path}")
         digest = hashlib.sha256(path.read_bytes()).hexdigest()
-        if digest != item["sha256"]:
+        if digest != digest_value:
             raise ValueError(f"Frozen collection SHA mismatch: {path}")
-        selected.append(path)
+        if path.parent == resolved_band:
+            selected.append((observed, record_id, path))
     if not selected:
         raise ValueError(f"Frozen collection has no records for {band_dir}")
-    return selected
+    return [path for _observed, _record_id, path in sorted(selected)]
 
 
 def _raw_quality_filter_enabled(cfg: dict) -> bool:
@@ -3144,8 +3258,12 @@ def _build_multi_band_slots(cfg: dict) -> list:
                 root, pattern.format(freq=freq, polar=cfg["ll_dir_suffix"])
             )
 
-            rr_files = _sorted_fits_for_band(rr_dir, start_idx, end_idx)
-            ll_files = _sorted_fits_for_band(ll_dir, start_idx, end_idx)
+            rr_files = _sorted_fits_for_band(
+                rr_dir, start_idx, end_idx, study_mode=cfg.get("study_mode")
+            )
+            ll_files = _sorted_fits_for_band(
+                ll_dir, start_idx, end_idx, study_mode=cfg.get("study_mode")
+            )
             rr_files = _filter_bad_radio_files(
                 rr_files, freq, cfg["rr_dir_suffix"], cfg
             )
@@ -3171,13 +3289,20 @@ def _build_multi_band_slots(cfg: dict) -> list:
         else:
             # 普通模式：只读取指定偏振的文件
             band_dir = os.path.join(root, pattern.format(freq=freq, polar=polarization))
-            files = _sorted_fits_for_band(band_dir, start_idx, end_idx)
+            files = _sorted_fits_for_band(
+                band_dir, start_idx, end_idx, study_mode=cfg.get("study_mode")
+            )
             files = _filter_bad_radio_files(files, freq, polarization, cfg)
             per_band.append(files)
 
     # ★ 优化：zip 直接转置二维列表，替代双层 for 循环
     slots = _build_slots_by_common_time(per_band, cfg)
     if slots is None:
+        if _require_study_mode(cfg.get("study_mode")) == "confirmatory":
+            raise ValueError(
+                "Confirmatory multi-band selection requires parseable UTC times; "
+                "positional fallback is forbidden"
+            )
         print(
             "Warning: could not parse all radio times; "
             "falling back to positional slots."
@@ -3937,8 +4062,12 @@ def _compute_fixed_band_ranges(cfg: dict) -> tuple:
             )
 
             # 获取两个文件夹的文件列表
-            rr_files = _sorted_fits_for_band(rr_dir, start_idx, end_idx)
-            ll_files = _sorted_fits_for_band(ll_dir, start_idx, end_idx)
+            rr_files = _sorted_fits_for_band(
+                rr_dir, start_idx, end_idx, study_mode=cfg.get("study_mode")
+            )
+            ll_files = _sorted_fits_for_band(
+                ll_dir, start_idx, end_idx, study_mode=cfg.get("study_mode")
+            )
 
             # ── 基于文件名时间戳做精确匹配 ─────────────────────────
             time_tolerance = cfg.get("time_tolerance_seconds", 1.0)
@@ -3986,7 +4115,9 @@ def _compute_fixed_band_ranges(cfg: dict) -> tuple:
         else:
             # 普通模式：只读取指定偏振的文件
             band_dir = os.path.join(root, pattern.format(freq=freq, polar=polarization))
-            files = _sorted_fits_for_band(band_dir, start_idx, end_idx)
+            files = _sorted_fits_for_band(
+                band_dir, start_idx, end_idx, study_mode=cfg.get("study_mode")
+            )
             files = _filter_bad_radio_files(
                 files, freq, polarization, cfg, drop_bad=True
             )
@@ -6395,7 +6526,12 @@ def _run_source_map_workflow(user_config=None, *, argv=None):
 
             output_dir = cfg.get("output_dir") or os.path.join(data_dir, "plot")
             os.makedirs(output_dir, exist_ok=True)
-            files = get_sorted_fits(data_dir, cfg["start_idx"], cfg["end_idx"])
+            files = get_sorted_fits(
+                data_dir,
+                cfg["start_idx"],
+                cfg["end_idx"],
+                study_mode=cfg.get("study_mode"),
+            )
             print(f"Selected {len(files)} FITS files, output directory: {output_dir}")
 
             # 为单波段模式计算固定颜色范围

@@ -142,6 +142,16 @@ def _render(
                 "path": str(item["image_path"]),
                 "sidecar_path": str(item["sidecar_path"]),
                 "role": "source-map-image",
+                "source_port": "images",
+                "candidate_id": str(item.get("candidate_id") or ""),
+            },
+        )
+        _emit(
+            "artifact",
+            {
+                "path": str(item["sidecar_path"]),
+                "role": "source-map-metadata",
+                "source_port": "metadata",
                 "candidate_id": str(item.get("candidate_id") or ""),
             },
         )

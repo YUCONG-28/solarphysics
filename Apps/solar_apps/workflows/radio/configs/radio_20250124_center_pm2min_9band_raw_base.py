@@ -31,6 +31,9 @@ def build_event_config(*, polarization: str, phase: str) -> dict:
     event_config = copy.deepcopy(base_config.EVENT_CONFIG)
     output_config = event_config["output"]
     user_config = event_config["user"]
+    user_config["study_mode"] = (
+        "confirmatory" if phase == "full" else "exploratory"
+    )
 
     label = polarization.replace("+", "_")
     start_idx, end_idx = PREVIEW_RANGE if phase == "preview" else FULL_RANGE

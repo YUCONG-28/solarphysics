@@ -19,6 +19,12 @@ environments, virtual environments, and system Python.
 
 ## Install
 
+This installation path resolves version ranges and is intended for exploratory
+development and compatibility testing. It must not be cited as an exact or
+frozen environment. See the repository
+[environment lock manual](../environment/README.md) for the fail-closed lock,
+wheel-hash, and fresh-replay procedure.
+
 Create or update the Miniforge environment and install both source partitions:
 
 ```powershell

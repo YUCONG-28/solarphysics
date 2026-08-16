@@ -1,3 +1,5 @@
+# Compatibility/source specification only. This file is intentionally solved;
+# it is not an exact environment lock. See ../environment/README.md.
 name: solarphysics_env_latest
 channels:
   - conda-forge

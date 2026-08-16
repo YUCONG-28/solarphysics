@@ -34,8 +34,20 @@ public parameters are:
 - `-GitBranch <name>`
 
 `-Check` never performs a live search or writes files. It validates the
-32-field JSON schema, rejects duplicate normalized titles/DOIs/arXiv IDs,
+35-field JSON schema, rejects duplicate citekeys, normalized titles, DOIs, arXiv IDs and ADS identities,
 renders Markdown in memory, and compares it with the stored view.
+
+Cross-platform equivalents are available without PowerShell:
+
+```bash
+python3 tools/literature/catalog_cli.py check
+python3 tools/literature/catalog_cli.py render          # preview
+python3 tools/literature/catalog_cli.py render --apply  # write
+```
+
+Non-empty `local_pdf_path` values must use `data://literature-catalog/` and
+must be paired with a 64-hex SHA-256. Live candidates receive a stable citekey
+only when they do not already have one; existing citekeys are never recomputed.
 
 ## Publication safety
 

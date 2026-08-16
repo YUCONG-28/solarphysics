@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
+import os
 import warnings
 from collections.abc import Sequence
 from pathlib import Path
@@ -495,7 +498,75 @@ def main(argv: Sequence[str] | None = None) -> int:
     print(f"Mode: {actual_mode}")
     print(f"Wavelengths: {cfg.multi_band_wavelengths}")
     process_aia_fits(cfg)
+    if os.environ.get("APP_V1_RUN_ID"):
+        _emit_app_v1_products(Path(cfg.output_dir))
     return 0
+
+
+def _emit_app_v1_products(output_dir: Path) -> None:
+    output_dir = output_dir.expanduser().resolve(strict=False)
+    images = sorted(
+        path
+        for path in output_dir.rglob("*")
+        if path.is_file()
+        and path.suffix.casefold() in {".png", ".jpg", ".jpeg", ".tif", ".tiff"}
+    )
+    products = [
+        {
+            "source_port": "images",
+            "path": str(path),
+            "sha256": _sha256(path),
+        }
+        for path in images
+    ]
+    manifest = output_dir / "aia-artifact-manifest.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "products": products,
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    for product in products:
+        _app_v1_event("artifact", product)
+    _app_v1_event(
+        "artifact",
+        {
+            "source_port": "manifest",
+            "path": str(manifest),
+            "sha256": _sha256(manifest),
+        },
+    )
+
+
+def _app_v1_event(kind: str, payload: dict[str, object]) -> None:
+    print(
+        "APP_V1_EVENT "
+        + json.dumps(
+            {
+                "schema_version": 1,
+                "run_id": os.environ["APP_V1_RUN_ID"],
+                "module_id": os.environ.get("APP_V1_MODULE_ID", "image-viewer"),
+                "kind": kind,
+                "payload": payload,
+            },
+            separators=(",", ":"),
+        ),
+        flush=True,
+    )
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 if __name__ == "__main__":

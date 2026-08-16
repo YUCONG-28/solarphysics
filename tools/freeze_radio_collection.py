@@ -12,8 +12,27 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 STAMP = re.compile(
-    r"_(\d{4})(\d)(\d{2})_(\d{6})_(\d{3})\.fits$", re.IGNORECASE
+    r"_(\d{4})(\d{1,2})(\d{2})_(\d{6})_(\d{3})\.fits$", re.IGNORECASE
 )
+
+
+def require_utc(value: datetime, *, label: str) -> datetime:
+    if value.tzinfo is None or value.utcoffset() is None:
+        raise ValueError(f"{label} must be timezone-aware UTC")
+    if value.utcoffset() != timezone.utc.utcoffset(value):
+        raise ValueError(f"{label} must use UTC (+00:00 or Z)")
+    return value.astimezone(timezone.utc)
+
+
+def utc_z(value: datetime) -> str:
+    return value.astimezone(timezone.utc).isoformat(timespec="milliseconds").replace(
+        "+00:00", "Z"
+    )
+
+
+def frozen_record_id(observed: datetime, relative_path: str) -> str:
+    identity = f"{utc_z(observed)}\0{relative_path}"
+    return "radio-" + hashlib.sha256(identity.encode()).hexdigest()[:24]
 
 
 def observed_utc(path: Path) -> datetime:
@@ -37,24 +56,35 @@ def sha256(path: Path) -> str:
 
 
 def build(root: Path, start: datetime, end: datetime) -> dict:
+    start = require_utc(start, label="start_utc")
+    end = require_utc(end, label="end_utc")
+    if end <= start:
+        raise ValueError("end_utc must be later than start_utc")
     records = []
+    record_ids: set[str] = set()
     for path in sorted(root.glob("*MHz/*/*.fits")):
         observed = observed_utc(path)
         if not start <= observed < end:
             continue
         relative = path.relative_to(root).as_posix()
-        records.append({
-            "record_id": "radio-" + hashlib.sha256(relative.encode()).hexdigest()[:24],
-            "observed_utc": observed.isoformat().replace("+00:00", "Z"),
-            "relative_path": relative,
-            "bytes": path.stat().st_size,
-            "sha256": sha256(path),
-        })
+        record_id = frozen_record_id(observed, relative)
+        if record_id in record_ids:
+            raise ValueError(f"Duplicate frozen record_id: {record_id}")
+        record_ids.add(record_id)
+        records.append(
+            {
+                "record_id": record_id,
+                "observed_utc": utc_z(observed),
+                "relative_path": relative,
+                "bytes": path.stat().st_size,
+                "sha256": sha256(path),
+            }
+        )
     if not records:
         raise ValueError("UTC interval selected no FITS records")
     return {
         "schema": "solar-radio-frozen-collection-v1",
-        "selection": {"start_utc": start.isoformat(), "end_utc": end.isoformat()},
+        "selection": {"start_utc": utc_z(start), "end_utc": utc_z(end)},
         "record_count": len(records),
         "records": records,
     }

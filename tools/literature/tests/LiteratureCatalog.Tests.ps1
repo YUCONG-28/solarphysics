@@ -15,11 +15,11 @@ Describe "Literature catalog paths and schema" {
         $paths.CatalogMarkdownPath | Should Be $catalogMarkdownPath
     }
 
-    It "keeps the repository catalog on the canonical 32-field schema without duplicates" {
+    It "keeps the repository catalog on the canonical 35-field schema without duplicates" {
         $parsed = Get-Content -Raw -Encoding UTF8 -LiteralPath $catalogJsonPath | ConvertFrom-Json
         $papers = @($parsed)
         $papers.Count | Should BeGreaterThan 0
-        (Get-LiteratureCatalogFieldNames).Count | Should Be 32
+        (Get-LiteratureCatalogFieldNames).Count | Should Be 35
         Assert-LiteratureCatalog -Papers $papers | Should Be $true
     }
 

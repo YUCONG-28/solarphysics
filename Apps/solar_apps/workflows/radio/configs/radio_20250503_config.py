@@ -35,6 +35,7 @@ OUTPUT_CONFIG = {
 
 USER_CONFIG = {
     "mode": "multi_band",
+    "study_mode": "exploratory",
     "data": {
         "multi_band_root": "data/radio/2025-05-03",
         "multi_band_freqs": [149, 164, 190, 205, 223, 238],

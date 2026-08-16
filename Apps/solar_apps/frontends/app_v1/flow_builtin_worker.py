@@ -89,10 +89,12 @@ def main(argv: list[str] | None = None) -> int:
         )
         artifact_type = "image"
     for index, path in enumerate(paths, start=1):
+        source_port = "artifact" if args.operation == "artifact-input" else "images"
         _event(
             module_id,
             "artifact",
             path=str(path),
+            source_port=source_port,
             artifact_type=artifact_type,
             ordinal=index,
         )

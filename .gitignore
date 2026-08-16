@@ -30,6 +30,7 @@
 # Repository-local test and lint caches.
 /.pytest_cache/
 /.ruff_cache/
+/Python/.playwright-cli/
 
 # Application build/test products and machine-specific configuration.
 /Apps/.pytest_cache/

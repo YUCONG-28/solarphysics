@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -9,7 +10,7 @@ import pytest
 from PyQt6.QtCore import QCoreApplication, QEventLoop, QTimer
 
 from solar_apps.frontends.app_v1 import tasks
-from solar_apps.frontends.app_v1.tasks import TaskQueueController
+from solar_apps.frontends.app_v1.tasks import TaskQueueController, TaskRecord
 from solar_apps.platform.layout import RuntimeLayout
 
 
@@ -80,3 +81,42 @@ def test_two_tasks_can_run_concurrently_and_finish_cleanly(
         "xdg",
     }
     controller.shutdown()
+
+
+def test_worker_artifact_event_preserves_source_port_and_content_identity(
+    tmp_path: Path,
+) -> None:
+    artifact = tmp_path / "metadata.json"
+    artifact.write_bytes(b"{}")
+    controller = TaskQueueController(_layout(tmp_path))
+    record = TaskRecord(
+        task_id="task-1",
+        title="worker",
+        module_id="workbench",
+        python_module="example.worker",
+        arguments=(),
+    )
+    raw = json.dumps(
+        {
+            "schema_version": 1,
+            "kind": "artifact",
+            "payload": {
+                "path": str(artifact),
+                "source_port": "metadata",
+            },
+        }
+    )
+
+    assert controller._handle_worker_event(record, raw) is True
+    controller._finalize_artifact_records(record)
+
+    assert record.artifact_records == [
+        {
+            "path": str(artifact),
+            "source_port": "metadata",
+            "sha256": (
+                "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+            ),
+            "bytes": 2,
+        }
+    ]

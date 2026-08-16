@@ -13,6 +13,12 @@ solar-observation analysis.
 
 ## Install the library
 
+The commands in this section resolve the current dependency ranges and are
+appropriate for exploratory development. They are not an exact environment
+lock. Formal runs must use a sealed, replay-tested platform lock; the current
+gate and maintenance procedure are documented in the
+[environment lock manual](environment/README.md).
+
 From the repository root, install the reusable package in the primary
 Miniforge environment:
 

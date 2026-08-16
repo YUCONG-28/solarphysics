@@ -25,6 +25,22 @@ def test_newkirk_density_and_inverse_radius_round_trip():
     assert recovered == pytest_approx(radius)
 
 
+def test_newkirk_definition_is_pinned_to_published_constants_and_height_convention():
+    radius = 1.5
+    multiplier = 2.0
+    expected_density = 4.2e4 * multiplier * 10.0 ** (4.32 / radius)
+
+    assert newkirk_density_cm3(radius, multiplier=multiplier) == pytest_approx(
+        expected_density
+    )
+    recovered = newkirk_radius_from_density(expected_density, multiplier=multiplier)
+    assert recovered == pytest_approx(radius)
+    frequency_mhz = 8.98e-3 * math.sqrt(expected_density)
+    assert newkirk_height_from_frequency_mhz(
+        frequency_mhz, multiplier=multiplier, harmonic=1
+    ) == pytest_approx(radius - 1.0)
+
+
 def test_frequency_height_uses_harmonic_density_relation():
     fundamental = newkirk_radius_from_frequency_mhz(150.0, multiplier=1.0, harmonic=1)
     harmonic = newkirk_radius_from_frequency_mhz(150.0, multiplier=1.0, harmonic=2)

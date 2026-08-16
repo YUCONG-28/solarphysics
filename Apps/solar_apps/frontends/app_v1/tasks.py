@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import re
 import uuid
 from collections import deque
@@ -50,6 +51,7 @@ class TaskRecord:
     logs: list[str] = field(default_factory=list)
     events: list[WorkerEventV1] = field(default_factory=list)
     artifacts: list[str] = field(default_factory=list)
+    artifact_records: list[dict[str, object]] = field(default_factory=list)
     manifest_path: str | None = None
 
 
@@ -337,6 +339,14 @@ class TaskQueueController(QObject):
             if isinstance(value, str) and value and value not in record.artifacts:
                 record.artifacts.append(value)
                 self.artifact_ready.emit(record.task_id, value)
+            if isinstance(value, str) and value:
+                artifact_record: dict[str, object] = {"path": value}
+                for key in ("source_port", "role", "sha256"):
+                    item = event.payload.get(key)
+                    if isinstance(item, str) and item:
+                        artifact_record[key] = item
+                if artifact_record not in record.artifact_records:
+                    record.artifact_records.append(artifact_record)
         elif event.kind == "result":
             value = event.payload.get("manifest_path")
             if isinstance(value, str) and value:
@@ -371,9 +381,16 @@ class TaskQueueController(QObject):
             if record.status == "cancelling":
                 record.status = "cancelled"
             elif exit_code == 0:
-                record.status = "succeeded"
-                record.progress = 100
-                self._discover_output_artifacts(record)
+                try:
+                    self._finalize_artifact_records(record)
+                except (OSError, ValueError) as exc:
+                    record.status = "failed"
+                    record.logs.append(f"Artifact contract failed: {exc}")
+                    self.log_line.emit(record.task_id, record.logs[-1])
+                else:
+                    record.status = "succeeded"
+                    record.progress = 100
+                    self._discover_output_artifacts(record)
             else:
                 record.status = "failed"
             self.task_changed.emit(record.task_id)
@@ -400,6 +417,20 @@ class TaskQueueController(QObject):
             record.artifacts.append(rendered)
             self.artifact_ready.emit(record.task_id, rendered)
 
+    def _finalize_artifact_records(self, record: TaskRecord) -> None:
+        """Attach immutable byte identities to explicitly emitted products."""
+
+        for artifact in record.artifact_records:
+            path = Path(str(artifact["path"]))
+            if not path.is_file():
+                raise ValueError(f"emitted artifact is missing: {path}")
+            actual_sha256 = _sha256(path)
+            declared_sha256 = artifact.get("sha256")
+            if declared_sha256 is not None and declared_sha256 != actual_sha256:
+                raise ValueError(f"emitted artifact SHA-256 mismatch: {path}")
+            artifact["sha256"] = actual_sha256
+            artifact["bytes"] = path.stat().st_size
+
     def _kill_if_running(self, task_id: str) -> None:
         process = self._processes.get(task_id)
         if process is not None and process.state() != QProcess.ProcessState.NotRunning:
@@ -407,3 +438,11 @@ class TaskQueueController(QObject):
 
 
 __all__ = ["TaskQueueController", "TaskRecord"]
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()

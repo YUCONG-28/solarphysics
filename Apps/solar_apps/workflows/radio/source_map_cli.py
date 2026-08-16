@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import json
+import os
 from collections.abc import Callable, Sequence
+from pathlib import Path
 from typing import Any
 
 from solar_toolkit.radio.config import load_radio_user_config
@@ -52,7 +55,48 @@ def main(
             config_source=args.config,
             cli_overrides=vars(args),
         )
+        if os.environ.get("APP_V1_RUN_ID"):
+            _emit_app_v1_products(output_dir)
     return result if isinstance(result, int) else 0
+
+
+def _emit_app_v1_products(output_dir: Path) -> None:
+    files = sorted(path for path in output_dir.rglob("*") if path.is_file())
+    center_candidates = sorted(
+        (
+            path
+            for path in files
+            if path.suffix.casefold() == ".csv"
+            and "gaussian" in path.name.casefold()
+            and "diagnostic" in path.name.casefold()
+        ),
+        key=lambda path: (
+            path.name.casefold() != "radio_gaussian_fit_diagnostics.csv",
+            str(path),
+        ),
+    )
+    if center_candidates:
+        _app_v1_event(center_candidates[0], "centers")
+    for path in files:
+        if path.suffix.casefold() in {".png", ".jpg", ".jpeg"}:
+            _app_v1_event(path, "diagnostics")
+
+
+def _app_v1_event(path: Path, source_port: str) -> None:
+    print(
+        "APP_V1_EVENT "
+        + json.dumps(
+            {
+                "schema_version": 1,
+                "run_id": os.environ["APP_V1_RUN_ID"],
+                "module_id": os.environ.get("APP_V1_MODULE_ID", "source-map"),
+                "kind": "artifact",
+                "payload": {"path": str(path), "source_port": source_port},
+            },
+            separators=(",", ":"),
+        ),
+        flush=True,
+    )
 
 
 if __name__ == "__main__":

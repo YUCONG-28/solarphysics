@@ -31,6 +31,11 @@ There are no public console scripts in version 0.3.0.
 
 ## Install
 
+The editable commands below use dependency ranges. For a confirmatory run,
+recreate and verify a sealed target-platform environment as described in the
+[environment lock manual](../environment/README.md), then install this checkout
+with `--no-deps --no-build-isolation`.
+
 From the unified repository root:
 
 ```powershell

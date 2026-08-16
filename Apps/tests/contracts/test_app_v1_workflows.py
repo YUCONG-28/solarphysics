@@ -264,6 +264,33 @@ def test_rrll_preview_uses_qualified_config_and_explicit_paths(
     assert user_config["spectrogram"]["file_path"] == str(spectrum)
 
 
+def test_rrll_preview_propagates_explicit_study_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from solar_apps.workflows.radio import rrll_percentile_preview_comparison as preview
+
+    seen: list[str | None] = []
+
+    def capture_mode(*_args, study_mode=None, **_kwargs):
+        seen.append(study_mode)
+        raise RuntimeError("stop after selection contract")
+
+    monkeypatch.setattr(preview.workflow, "_sorted_fits_for_band", capture_mode)
+    cfg = {
+        "multi_band_root": "/unused",
+        "band_dir_pattern": "{freq}MHz/{polar}",
+        "rr_dir_suffix": "RR",
+        "ll_dir_suffix": "LL",
+        "start_idx": 0,
+        "end_idx": 1,
+        "study_mode": "exploratory",
+    }
+
+    with pytest.raises(RuntimeError, match="selection contract"):
+        preview._collect_band_log_values(cfg, 149.0)
+    assert seen == ["exploratory"]
+
+
 def test_aia_business_parser_flags_are_covered_by_parameter_schema() -> None:
     from solar_apps.workflows.aia.application import build_parser
 

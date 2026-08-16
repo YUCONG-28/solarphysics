@@ -225,6 +225,16 @@ class FlowExecutionController(QObject):
                     if item.node_id == edge.source_node
                 )
             )
+            source_output = next(
+                (
+                    item
+                    for item in source_function.outputs
+                    if item.port_id == edge.source_port
+                ),
+                None,
+            )
+            if source_output is None:
+                raise ValueError(f"Unknown source port: {edge.source_port}")
             identities = self.states[edge.source_node].artifact_identities.get(
                 edge.source_port,
                 [],
@@ -233,18 +243,22 @@ class FlowExecutionController(QObject):
                 raise ValueError(
                     f"{edge.source_node}.{edge.source_port} produced no artifact"
                 )
-            if not any(item.port_id == edge.source_port for item in source_function.outputs):
-                raise ValueError(f"Unknown source port: {edge.source_port}")
             parameter = function.parameter(port.parameter_id)
-            value = Path(str(identities[0]["path"]))
-            if _sha256(value) != identities[0]["sha256"]:
-                raise ValueError(
-                    f"Artifact changed after production: {edge.source_node}."
-                    f"{edge.source_port}"
+            values = [
+                _verified_artifact_path(
+                    identity,
+                    expected_role=edge.source_port,
+                    source_node=edge.source_node,
                 )
-            if parameter.kind == "directory" and value.is_file():
-                value = value.parent
-            parameters[port.parameter_id] = str(value)
+                for identity in identities
+            ]
+            value = _artifact_parameter_value(
+                values,
+                parameter_kind=parameter.kind,
+                source_multiple=source_output.multiple,
+                source_label=f"{edge.source_node}.{edge.source_port}",
+            )
+            parameters[port.parameter_id] = value
         output = self.runtime.run_output_dir(
             self._project_id,
             self._run_id,
@@ -290,10 +304,16 @@ class FlowExecutionController(QObject):
                 if item.node_id == node_id
             )
             function = self.catalog.get(function_id)
-            state.artifact_identities = _bind_artifacts_to_ports(
-                function.outputs,
-                state.artifacts,
-            )
+            try:
+                state.artifact_identities = _bind_artifacts_to_ports(
+                    function.outputs,
+                    record.artifact_records,
+                    legacy_artifacts=state.artifacts,
+                )
+            except (OSError, TypeError, ValueError) as exc:
+                state.status = "failed"
+                state.error = str(exc)
+                self.log_line.emit(node_id, str(exc))
         if record.status != "succeeded":
             state.error = "\n".join(record.logs[-3:]) or record.status
         self._lane_nodes.pop(lane, None)
@@ -328,27 +348,130 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _bind_artifacts_to_ports(outputs, artifacts: list[str]):
-    """Bind ordered worker artifacts to their declared output ports.
+def _bind_artifacts_to_ports(
+    outputs,
+    artifact_records: list[dict[str, object]],
+    *,
+    legacy_artifacts: list[str] | None = None,
+):
+    """Bind products only from explicit worker roles, with one-port fallback."""
 
-    A multiple port consumes all artifacts not reserved for later scalar
-    ports.  This preserves the existing worker protocol while making edge
-    routing honor ``source_port`` and recording a content identity.
-    """
+    output_by_id = {item.port_id: item for item in outputs}
+    result: dict[str, list[dict[str, object]]] = {
+        item.port_id: [] for item in outputs
+    }
+    explicit: list[tuple[str, dict[str, object]]] = []
+    for artifact in artifact_records:
+        source_port = artifact.get("source_port")
+        if not isinstance(source_port, str) or not source_port:
+            role = artifact.get("role")
+            source_port = role if isinstance(role, str) and role in output_by_id else None
+        if source_port is not None:
+            explicit.append((source_port, artifact))
 
-    remaining = [Path(item) for item in artifacts]
-    result: dict[str, list[dict[str, object]]] = {}
-    for index, output in enumerate(outputs):
-        later_scalars = sum(not item.multiple for item in outputs[index + 1 :])
-        count = max(0, len(remaining) - later_scalars) if output.multiple else 1
-        selected, remaining = remaining[:count], remaining[count:]
-        result[output.port_id] = [
+    unbound = len(artifact_records) - len(explicit)
+    if len(outputs) > 1 and unbound:
+        raise ValueError(
+            f"Multi-output worker emitted {unbound} artifact(s) without explicit "
+            "source_port"
+        )
+    if len(outputs) > 1 and not explicit and (artifact_records or legacy_artifacts):
+        raise ValueError(
+            "Multi-output worker emitted no explicit source_port; refusing "
+            "artifact-order inference"
+        )
+    if len(outputs) == 1 and not explicit:
+        sole_port = outputs[0].port_id
+        candidates = artifact_records or [
+            {"path": item} for item in (legacy_artifacts or [])
+        ]
+        explicit = [(sole_port, item) for item in candidates]
+
+    for source_port, artifact in explicit:
+        if source_port not in output_by_id:
+            raise ValueError(f"Worker emitted unknown source_port: {source_port}")
+        path_value = artifact.get("path")
+        if not isinstance(path_value, str) or not path_value:
+            raise ValueError(f"Artifact path missing for source_port: {source_port}")
+        path = Path(path_value)
+        if not path.is_file():
+            raise ValueError(f"Artifact missing for source_port {source_port}: {path}")
+        actual_sha256 = _sha256(path)
+        declared_sha256 = artifact.get("sha256")
+        if declared_sha256 is not None and declared_sha256 != actual_sha256:
+            raise ValueError(f"Artifact SHA-256 mismatch for source_port: {source_port}")
+        result[source_port].append(
             {
+                "role": source_port,
                 "path": str(path),
                 "bytes": path.stat().st_size,
-                "sha256": _sha256(path),
+                "sha256": actual_sha256,
             }
-            for path in selected
-            if path.is_file()
-        ]
+        )
+
+    for source_port, identities in result.items():
+        if output_by_id[source_port].required and not identities:
+            raise ValueError(f"Required source_port {source_port} emitted no artifact")
+        if not output_by_id[source_port].multiple and len(identities) > 1:
+            raise ValueError(
+                f"Scalar source_port {source_port} emitted {len(identities)} artifacts"
+            )
     return result
+
+
+def _artifact_parameter_value(
+    paths: list[Path],
+    *,
+    parameter_kind: str,
+    source_multiple: bool,
+    source_label: str,
+):
+    """Preserve a multiple port as a list, or a verified common directory."""
+
+    if not paths:
+        raise ValueError(f"{source_label} produced no artifact")
+    if not source_multiple and len(paths) != 1:
+        raise ValueError(f"Scalar source port {source_label} produced multiple artifacts")
+    if parameter_kind == "list":
+        return [str(path) for path in paths]
+    if parameter_kind == "directory":
+        directories = {path if path.is_dir() else path.parent for path in paths}
+        if len(directories) != 1:
+            raise ValueError(
+                f"{source_label} artifacts do not share one input directory"
+            )
+        return str(next(iter(directories)))
+    if len(paths) != 1:
+        raise ValueError(
+            f"{source_label} is multiple but target parameter {parameter_kind} is scalar"
+        )
+    return str(paths[0])
+
+
+def _verified_artifact_path(
+    identity: dict[str, object],
+    *,
+    expected_role: str,
+    source_node: str,
+) -> Path:
+    """Resolve one routed artifact only after its role and bytes are verified."""
+
+    role = identity.get("role")
+    path_value = identity.get("path")
+    expected_sha256 = identity.get("sha256")
+    if role != expected_role:
+        raise ValueError(
+            f"Artifact role mismatch: {source_node}.{expected_role} received {role!r}"
+        )
+    if not isinstance(path_value, str) or not path_value:
+        raise ValueError(f"Artifact path missing: {source_node}.{expected_role}")
+    if not isinstance(expected_sha256, str) or len(expected_sha256) != 64:
+        raise ValueError(f"Artifact SHA-256 missing: {source_node}.{expected_role}")
+    path = Path(path_value)
+    if not path.is_file():
+        raise ValueError(f"Artifact missing: {source_node}.{expected_role}")
+    if _sha256(path) != expected_sha256:
+        raise ValueError(
+            f"Artifact changed after production: {source_node}.{expected_role}"
+        )
+    return path

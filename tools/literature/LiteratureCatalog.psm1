@@ -1,6 +1,8 @@
 Set-StrictMode -Version Latest
 
 $script:CatalogFieldNames = @(
+    "citekey",
+    "previous_citekeys",
     "title",
     "authors",
     "year",
@@ -10,6 +12,7 @@ $script:CatalogFieldNames = @(
     "ads_url",
     "pdf_url",
     "local_pdf_path",
+    "local_pdf_sha256",
     "summary",
     "summary_cn",
     "topic_tags",
@@ -201,9 +204,11 @@ function Get-PaperIdentityKeys {
 
     $keys = New-Object System.Collections.Generic.List[string]
     $title = Get-NormalizedTitle -Title ([string](Get-PropertyValue -Object $Paper -Name "title" -Default ""))
+    $citekey = ([string](Get-PropertyValue -Object $Paper -Name "citekey" -Default "")).Trim().ToLowerInvariant()
     $doi = Get-NormalizedDoi -Doi ([string](Get-PropertyValue -Object $Paper -Name "doi" -Default ""))
     $arxivId = Get-NormalizedArxivId -ArxivId ([string](Get-PropertyValue -Object $Paper -Name "arxiv_id" -Default ""))
 
+    if ($citekey) { [void]$keys.Add("citekey:$citekey") }
     if ($title) { [void]$keys.Add("title:$title") }
     if ($doi) { [void]$keys.Add("doi:$doi") }
     if ($arxivId) { [void]$keys.Add("arxiv:$arxivId") }
@@ -745,7 +750,7 @@ function Merge-TwoPaperRecords {
     $existingRelevance = [string](Get-PropertyValue -Object $Existing -Name "relevance_level" -Default "")
     $incomingRelevance = [string](Get-PropertyValue -Object $Incoming -Name "relevance_level" -Default "")
 
-    foreach ($name in @("authors", "topic_tags", "method_tags")) {
+    foreach ($name in @("previous_citekeys", "authors", "topic_tags", "method_tags")) {
         $combined = @(Merge-StringArray -Values @(
             (Get-PropertyValue -Object $Existing -Name $name -Default @()),
             (Get-PropertyValue -Object $Incoming -Name $name -Default @())
@@ -803,7 +808,7 @@ function Merge-TwoPaperRecords {
     foreach ($property in @($Incoming.PSObject.Properties)) {
         $name = [string]$property.Name
         if ($name -in @(
-            "authors", "topic_tags", "method_tags", "relevance_level", "recommended_priority",
+            "previous_citekeys", "authors", "topic_tags", "method_tags", "relevance_level", "recommended_priority",
             "date_added", "last_checked", "journal", "doi",
             "uses_gaussian_fitting", "uses_radio_centroid", "uses_source_size",
             "uses_beam_deconvolution", "uses_aia", "uses_hmi", "uses_newkirk_model",
@@ -874,6 +879,8 @@ function ConvertTo-CatalogPaper {
     )
 
     return [pscustomobject][ordered]@{
+        citekey = [string](Get-PropertyValue -Object $Paper -Name "citekey" -Default "")
+        previous_citekeys = @(Merge-StringArray -Values @((Get-PropertyValue -Object $Paper -Name "previous_citekeys" -Default @())))
         title = [string](Get-PropertyValue -Object $Paper -Name "title" -Default "")
         authors = @(Merge-StringArray -Values @((Get-PropertyValue -Object $Paper -Name "authors" -Default @())))
         year = [string](Get-PropertyValue -Object $Paper -Name "year" -Default "")
@@ -883,6 +890,7 @@ function ConvertTo-CatalogPaper {
         ads_url = [string](Get-PropertyValue -Object $Paper -Name "ads_url" -Default "")
         pdf_url = [string](Get-PropertyValue -Object $Paper -Name "pdf_url" -Default "")
         local_pdf_path = [string](Get-PropertyValue -Object $Paper -Name "local_pdf_path" -Default "")
+        local_pdf_sha256 = [string](Get-PropertyValue -Object $Paper -Name "local_pdf_sha256" -Default "")
         summary = [string](Get-PropertyValue -Object $Paper -Name "summary" -Default "")
         summary_cn = [string](Get-PropertyValue -Object $Paper -Name "summary_cn" -Default "Pending verification")
         topic_tags = @(Merge-StringArray -Values @((Get-PropertyValue -Object $Paper -Name "topic_tags" -Default @())))
@@ -907,6 +915,43 @@ function ConvertTo-CatalogPaper {
         applicability_to_DART_DRAT = [string](Get-PropertyValue -Object $Paper -Name "applicability_to_DART_DRAT" -Default "")
         notes_for_current_code = [string](Get-PropertyValue -Object $Paper -Name "notes_for_current_code" -Default "")
     }
+}
+
+function Set-CatalogCitekeys {
+    [CmdletBinding()]
+    param([object[]]$Papers)
+
+    $used = @{}
+    foreach ($paper in @($Papers)) {
+        foreach ($key in @([string]$paper.citekey) + @($paper.previous_citekeys)) {
+            $trimmed = ([string]$key).Trim()
+            if ($trimmed) { $used[$trimmed.ToLowerInvariant()] = $true }
+        }
+    }
+    foreach ($paper in @($Papers)) {
+        if (([string]$paper.citekey).Trim()) { continue }
+        $firstAuthor = if (@($paper.authors).Count -gt 0) { [string]$paper.authors[0] } else { "Paper" }
+        $surname = (@($firstAuthor -split '\s+') | Where-Object { $_ })[-1]
+        $decomposed = $surname.Normalize([Text.NormalizationForm]::FormD)
+        $letters = foreach ($character in $decomposed.ToCharArray()) {
+            if ([Globalization.CharUnicodeInfo]::GetUnicodeCategory($character) -ne [Globalization.UnicodeCategory]::NonSpacingMark) {
+                $character
+            }
+        }
+        $surname = (-join $letters) -replace '[^A-Za-z0-9]', ''
+        if (-not $surname) { $surname = "Paper" }
+        $year = if (([string]$paper.year) -match '^\d{4}$') { [string]$paper.year } else { "Undated" }
+        $base = "$surname$year"
+        $candidate = $base
+        $suffixCode = [int][char]'b'
+        while ($used.ContainsKey($candidate.ToLowerInvariant())) {
+            $candidate = $base + [char]$suffixCode
+            $suffixCode++
+        }
+        $paper.citekey = $candidate
+        $used[$candidate.ToLowerInvariant()] = $true
+    }
+    return @($Papers)
 }
 
 function Sort-CatalogPapers {
@@ -939,11 +984,12 @@ function New-LiteratureCatalogMarkdown {
     $lines = New-Object System.Collections.Generic.List[string]
     [void]$lines.Add("# Paper Master Index")
     [void]$lines.Add("")
-    [void]$lines.Add("| Title | Year | Relevance | Priority | Key methods | Why relevant |")
-    [void]$lines.Add("|---|---|---|---|---|---|")
+    [void]$lines.Add("| Citekey | Title | Year | Relevance | Priority | Key methods | Why relevant |")
+    [void]$lines.Add("|---|---|---|---|---|---|---|")
 
     foreach ($paper in @(Sort-CatalogPapers -Papers $Papers)) {
         $cells = @(
+            (ConvertTo-MarkdownCell -Value $paper.citekey),
             (ConvertTo-MarkdownCell -Value $paper.title),
             (ConvertTo-MarkdownCell -Value $paper.year),
             (ConvertTo-MarkdownCell -Value $paper.relevance_level),
@@ -981,9 +1027,10 @@ function Assert-LiteratureCatalog {
     }
 
     $expectedFields = @(Get-LiteratureCatalogFieldNames)
-    $arrayFields = @("authors", "topic_tags", "method_tags")
+    $arrayFields = @("previous_citekeys", "authors", "topic_tags", "method_tags")
     $stringFields = @($expectedFields | Where-Object { $arrayFields -notcontains $_ })
     $seenTitles = @{}
+    $seenCitationKeys = @{}
     $seenDois = @{}
     $seenArxivIds = @{}
 
@@ -997,7 +1044,7 @@ function Assert-LiteratureCatalog {
         $missingFields = @($expectedFields | Where-Object { $actualFields -notcontains $_ })
         $extraFields = @($actualFields | Where-Object { $expectedFields -notcontains $_ })
         if ($missingFields.Count -gt 0 -or $extraFields.Count -gt 0) {
-            throw "Catalog record '$title' must use exactly the 32 canonical fields. Missing: $($missingFields -join ', '); extra: $($extraFields -join ', ')."
+            throw "Catalog record '$title' must use exactly the 35 canonical fields. Missing: $($missingFields -join ', '); extra: $($extraFields -join ', ')."
         }
 
         foreach ($field in $stringFields) {
@@ -1024,6 +1071,38 @@ function Assert-LiteratureCatalog {
         }
         if ($paper.recommended_priority -notin @("high", "medium", "background", "hold")) {
             throw "Catalog record '$title' has invalid recommended_priority '$($paper.recommended_priority)'."
+        }
+
+        $citekey = ([string]$paper.citekey).Trim()
+        if ($citekey -notmatch '^[A-Za-z][A-Za-z0-9._:-]*$') {
+            throw "Catalog record '$title' has invalid citekey '$citekey'."
+        }
+        $normalizedCitekey = $citekey.ToLowerInvariant()
+        if ($seenCitationKeys.ContainsKey($normalizedCitekey)) {
+            throw "Duplicate current or previous citekey in literature catalog: $citekey"
+        }
+        $seenCitationKeys[$normalizedCitekey] = $true
+        foreach ($previousCitekey in @($paper.previous_citekeys)) {
+            if ($previousCitekey -notmatch '^[A-Za-z][A-Za-z0-9._:-]*$') {
+                throw "Catalog record '$title' has invalid previous citekey '$previousCitekey'."
+            }
+            $normalizedPrevious = ([string]$previousCitekey).ToLowerInvariant()
+            if ($seenCitationKeys.ContainsKey($normalizedPrevious)) {
+                throw "Duplicate current or previous citekey in literature catalog: $previousCitekey"
+            }
+            $seenCitationKeys[$normalizedPrevious] = $true
+        }
+
+        $localPdfPath = ([string]$paper.local_pdf_path).Trim()
+        $localPdfSha256 = ([string]$paper.local_pdf_sha256).Trim()
+        if ([bool]$localPdfPath -ne [bool]$localPdfSha256) {
+            throw "Catalog record '$title' must set local_pdf_path and local_pdf_sha256 together."
+        }
+        if ($localPdfPath -and -not $localPdfPath.StartsWith("data://literature-catalog/")) {
+            throw "Catalog record '$title' local_pdf_path must use data://literature-catalog/."
+        }
+        if ($localPdfSha256 -and $localPdfSha256 -notmatch '^[0-9a-fA-F]{64}$') {
+            throw "Catalog record '$title' has invalid local_pdf_sha256."
         }
 
         foreach ($field in @("date_added", "last_checked")) {
@@ -1055,6 +1134,18 @@ function Assert-LiteratureCatalog {
         if ($arxivId) {
             if ($seenArxivIds.ContainsKey($arxivId)) { throw "Duplicate arXiv ID in literature catalog: $arxivId" }
             $seenArxivIds[$arxivId] = $true
+        }
+
+        $adsUrl = ([string]$paper.ads_url).Trim()
+        if ($adsUrl -and $adsUrl -notmatch '^https://ui\.adsabs\.harvard\.edu/abs/[^/?#]+/?$') {
+            throw "Catalog record '$title' ads_url must be an ADS abstract URL; use doi/arxiv_id for other identities."
+        }
+
+        $isExplicitIdentityHold = $paper.recommended_priority -eq "hold" -and
+            ([string]$paper.notes_for_current_code) -match 'UNVERIFIED_IDENTITY'
+        if (-not $doi -and -not $arxivId -and [string]::IsNullOrWhiteSpace([string]$paper.ads_url) -and
+            -not $isExplicitIdentityHold) {
+            throw "Catalog record '$title' requires at least one DOI, arXiv ID, or ADS URL."
         }
 
         if ($doi -and ([string]$paper.journal) -match '(?i)^arxiv preprint$') {
@@ -1181,6 +1272,7 @@ function Invoke-LiteratureCatalogUpdate {
 
     $merged = @(Merge-PaperRecords -PaperRecords $allRecords.ToArray())
     $canonical = @($merged | ForEach-Object { ConvertTo-CatalogPaper -Paper $_ -DefaultDate $AsOfDate })
+    $canonical = @(Set-CatalogCitekeys -Papers $canonical)
     $ordered = @(Sort-CatalogPapers -Papers $canonical)
     [void](Assert-LiteratureCatalog -Papers $ordered)
 
@@ -1339,7 +1431,7 @@ function Invoke-GitLiteratureCommitPush {
 Export-ModuleMember -Function `
     Get-LiteratureCatalogFieldNames, Resolve-LiteratureCatalogPaths, Get-PaperSearchConfig, `
     Merge-StringArray, Get-NormalizedTitle, Get-NormalizedDoi, Get-NormalizedArxivId, `
-    Get-RelevanceRank, ConvertTo-ScoredPaperRecord, Merge-PaperRecords, ConvertTo-CatalogPaper, `
+    Get-RelevanceRank, ConvertTo-ScoredPaperRecord, Merge-PaperRecords, ConvertTo-CatalogPaper, Set-CatalogCitekeys, `
     Sort-CatalogPapers, New-LiteratureCatalogMarkdown, ConvertTo-LiteratureCatalogJson, `
     Assert-LiteratureCatalog, Test-TextContentEqual, Invoke-LiteratureCatalogUpdate, `
     Get-GitLiteraturePublishPlan, Assert-GitLiteraturePublishReady, Invoke-GitLiteratureCommitPush

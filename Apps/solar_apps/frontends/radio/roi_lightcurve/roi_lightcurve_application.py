@@ -6,6 +6,7 @@ import argparse
 import hashlib
 import json
 import math
+import os
 import tempfile
 import warnings
 from bisect import bisect_left, bisect_right
@@ -1308,6 +1309,37 @@ def main(argv: list[str] | None = None) -> int:
     for key, label in labels.items():
         if key in products:
             print(f"  {label}: {products[key]}")
+    if os.environ.get("APP_V1_RUN_ID"):
+        source_ports = {
+            "csv": "curve",
+            "json": "roi",
+            "reference_png": "plots",
+            "lightcurve_png": "plots",
+            "lightcurve_detail_png": "plots",
+            "lightcurve_normalized_png": "plots",
+        }
+        for key, source_port in source_ports.items():
+            path = products.get(key)
+            if path is not None and Path(path).is_file():
+                print(
+                    "APP_V1_EVENT "
+                    + json.dumps(
+                        {
+                            "schema_version": 1,
+                            "run_id": os.environ["APP_V1_RUN_ID"],
+                            "module_id": os.environ.get(
+                                "APP_V1_MODULE_ID", "roi-lightcurve"
+                            ),
+                            "kind": "artifact",
+                            "payload": {
+                                "path": str(path),
+                                "source_port": source_port,
+                            },
+                        },
+                        separators=(",", ":"),
+                    ),
+                    flush=True,
+                )
     return 0
 
 

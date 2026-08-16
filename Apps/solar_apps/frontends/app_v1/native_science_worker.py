@@ -252,12 +252,14 @@ def main(argv: list[str] | None = None) -> int:
         kind = (
             "preview" if artifact.suffix.casefold() in {".png", ".jpg"} else "artifact"
         )
-        _event(
-            args.module_id,
-            kind,
-            path=str(artifact),
-            media_type=_media_type(artifact),
-        )
+        payload: dict[str, object] = {
+            "path": str(artifact),
+            "media_type": _media_type(artifact),
+        }
+        source_port = _source_port(args.operation, artifact, index)
+        if source_port is not None:
+            payload["source_port"] = source_port
+        _event(args.module_id, kind, **payload)
         _event(
             args.module_id,
             "progress",
@@ -274,6 +276,22 @@ def _media_type(path: Path) -> str:
         ".json": "application/json",
         ".html": "text/html",
     }.get(path.suffix.casefold(), "application/octet-stream")
+
+
+def _source_port(operation: str, path: Path, ordinal: int) -> str | None:
+    """Declare graph output roles; auxiliary files deliberately remain unbound."""
+
+    if operation == "bad-frame-discover":
+        return "review"
+    if operation == "radio-composite-discover":
+        return "composite"
+    if operation == "dart-render":
+        name = path.stem.casefold()
+        if "narrowband" in name and "lightcurve" in name:
+            return "curves"
+        if ordinal == 1:
+            return "spectrum"
+    return None
 
 
 if __name__ == "__main__":
