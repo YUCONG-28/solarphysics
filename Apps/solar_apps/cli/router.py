@@ -63,6 +63,8 @@ WORKFLOW_COMMAND_TARGETS = {
 
 TOOL_TARGETS = {
     "bad-frame-ml": "solar_apps.frontends.radio_bad_frame_review.ml_cli",
+    "release": "solar_apps.cli.release",
+    "quick": "solar_apps.cli.quick_update",
 }
 
 LEGACY_FRONTENDS = {

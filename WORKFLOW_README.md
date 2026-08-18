@@ -282,7 +282,87 @@ git status --short
 - 先运行 `frontend <id> --help`，再启动完整界面；
 - 不自动回退到系统 Python 或其他环境。
 
-## 10. 提交或创建 PR 前检查清单
+## 10. 快捷更新命令（`tools quick`）
+
+日常的「检查 → 选择性提交 → 推送 → 建 PR」可以通过启动器内的
+`tools quick` 命令组完成。它们严格遵循上文第 2~5 节的分支与 PR 约定，
+不会执行 `git add .`、不会 force-push、也不会在 `main` 上直接提交。
+
+### 10.1 快速检查
+
+运行公共 Python 包的 `pip check`、`compileall` 和 `ruff`：
+
+```bash
+./Apps/run.sh tools quick check
+```
+
+### 10.2 选择性提交
+
+只暂存明确给出的路径，然后复查暂存差异并提交。若暂存内容命中私有
+数据或生成产物的后缀/目录（`Local`、`outputs`、`logs`、观测与媒体后缀
+等），命令会拒绝提交并自动取消暂存：
+
+```bash
+./Apps/run.sh tools quick save -m "feat: <说明>" -- <path-one> <path-two>
+```
+
+### 10.3 推送并创建 PR
+
+在功能分支上执行 `git push -u`，并在 `gh` 可用时创建面向 `main` 的 PR：
+
+```bash
+./Apps/run.sh tools quick push
+```
+
+`main` 上运行 `quick push` 会被拒绝，先按第 2 节创建功能分支。
+
+### 10.4 一键更新
+
+`check + save + push` 的串联：
+
+```bash
+./Apps/run.sh tools quick update -m "feat: <说明>" -- <path-one> <path-two>
+```
+
+## 11. 发布命令（`tools release`）
+
+`tools release` 负责版本升级、变更日志改写、打 tag、推送并创建 GitHub
+Release。**默认是 dry-run**，只有显式传入 `--execute` 才会写盘和推送；
+它不会 force-push、不会改写历史，也只在 `main` 干净且与远端同步时执行。
+
+### 11.1 只做前置检查（不写任何文件）
+
+```bash
+./Apps/run.sh tools release check
+```
+
+检查内容包括：位于 `main`、工作区干净、无未推送提交、与 `origin/main`
+同步，并报告当前版本与环境锁门禁状态。
+
+### 11.2 预览一次发布
+
+```bash
+./Apps/run.sh tools release run --bump patch --note "<发布说明>"
+```
+
+`--bump` 取 `patch`、`minor` 或 `major`。命令会打印将要改动的文件与将要
+执行的 Git 命令，但不会修改任何内容。
+
+### 11.3 真正执行
+
+```bash
+./Apps/run.sh tools release run --bump patch --note "<发布说明>" --execute
+```
+
+执行步骤：更新两份 `_version.py`（`Python/solar_toolkit/_version.py` 与
+`Apps/solar_apps/_version.py`，二者必须一致）、把 `## Unreleased` 改写为
+新版本段、`git add` 版本与变更日志、提交 `chore: release v<版本>`、打
+annotated tag、推送 `main` 与 tag，最后在 `gh` 可用时创建 GitHub Release。
+
+> 发布前应先在功能分支通过全部相关测试，再合并到 `main`。版本号只允许
+> 通过 `tools release` 修改，禁止手改 `_version.py`。
+
+## 12. 提交或创建 PR 前检查清单
 
 - [ ] 当前位于预期的功能分支，而不是直接在 `main` 开发；
 - [ ] `git status --short` 只显示本次任务相关文件；
