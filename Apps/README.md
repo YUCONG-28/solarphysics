@@ -208,13 +208,21 @@ Apps/run.sh tools <command> [arguments]
 ```
 
 Workflow domains are `aia`, `radio`, `hmi`, `net`, `data`, `visualization`, and
-`xray-dem`. Discover their commands without importing heavy optional modules:
+`xray-dem`. The `tools` group also carries repository maintenance commands:
+`release` (version bump, tag, and GitHub release) and `quick`
+(check/save/push/update). Discover commands without importing heavy optional
+modules:
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Apps\run.ps1 workflow radio --help
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Apps\run.ps1 workflow aia --help
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Apps\run.ps1 tools bad-frame-ml --help
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Apps\run.ps1 tools release --help
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Apps\run.ps1 tools quick --help
 ```
+
+The `release` and `quick` commands are documented in the
+[project workflow guide](../WORKFLOW_README.md) sections 11 and 10.
 
 Compatibility aliases preserve established command semantics while scripts
 move to stable IDs:

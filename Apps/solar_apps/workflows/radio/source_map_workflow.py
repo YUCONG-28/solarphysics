@@ -2543,9 +2543,7 @@ def _sorted_fits_for_band(
         raise ValueError(f"波段目录不存在：{band_dir}")
 
     mode = _require_study_mode(study_mode)
-    frozen = _frozen_files_for_band(
-        Path(band_dir), required=mode == "confirmatory"
-    )
+    frozen = _frozen_files_for_band(Path(band_dir), required=mode == "confirmatory")
     if frozen is not None:
         return [str(path) for path in frozen]
 
@@ -2568,14 +2566,18 @@ def _sorted_fits_for_band(
 def _require_study_mode(value: object) -> str:
     mode = str(value or "").strip().casefold()
     if mode not in {"exploratory", "confirmatory"}:
-        raise ValueError("radio study_mode must be explicit: exploratory or confirmatory")
+        raise ValueError(
+            "radio study_mode must be explicit: exploratory or confirmatory"
+        )
     return mode
 
 
 def _parse_utc_z(value: object, *, label: str) -> datetime.datetime:
-    if not isinstance(value, str) or re.fullmatch(
-        r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z", value
-    ) is None:
+    if (
+        not isinstance(value, str)
+        or re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z", value)
+        is None
+    ):
         raise ValueError(f"Frozen collection {label} must be UTC with a Z suffix")
     try:
         parsed = datetime.datetime.fromisoformat(value.removesuffix("Z") + "+00:00")
@@ -2587,14 +2589,14 @@ def _parse_utc_z(value: object, *, label: str) -> datetime.datetime:
 
 
 def _utc_z_millis(value: datetime.datetime) -> str:
-    return value.astimezone(datetime.timezone.utc).isoformat(
-        timespec="milliseconds"
-    ).replace("+00:00", "Z")
+    return (
+        value.astimezone(datetime.timezone.utc)
+        .isoformat(timespec="milliseconds")
+        .replace("+00:00", "Z")
+    )
 
 
-def _expected_frozen_record_id(
-    observed: datetime.datetime, relative_path: str
-) -> str:
+def _expected_frozen_record_id(observed: datetime.datetime, relative_path: str) -> str:
     identity = f"{_utc_z_millis(observed)}\0{relative_path}"
     return "radio-" + hashlib.sha256(identity.encode()).hexdigest()[:24]
 
@@ -2666,9 +2668,7 @@ def _frozen_files_for_band(
         paths.add(relative_path)
         expected_record_id = _expected_frozen_record_id(observed, relative_path)
         if record_id != expected_record_id:
-            raise ValueError(
-                f"Frozen record_id is not bound to UTC/path: {record_id}"
-            )
+            raise ValueError(f"Frozen record_id is not bound to UTC/path: {record_id}")
         path = (root / relative_path).resolve()
         try:
             path.relative_to(root)
@@ -2678,9 +2678,10 @@ def _frozen_files_for_band(
         if not isinstance(size, int) or isinstance(size, bool) or size < 0:
             raise ValueError(f"Frozen record bytes is invalid: {record_id}")
         digest_value = item.get("sha256")
-        if not isinstance(digest_value, str) or re.fullmatch(
-            r"[0-9a-f]{64}", digest_value
-        ) is None:
+        if (
+            not isinstance(digest_value, str)
+            or re.fullmatch(r"[0-9a-f]{64}", digest_value) is None
+        ):
             raise ValueError(f"Frozen record SHA is invalid: {record_id}")
         if not path.is_file() or path.stat().st_size != size:
             raise ValueError(f"Frozen collection file missing/size mismatch: {path}")

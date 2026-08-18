@@ -2,4 +2,6 @@
 
 from __future__ import annotations
 
-__all__: list[str] = []
+from ._version import __version__
+
+__all__: list[str] = ["__version__"]

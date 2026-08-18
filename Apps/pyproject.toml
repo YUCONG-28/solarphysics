@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "solarphysics-apps"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Local-first frontends and reproducible workflows for solar physics"
 readme = "README.md"
 requires-python = ">=3.14"
@@ -35,6 +35,9 @@ dev = [
 
 [tool.setuptools]
 include-package-data = true
+
+[tool.setuptools.dynamic]
+version = {attr = "solar_apps._version.__version__"}
 
 [tool.setuptools.packages.find]
 where = ["."]

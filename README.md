@@ -113,6 +113,18 @@ For the standard save, branch, test, push, PR, merge, and cleanup workflow,
 see the [project workflow guide](WORKFLOW_README.md). The guide is written in
 Chinese and includes both macOS and Windows commands.
 
+Fast daily save, verify, push, and release are available through the launcher:
+
+```bash
+./Apps/run.sh tools quick check                    # pip check + compileall + ruff
+./Apps/run.sh tools quick save -m "feat: ..." -- <paths...>
+./Apps/run.sh tools quick push                     # push + open PR against main
+./Apps/run.sh tools quick update -m "feat: ..." -- <paths...>
+./Apps/run.sh tools release check                  # release preconditions only
+./Apps/run.sh tools release run --bump patch --note "..."   # dry-run preview
+./Apps/run.sh tools release run --bump patch --note "..." --execute
+```
+
 Run the complete application test suite with the primary Miniforge
 interpreter:
 

@@ -8,3 +8,11 @@ condition = "AND"
 paths = ['''^(?:(?:Python|Apps)/)?environment(?:\.miniforge)?\.yml$''']
 regexTarget = "line"
 regexes = ['''^[[:space:]]*-[[:space:]]*_libavif_api=[0-9][0-9A-Za-z._+=-]*[[:space:]]*$''']
+
+[[allowlists]]
+description = "Literature catalog cite keys mistaken for a generic API key"
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = ['''^Paper/catalog/papers\.json$''']
+regexTarget = "line"
+regexes = ['''^[[:space:]]*"citekey":[[:space:]]*"[A-Za-z][A-Za-z0-9._-]*",[[:space:]]*$''']

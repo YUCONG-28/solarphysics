@@ -7,13 +7,8 @@ solar_toolkit`` remains lightweight and free of workflow side effects.
 from __future__ import annotations
 
 from importlib import import_module as _import_module
-from importlib.metadata import PackageNotFoundError as _PackageNotFoundError
-from importlib.metadata import version as _distribution_version
 
-try:
-    __version__ = _distribution_version("solar-physics-toolkit")
-except _PackageNotFoundError:  # pragma: no cover - source tree without install
-    __version__ = "0+unknown"
+from ._version import __version__
 
 __author__ = "Solar Physics Research Team"
 __email__ = "solar-physics@example.com"

@@ -11,6 +11,12 @@
 
 ## Unreleased
 
+- Unified the repository version into a single source (`_version.py`) read by
+  both the `solar-physics-toolkit` and `solarphysics-apps` distributions.
+- Added the `tools release` command (version bump, changelog rewrite, tag,
+  push, and GitHub release; dry-run by default).
+- Added the `tools quick` command family (`check`/`save`/`push`/`update`) for
+  fast verify, commit, push, and Pull-Request workflow.
 - Updated contributor and architecture documentation for `solarphysics_env`
   setup, standalone `pre-commit` usage, verification environment variables, and
   public-surface documentation sync rules.

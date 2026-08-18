@@ -299,9 +299,7 @@ class FlowExecutionController(QObject):
         state.artifacts = list(record.artifacts)
         if record.status == "succeeded":
             function_id = next(
-                item.function_id
-                for item in self.flow.nodes
-                if item.node_id == node_id
+                item.function_id for item in self.flow.nodes if item.node_id == node_id
             )
             function = self.catalog.get(function_id)
             try:
@@ -357,15 +355,15 @@ def _bind_artifacts_to_ports(
     """Bind products only from explicit worker roles, with one-port fallback."""
 
     output_by_id = {item.port_id: item for item in outputs}
-    result: dict[str, list[dict[str, object]]] = {
-        item.port_id: [] for item in outputs
-    }
+    result: dict[str, list[dict[str, object]]] = {item.port_id: [] for item in outputs}
     explicit: list[tuple[str, dict[str, object]]] = []
     for artifact in artifact_records:
         source_port = artifact.get("source_port")
         if not isinstance(source_port, str) or not source_port:
             role = artifact.get("role")
-            source_port = role if isinstance(role, str) and role in output_by_id else None
+            source_port = (
+                role if isinstance(role, str) and role in output_by_id else None
+            )
         if source_port is not None:
             explicit.append((source_port, artifact))
 
@@ -399,7 +397,9 @@ def _bind_artifacts_to_ports(
         actual_sha256 = _sha256(path)
         declared_sha256 = artifact.get("sha256")
         if declared_sha256 is not None and declared_sha256 != actual_sha256:
-            raise ValueError(f"Artifact SHA-256 mismatch for source_port: {source_port}")
+            raise ValueError(
+                f"Artifact SHA-256 mismatch for source_port: {source_port}"
+            )
         result[source_port].append(
             {
                 "role": source_port,
@@ -431,7 +431,9 @@ def _artifact_parameter_value(
     if not paths:
         raise ValueError(f"{source_label} produced no artifact")
     if not source_multiple and len(paths) != 1:
-        raise ValueError(f"Scalar source port {source_label} produced multiple artifacts")
+        raise ValueError(
+            f"Scalar source port {source_label} produced multiple artifacts"
+        )
     if parameter_kind == "list":
         return [str(path) for path in paths]
     if parameter_kind == "directory":

@@ -149,10 +149,7 @@ def test_multi_output_artifacts_bind_to_declared_source_port(tmp_path: Path) -> 
     bound = _bind_artifacts_to_ports(
         outputs,
         [
-            *(
-                {"source_port": "images", "path": str(path)}
-                for path in images
-            ),
+            *({"source_port": "images", "path": str(path)} for path in images),
             {"source_port": "manifest", "path": str(manifest)},
         ],
     )
@@ -161,7 +158,9 @@ def test_multi_output_artifacts_bind_to_declared_source_port(tmp_path: Path) -> 
     assert Path(bound["manifest"][0]["path"]) == manifest
     assert {item["role"] for item in bound["images"]} == {"images"}
     assert bound["manifest"][0]["role"] == "manifest"
-    assert all(len(str(item["sha256"])) == 64 for values in bound.values() for item in values)
+    assert all(
+        len(str(item["sha256"])) == 64 for values in bound.values() for item in values
+    )
 
     selected = _verified_artifact_path(
         bound["manifest"][0],

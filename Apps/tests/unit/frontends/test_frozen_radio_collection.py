@@ -55,13 +55,13 @@ def test_unrelated_early_file_does_not_change_frozen_selection(tmp_path: Path) -
     selected.write_bytes(b"selected")
     _write_manifest(tmp_path, _manifest(tmp_path, [selected]))
 
-    assert _sorted_fits_for_band(
-        str(band), 0, 1, study_mode="confirmatory"
-    ) == [str(selected)]
+    assert _sorted_fits_for_band(str(band), 0, 1, study_mode="confirmatory") == [
+        str(selected)
+    ]
     (band / "a.fits").write_bytes(b"unrelated")
-    assert _sorted_fits_for_band(
-        str(band), 0, 1, study_mode="confirmatory"
-    ) == [str(selected)]
+    assert _sorted_fits_for_band(str(band), 0, 1, study_mode="confirmatory") == [
+        str(selected)
+    ]
 
 
 def test_confirmatory_without_manifest_fails_closed(tmp_path: Path) -> None:
@@ -71,13 +71,11 @@ def test_confirmatory_without_manifest_fails_closed(tmp_path: Path) -> None:
     only.write_bytes(b"fits")
 
     with pytest.raises(FileNotFoundError, match="requires .frozen-collection"):
-        _sorted_fits_for_band(
-            str(band), 0, 1, study_mode="confirmatory"
-        )
+        _sorted_fits_for_band(str(band), 0, 1, study_mode="confirmatory")
 
-    assert _sorted_fits_for_band(
-        str(band), 0, 1, study_mode="exploratory"
-    ) == [str(only)]
+    assert _sorted_fits_for_band(str(band), 0, 1, study_mode="exploratory") == [
+        str(only)
+    ]
     with pytest.raises(ValueError, match="study_mode must be explicit"):
         _sorted_fits_for_band(str(band), 0, 1)
 
@@ -103,9 +101,7 @@ def test_naive_utc_is_rejected_by_freezer_and_manifest_reader(
     _write_manifest(tmp_path, payload)
 
     with pytest.raises(ValueError, match="Z suffix"):
-        _sorted_fits_for_band(
-            str(band), 0, 1, study_mode="confirmatory"
-        )
+        _sorted_fits_for_band(str(band), 0, 1, study_mode="confirmatory")
 
 
 def test_end_not_after_start_is_rejected(tmp_path: Path) -> None:
@@ -124,9 +120,7 @@ def test_end_not_after_start_is_rejected(tmp_path: Path) -> None:
     _write_manifest(tmp_path, payload)
 
     with pytest.raises(ValueError, match="end_utc > start_utc"):
-        _sorted_fits_for_band(
-            str(band), 0, 1, study_mode="confirmatory"
-        )
+        _sorted_fits_for_band(str(band), 0, 1, study_mode="confirmatory")
 
 
 def test_duplicate_record_id_and_wrong_sha_are_rejected(tmp_path: Path) -> None:
@@ -144,9 +138,7 @@ def test_duplicate_record_id_and_wrong_sha_are_rejected(tmp_path: Path) -> None:
     _write_manifest(tmp_path, payload)
 
     with pytest.raises(ValueError, match="duplicate record_id"):
-        _sorted_fits_for_band(
-            str(band), 0, 2, study_mode="confirmatory"
-        )
+        _sorted_fits_for_band(str(band), 0, 2, study_mode="confirmatory")
 
     payload = _manifest(tmp_path, [first])
     records = payload["records"]
@@ -154,9 +146,7 @@ def test_duplicate_record_id_and_wrong_sha_are_rejected(tmp_path: Path) -> None:
     records[0]["sha256"] = "0" * 64
     _write_manifest(tmp_path, payload)
     with pytest.raises(ValueError, match="SHA mismatch"):
-        _sorted_fits_for_band(
-            str(band), 0, 1, study_mode="confirmatory"
-        )
+        _sorted_fits_for_band(str(band), 0, 1, study_mode="confirmatory")
 
 
 def test_record_id_is_bound_to_utc_and_path(tmp_path: Path) -> None:
@@ -171,9 +161,7 @@ def test_record_id_is_bound_to_utc_and_path(tmp_path: Path) -> None:
     _write_manifest(tmp_path, payload)
 
     with pytest.raises(ValueError, match="not bound to UTC/path"):
-        _sorted_fits_for_band(
-            str(band), 0, 1, study_mode="confirmatory"
-        )
+        _sorted_fits_for_band(str(band), 0, 1, study_mode="confirmatory")
 
 
 def test_freezer_emits_canonical_utc_z_and_bound_record_ids(tmp_path: Path) -> None:

@@ -1,6 +1,6 @@
 [project]
 name = "solar-physics-toolkit"
-version = "0.3.0"
+dynamic = ["version"]
 description = "Reusable scientific libraries for multi-wavelength solar data analysis"
 authors = [
     {name = "Severus / Lee / Ninghao"}
@@ -60,6 +60,9 @@ Issues = "https://github.com/YUCONG-28/solarphysics/issues"
 [build-system]
 requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
+
+[tool.setuptools.dynamic]
+version = {attr = "solar_toolkit._version.__version__"}
 
 [tool.setuptools.packages.find]
 where = ["."]
