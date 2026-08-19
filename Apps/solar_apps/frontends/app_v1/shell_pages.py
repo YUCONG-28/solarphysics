@@ -72,7 +72,7 @@ class WorkbenchNativePanel(NativeModulePanel):
         self.description.setProperty("muted", True)
         try:
             configured = configured_allowed_roots()
-        except OSError, TypeError, ValueError:
+        except (OSError, TypeError, ValueError):
             configured = ()
         self.allowed_roots = (
             *configured,

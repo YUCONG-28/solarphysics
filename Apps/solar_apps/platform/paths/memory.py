@@ -237,7 +237,7 @@ class RecentPathMemory:
             directory = candidate
         try:
             directory = directory.resolve(strict=True)
-        except FileNotFoundError, OSError:
+        except (FileNotFoundError, OSError):
             return None
         if not directory.is_dir() or not self._within_roots(directory):
             return None
@@ -247,7 +247,7 @@ class RecentPathMemory:
         for root in self.allowed_roots:
             try:
                 resolved_root = root.resolve(strict=True)
-            except FileNotFoundError, OSError:
+            except (FileNotFoundError, OSError):
                 continue
             if path_is_within(candidate, resolved_root):
                 return True

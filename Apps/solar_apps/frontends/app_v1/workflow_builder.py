@@ -134,7 +134,7 @@ class WorkflowBuilder(QWidget):
         self.executor = FlowExecutionController(layout, catalog, self)
         try:
             roots = configured_allowed_roots(workspace_root=layout.repo_root)
-        except OSError, TypeError, ValueError:
+        except (OSError, TypeError, ValueError):
             roots = ()
         self._flow = AppV1FlowV1("untitled-flow", "Untitled Flow")
         self._undo: list[dict[str, object]] = []
@@ -540,7 +540,7 @@ class WorkflowBuilder(QWidget):
             return
         try:
             values = self.form.values()
-        except TypeError, ValueError, json.JSONDecodeError:
+        except (TypeError, ValueError, json.JSONDecodeError):
             return
         updated = replace(
             node,

@@ -352,7 +352,7 @@ def _safe_roots(data: Mapping[str, Any], *, layout: RuntimeLayout) -> tuple[Path
             normalized = normalize_allowed_roots(
                 [path], workspace_root=layout.repo_root
             )[0]
-        except AllowedRootPolicyError, IndexError:
+        except (AllowedRootPolicyError, IndexError):
             continue
         roots.append(normalized)
     return tuple(dict.fromkeys(roots))
@@ -373,7 +373,7 @@ def _migrate_config(
         return False
     try:
         raw = yaml.safe_load(source.read_text(encoding="utf-8")) or {}
-    except OSError, UnicodeError, yaml.YAMLError:
+    except (OSError, UnicodeError, yaml.YAMLError):
         return False
     if not isinstance(raw, Mapping):
         return False
@@ -433,7 +433,7 @@ def _migrate_config(
 def _load_allowed_roots(layout: RuntimeLayout) -> tuple[Path, ...]:
     try:
         data = yaml.safe_load(layout.config_path.read_text(encoding="utf-8")) or {}
-    except OSError, UnicodeError, yaml.YAMLError:
+    except (OSError, UnicodeError, yaml.YAMLError):
         return ()
     return _safe_roots(data, layout=layout) if isinstance(data, Mapping) else ()
 
@@ -479,7 +479,7 @@ def _migrate_home_settings(
             continue
         try:
             raw = json.loads(source.read_text(encoding="utf-8"))
-        except OSError, UnicodeError, json.JSONDecodeError:
+        except (OSError, UnicodeError, json.JSONDecodeError):
             continue
         if not isinstance(raw, Mapping):
             continue

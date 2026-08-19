@@ -181,7 +181,7 @@ def _has_browser_connection(port: int) -> bool:
             check=False,
             timeout=3,
         )
-    except OSError, subprocess.SubprocessError:
+    except (OSError, subprocess.SubprocessError):
         return False
     marker_v4 = f":{int(port)} "
     marker_v6 = f":{int(port)}]"

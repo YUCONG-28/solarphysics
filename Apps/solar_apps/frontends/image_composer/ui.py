@@ -284,7 +284,7 @@ class ComposerView(QGraphicsView):
             payload = json.loads(bytes(event.mimeData().data(THUMBNAIL_MIME)))
             folder_id = str(payload["folder_id"])
             ordinal = int(payload["ordinal"])
-        except KeyError, TypeError, ValueError, json.JSONDecodeError:
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError):
             event.ignore()
             return
         point = self.mapToScene(event.position().toPoint())
@@ -1113,7 +1113,7 @@ class ImageComposerWindow(QMainWindow):
             ):
                 try:
                     signal.disconnect(slot)
-                except RuntimeError, TypeError:
+                except (RuntimeError, TypeError):
                     pass
             if self.thread_pool.tryTake(task):
                 task.mark_dequeued()

@@ -186,7 +186,7 @@ def parse_frequency_mhz(path: Path, header: fits.Header) -> float:
             continue
         try:
             value = float(header[key])
-        except TypeError, ValueError:
+        except (TypeError, ValueError):
             continue
         unit = str(
             header.get("FREQUNIT", header.get("CUNIT3", header.get("CUNIT4", "MHz")))

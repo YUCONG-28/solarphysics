@@ -317,7 +317,7 @@ def load_app_settings(
         return _coerce_app_settings({})
     try:
         loaded = json.loads(path.read_text(encoding="utf-8"))
-    except OSError, json.JSONDecodeError:
+    except (OSError, json.JSONDecodeError):
         return _coerce_app_settings({})
     if not isinstance(loaded, dict):
         return _coerce_app_settings({})
@@ -441,7 +441,7 @@ def slider_with_step_buttons(
     def normalize(raw_value):
         try:
             numeric = float(raw_value)
-        except TypeError, ValueError:
+        except (TypeError, ValueError):
             numeric = float(value)
         numeric = min(float(max_value), max(float(min_value), numeric))
         return int(round(numeric)) if integer_slider else numeric
@@ -1360,7 +1360,7 @@ def _jsonable_facet_value(value: object) -> object:
         return value
     try:
         return float(value)
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         return str(value)
 
 
@@ -2837,14 +2837,14 @@ def _choice_value(options: tuple[str, ...], value: object, default: str) -> str:
 def _safe_int(value: object, default: int) -> int:
     try:
         return int(value)
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         return default
 
 
 def _safe_float(value: object, default: float) -> float:
     try:
         return float(value)
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         return default
 
 
@@ -2872,7 +2872,7 @@ def _saved_float_selection(saved: object, available: list[float]) -> list[float]
     for value in saved:
         try:
             saved_values.add(float(value))
-        except TypeError, ValueError:
+        except (TypeError, ValueError):
             continue
     return [float(value) for value in available if float(value) in saved_values]
 

@@ -2997,7 +2997,7 @@ def _apply_reference_fov(ax: Any, display_config: dict[str, Any] | None) -> None
         right = float(config["x_max_arcsec"])
         bottom = float(config["y_min_arcsec"])
         top = float(config["y_max_arcsec"])
-    except KeyError, TypeError, ValueError:
+    except (KeyError, TypeError, ValueError):
         return
     ax.set_xlim(min(left, right), max(left, right))
     ax.set_ylim(min(bottom, top), max(bottom, top))

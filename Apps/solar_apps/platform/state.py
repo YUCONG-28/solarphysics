@@ -81,7 +81,7 @@ class StateStore:
         with self._lock:
             try:
                 payload = json.loads(self.path.read_text(encoding="utf-8"))
-            except FileNotFoundError, OSError, UnicodeError, json.JSONDecodeError:
+            except (FileNotFoundError, OSError, UnicodeError, json.JSONDecodeError):
                 return fallback
             if not isinstance(payload, dict):
                 return fallback
@@ -94,7 +94,7 @@ class StateStore:
                 return fallback
             try:
                 self._validate_data(data)
-            except TypeError, ValueError:
+            except (TypeError, ValueError):
                 return fallback
             return deepcopy(data)
 

@@ -1164,7 +1164,7 @@ def _optional_numeric_range(
 def _aia_colormap(aia: AiaSelection) -> str:
     try:
         wavelength = int(float(aia.background.wavelength))
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         return "gray"
     configured = str(AIA_CONFIG.get(wavelength, {}).get("cmap", "gray"))
     try:
@@ -1172,7 +1172,7 @@ def _aia_colormap(aia: AiaSelection) -> str:
         from matplotlib import colormaps
 
         colormaps[configured]
-    except ImportError, KeyError, RuntimeError, ValueError:
+    except (ImportError, KeyError, RuntimeError, ValueError):
         return "gray"
     return configured
 

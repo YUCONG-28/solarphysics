@@ -1212,7 +1212,7 @@ def _restore_confirmed_roi(st: Any) -> None:
     try:
         decoded = json.loads(str(payload))
         roi = radio_roi_from_json(decoded)
-    except TypeError, ValueError, json.JSONDecodeError:
+    except (TypeError, ValueError, json.JSONDecodeError):
         st.session_state["confirmed_roi_json"] = ""
         return
     st.session_state["aia_radio_confirmed_roi"] = roi.to_json_dict()
@@ -1227,7 +1227,7 @@ def _session_spectrum_band(st: Any) -> SpectrumBand | None:
             float(payload["low_mhz"]),
             float(payload["high_mhz"]),
         )
-    except KeyError, TypeError, ValueError:
+    except (KeyError, TypeError, ValueError):
         return None
 
 
@@ -1273,7 +1273,7 @@ def _restore_confirmed_spectrum_band(st: Any) -> None:
             float(decoded["low_mhz"]),
             float(decoded["high_mhz"]),
         )
-    except KeyError, TypeError, ValueError, json.JSONDecodeError:
+    except (KeyError, TypeError, ValueError, json.JSONDecodeError):
         st.session_state["confirmed_spectrum_band_json"] = ""
         return
     st.session_state["aia_radio_confirmed_spectrum_band"] = band.to_dict()
@@ -1288,7 +1288,7 @@ def _ensure_spectrum_band_defaults(st: Any, spectrum: SpectrumWindow) -> None:
         current = SpectrumBand(float(current_low), float(current_high))
         current.observed_indices(spectrum.frequency_mhz)
         return
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         pass
     frequencies = spectrum.frequency_mhz
     observed_low = float(frequencies[0])

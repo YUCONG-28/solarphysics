@@ -945,7 +945,7 @@ def _run_streamlit_app(argv: list[str] | None = None) -> None:
             result_context["selected_time_range_utc"],
             result_context["display_limits"],
         )
-    except KeyError, TypeError, ValueError:
+    except (KeyError, TypeError, ValueError):
         st.error("Generated figure metadata is incomplete. Generate Figures again.")
         return
     if render_signature != expected_render_signature:

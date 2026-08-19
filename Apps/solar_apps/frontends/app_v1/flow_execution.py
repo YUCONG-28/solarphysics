@@ -52,7 +52,7 @@ class FlowExecutionController(QObject):
         self.runtime = AppV1RuntimePaths.from_layout(layout)
         try:
             configured = configured_allowed_roots(workspace_root=layout.repo_root)
-        except OSError, TypeError, ValueError:
+        except (OSError, TypeError, ValueError):
             configured = ()
         self.allowed_roots = (
             *configured,

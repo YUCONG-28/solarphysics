@@ -346,7 +346,7 @@ def load_app_settings(path: str | Path, *, reset: bool = False) -> dict[str, Any
         return defaults
     try:
         data = json.loads(settings_path.read_text(encoding="utf-8"))
-    except OSError, json.JSONDecodeError:
+    except (OSError, json.JSONDecodeError):
         return defaults
     settings = dict(defaults)
     for key in defaults:
@@ -2005,7 +2005,7 @@ def _coerce_lightcurve_y_limits(value: Any) -> tuple[float, float] | None:
         lower, upper = value
         lower = float(lower)
         upper = float(upper)
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         return None
     if not (np.isfinite(lower) and np.isfinite(upper)) or lower >= upper:
         return None
@@ -2146,7 +2146,7 @@ def _canonical_frequency_configs(config: dict[str, Any]) -> list[dict[str, Any]]
     for entry in entries if isinstance(entries, list) else []:
         try:
             freq_mhz = float(entry["freq_mhz"])
-        except KeyError, TypeError, ValueError:
+        except (KeyError, TypeError, ValueError):
             continue
         if not np.isfinite(freq_mhz):
             continue
@@ -2181,7 +2181,7 @@ def _default_detail_frequency(st: Any, frequencies: list[float]) -> float:
         raise ValueError("No valid frequencies are available for the light curve.")
     try:
         primary = float(st.session_state.get("primary_reference_freq_mhz"))
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         primary = math.nan
     if np.isfinite(primary):
         for frequency in frequencies:
@@ -2851,7 +2851,7 @@ def _normalize_frequency_selection(freqs: Any) -> set[float]:
     for value in values:
         try:
             freq = float(value)
-        except TypeError, ValueError:
+        except (TypeError, ValueError):
             continue
         if np.isfinite(freq):
             selected.add(freq)
@@ -3884,7 +3884,7 @@ def _file_identity(path: str | Path) -> dict[str, Any]:
     candidate = Path(path).expanduser()
     try:
         resolved = candidate.resolve(strict=False)
-    except OSError, RuntimeError:
+    except (OSError, RuntimeError):
         resolved = candidate.absolute()
     try:
         stat = resolved.stat()
@@ -3923,7 +3923,7 @@ def _dataframe_content_signature(df: pd.DataFrame) -> str:
             categorize=True,
         ).to_numpy(dtype=np.uint64, copy=False)
         digest.update(row_hashes.tobytes())
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         digest.update(df.to_csv(index=True).encode("utf-8"))
     return digest.hexdigest()
 
@@ -4023,7 +4023,7 @@ def _canonical_frequency_limit_items(
     for raw_frequency, raw_limits in (frequency_y_limits or {}).items():
         try:
             frequency = float(raw_frequency)
-        except TypeError, ValueError:
+        except (TypeError, ValueError):
             continue
         if not np.isfinite(frequency):
             continue

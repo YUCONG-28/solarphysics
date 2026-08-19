@@ -594,7 +594,7 @@ class RadioRunManager:
             try:
                 concurrency = self.store.load_workspace(workspace_id).concurrency
                 manifest = self.store.load_run(workspace_id, run_id)
-            except KeyError, OSError, ValueError:
+            except (KeyError, OSError, ValueError):
                 return index
             dependencies = manifest.provenance.get("depends_on_run_ids", [])
             dependency_states = [

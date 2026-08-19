@@ -1390,7 +1390,7 @@ def _render_dart_band_step(
         legacy_high = st.session_state.get("dart_band_high")
         try:
             legacy_width = float(legacy_high) - float(legacy_low)
-        except TypeError, ValueError:
+        except (TypeError, ValueError):
             legacy_width = default_width
         default_width = _valid_bandwidth_or_default(
             legacy_width,
@@ -1412,7 +1412,7 @@ def _render_dart_band_step(
     try:
         active_raw_value = float(active_raw)
         active_frequency = _nearest_frequency(selected_frequencies, active_raw_value)
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         active_raw_value = selected_frequencies[0]
         active_frequency = selected_frequencies[0]
     if not math.isclose(active_raw_value, active_frequency, rel_tol=0.0, abs_tol=1e-6):
@@ -2421,7 +2421,7 @@ def _frequency_mapping_value(mapping: dict | Mapping, frequency: float):
         try:
             if math.isclose(float(key), float(frequency), rel_tol=0.0, abs_tol=1e-6):
                 return value
-        except TypeError, ValueError:
+        except (TypeError, ValueError):
             continue
     raise ValueError(f"Missing data for {float(frequency):g} MHz")
 
@@ -2556,7 +2556,7 @@ def _valid_bandwidth_or_default(
 ) -> float:
     try:
         width = float(value)
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         width = float(default)
     if not math.isfinite(width) or width <= 0 or width > float(maximum):
         width = float(default)
@@ -2594,7 +2594,7 @@ def _dart_band_overrides(
         try:
             frequency = _nearest_frequency(selected, float(raw_frequency))
             width = float(raw_width)
-        except TypeError, ValueError:
+        except (TypeError, ValueError):
             continue
         if not math.isclose(frequency, float(raw_frequency), rel_tol=0.0, abs_tol=1e-6):
             continue
@@ -2745,7 +2745,7 @@ def _apply_pending_band(st: Any) -> None:
         raw = st.session_state.get("dart_band_overrides_json", "{}")
         try:
             decoded = json.loads(raw) if isinstance(raw, str) else dict(raw)
-        except json.JSONDecodeError, TypeError, ValueError:
+        except (json.JSONDecodeError, TypeError, ValueError):
             decoded = {}
         decoded[f"{frequency:.9g}"] = bandwidth
         st.session_state["dart_band_overrides_json"] = json.dumps(
@@ -2872,7 +2872,7 @@ def _invalidate_sequence(st: Any) -> None:
     if isinstance(job_id, str) and hasattr(st, "cache_resource"):
         try:
             st.cache_resource(_create_sequence_job_registry)().cancel(job_id)
-        except KeyError, RuntimeError:
+        except (KeyError, RuntimeError):
             pass
     for key in (
         "sequence_signature",

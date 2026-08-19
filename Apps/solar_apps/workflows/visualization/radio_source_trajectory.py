@@ -261,7 +261,7 @@ def frequency_marker_key(freq: object) -> str:
 
     try:
         value = float(freq)
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         return str(freq)
     if not np.isfinite(value):
         return str(freq)

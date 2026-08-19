@@ -242,7 +242,7 @@ class JobRegistry:
         if record["status"] in {"running", "canceling"} and progress_file:
             try:
                 progress = json.loads(Path(progress_file).read_text(encoding="utf-8"))
-            except FileNotFoundError, json.JSONDecodeError, OSError:
+            except (FileNotFoundError, json.JSONDecodeError, OSError):
                 progress = {}
         current_frame = progress.get("current_frame", record.get("current_frame"))
         artifact_ids = list(record.get("artifact_ids", []))

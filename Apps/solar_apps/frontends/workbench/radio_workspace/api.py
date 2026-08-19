@@ -735,7 +735,7 @@ def _artifact_time_info(run: Any, artifact: Any) -> tuple[str | None, str | None
                 continue
             try:
                 parsed = parse_time(str(value))
-            except TypeError, ValueError:
+            except (TypeError, ValueError):
                 continue
             return _utc_text(parsed), None
     return None, None

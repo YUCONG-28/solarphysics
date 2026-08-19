@@ -84,7 +84,7 @@ def normalize_roi(roi: dict[str, Any] | None) -> dict[str, float] | None:
         y = float(roi["y"])
         w = float(roi["w"])
         h = float(roi["h"])
-    except KeyError, TypeError, ValueError:
+    except (KeyError, TypeError, ValueError):
         return None
     x = min(max(x, 0.0), 1.0)
     y = min(max(y, 0.0), 1.0)
@@ -360,7 +360,7 @@ def _normalize_size(
         return None
     try:
         width, height = int(value[0]), int(value[1])
-    except TypeError, ValueError, IndexError:
+    except (TypeError, ValueError, IndexError):
         return None
     if width <= 0 or height <= 0:
         return None

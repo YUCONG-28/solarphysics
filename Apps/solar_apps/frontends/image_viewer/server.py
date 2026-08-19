@@ -603,7 +603,7 @@ def _optional_size(width, height) -> tuple[int, int] | None:
 def _float_form(value: str | None, *, default: float) -> float:
     try:
         return float(value) if value not in (None, "") else default
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         return default
 
 
@@ -612,7 +612,7 @@ def _optional_positive_int(value: Any) -> int | None:
         return None
     try:
         parsed = int(value)
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         return None
     return parsed if parsed > 0 else None
 

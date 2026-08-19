@@ -164,7 +164,7 @@ class SafePathBrowser:
         for child in folder.iterdir():
             try:
                 resolved = child.resolve(strict=True)
-            except FileNotFoundError, OSError:
+            except (FileNotFoundError, OSError):
                 continue
             if not _inside(resolved, self.allowed_roots):
                 continue
@@ -377,7 +377,7 @@ class RadioWorkspaceStore:
             for item in primary_root.iterdir():
                 try:
                     resolved_item = item.resolve(strict=True)
-                except FileNotFoundError, OSError:
+                except (FileNotFoundError, OSError):
                     continue
                 if (
                     not resolved_item.is_dir()
@@ -392,7 +392,7 @@ class RadioWorkspaceStore:
                     continue
                 try:
                     workspaces.append(self._read_workspace(config))
-                except OSError, TypeError, ValueError, json.JSONDecodeError:
+                except (OSError, TypeError, ValueError, json.JSONDecodeError):
                     continue
         return sorted(workspaces, key=lambda item: item.updated_at, reverse=True)
 
@@ -1028,7 +1028,7 @@ class RadioWorkspaceStore:
                     ):
                         continue
                     exports.append(exported)
-                except OSError, TypeError, ValueError, json.JSONDecodeError:
+                except (OSError, TypeError, ValueError, json.JSONDecodeError):
                     continue
         return sorted(exports, key=lambda item: item.created_at, reverse=True)
 
@@ -1180,7 +1180,7 @@ class RadioWorkspaceStore:
                     continue
                 try:
                     runs.append(RadioRunManifest.from_dict(self._read_json(path)))
-                except OSError, TypeError, ValueError, json.JSONDecodeError:
+                except (OSError, TypeError, ValueError, json.JSONDecodeError):
                     continue
         return sorted(runs, key=lambda item: item.created_at, reverse=True)
 

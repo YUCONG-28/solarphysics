@@ -427,7 +427,7 @@ def _optional_float(value: Any) -> float | None:
         return None
     try:
         return float(value)
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         return None
 
 
@@ -441,7 +441,7 @@ def _read_json_object(path: Path) -> dict[str, Any]:
 def _finite_le(value: Any, limit: float) -> bool:
     try:
         number = float(value)
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         return False
     return math.isfinite(number) and number <= limit
 
@@ -450,6 +450,6 @@ def _finite_gt(value: Any, baseline: Any) -> bool:
     try:
         number = float(value)
         comparison = float(baseline)
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         return False
     return math.isfinite(number) and math.isfinite(comparison) and number > comparison

@@ -44,7 +44,7 @@ def build_scientific_image_filename(
             if end_text < start_text:
                 start_time, end_time = end_time, start_time
         time_source = "observation"
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         start_time = generated_at
         end_time = None
         time_source = "generated"

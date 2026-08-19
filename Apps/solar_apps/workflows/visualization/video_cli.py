@@ -77,7 +77,7 @@ def _dt(year, month, day, hour=0, minute=0, second=0):
         return datetime(
             int(year), int(month), int(day), int(hour), int(minute), int(second)
         )
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         return None
 
 
@@ -86,7 +86,7 @@ def _dt_doy(year, doy, hour=0, minute=0, second=0):
         base = datetime(int(year), 1, 1)
         value = base + timedelta(days=int(doy) - 1)
         return value.replace(hour=int(hour), minute=int(minute), second=int(second))
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         return None
 
 

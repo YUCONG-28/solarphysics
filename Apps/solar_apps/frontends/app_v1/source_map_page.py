@@ -527,7 +527,7 @@ class SourceMapNativePanel(NativeModulePanel):
         if artifact.suffix.casefold() == ".json":
             try:
                 payload = json.loads(artifact.read_text(encoding="utf-8"))
-            except OSError, json.JSONDecodeError:
+            except (OSError, json.JSONDecodeError):
                 return
             if isinstance(payload, dict) and "public_candidates" in payload:
                 self._load_discovery(artifact, payload)
@@ -621,7 +621,7 @@ class SourceMapNativePanel(NativeModulePanel):
             return
         try:
             hpln, hplt = image_pixel_to_data(self._metadata, panel_id, x, y)
-        except KeyError, TypeError, ValueError, ZeroDivisionError:
+        except (KeyError, TypeError, ValueError, ZeroDivisionError):
             return
         self.coordinate_status.setText(f"HPLN {hpln:.2f} / HPLT {hplt:.2f}")
 

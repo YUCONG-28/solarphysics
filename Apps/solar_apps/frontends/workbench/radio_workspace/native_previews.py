@@ -775,7 +775,7 @@ def _build_roi_selection_preview(
                         (1, 1),
                         compatibility_probe,
                     )
-                except TypeError, ValueError, RuntimeError:
+                except (TypeError, ValueError, RuntimeError):
                     continue
                 compatible_item = item
                 candidates.append(
@@ -1394,7 +1394,7 @@ def _relative_text(path: Path, root: Path) -> str:
 def _finite_float_or_none(value: Any) -> float | None:
     try:
         number = float(value)
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         return None
     return number if math.isfinite(number) else None
 
