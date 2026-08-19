@@ -1310,7 +1310,7 @@ def _multi_wave_mosaic_enabled(cfg: Config) -> bool:
 def _valid_panel_aspect(panel_aspect_ratio: float | None) -> float:
     try:
         aspect = float(panel_aspect_ratio)
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         aspect = 1.0
     if not np.isfinite(aspect) or aspect <= 0:
         return 1.0
@@ -3671,7 +3671,7 @@ def _raw_header_arcsec_axes(
         crval2 = float(radio_header["CRVAL2"])
         cdelt1 = float(radio_header["CDELT1"])
         cdelt2 = float(radio_header["CDELT2"])
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         return None
     values = (crpix1, crpix2, crval1, crval2, cdelt1, cdelt2)
     if not all(np.isfinite(value) for value in values):

@@ -750,7 +750,7 @@ def resolve_spatial_display(
 def _gaussian_band_key(freq):
     try:
         freq_float = float(freq)
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         return str(freq)
     if np.isfinite(freq_float) and abs(freq_float - round(freq_float)) < 1e-6:
         return str(int(round(freq_float)))
@@ -786,7 +786,7 @@ def config_for_gaussian_band(cfg: dict, freq) -> dict:
         freq_float = float(freq)
         if np.isfinite(freq_float) and abs(freq_float - round(freq_float)) < 1e-6:
             candidates.append(int(round(freq_float)))
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         pass
     for candidate in candidates:
         if candidate in per_band and isinstance(per_band[candidate], dict):
@@ -1397,7 +1397,7 @@ def _estimate_safe_workers(file_list: list, requested, memory_per_worker_mb) -> 
                     try:
                         total_bytes += os.path.getsize(file_path)
                         count += 1
-                    except OSError, TypeError:
+                    except (OSError, TypeError):
                         # 如果文件不存在或路径有问题，跳过
                         continue
 
@@ -1406,7 +1406,7 @@ def _estimate_safe_workers(file_list: list, requested, memory_per_worker_mb) -> 
                     memory_per_worker_mb = avg_bytes * 20 / (1024**2)
                 else:
                     memory_per_worker_mb = 500.0
-            except OSError, TypeError:
+            except (OSError, TypeError):
                 memory_per_worker_mb = 500.0
         else:
             memory_per_worker_mb = 500.0
@@ -2635,7 +2635,7 @@ class TimeParser:
                         date_key = f"{year:04d}-{day_of_year:03d}"
 
                     return (date_key, total_ms)
-                except ValueError, IndexError:
+                except (ValueError, IndexError):
                     pass
 
         return None
