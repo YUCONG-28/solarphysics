@@ -25,6 +25,11 @@ DEFAULT_HMI_DIR = Path("data/hmi")
 DEFAULT_OUTPUT_DIR = Path("outputs/aia_hmi")
 DEFAULT_ROI_BOUNDS = (-700.0, -100.0, -100.0, 400.0)
 
+# Several AIA frames can match the same nearest HMI file; cache the aligned
+# (reprojected, copied) map so the expensive reprojection runs once per HMI.
+_HMI_ALIGN_CACHE_MAX_ITEMS = 8
+_HMI_ALIGN_CACHE: dict[tuple[str, str], object] = {}
+
 
 def run_overlay_workflow(
     input_dir_aia: str | Path = DEFAULT_AIA_DIR,
@@ -203,13 +208,28 @@ def run_overlay_workflow(
                 processed_files += 1
                 continue
 
-            try:
-                hmi_map = sunpy.map.Map(hmi_path)
-                aligned_hmi_map = align_maps_to_reference(hmi_map, target_wcs)
-            except Exception as exc:
-                print(f"Could not read HMI file {hmi_path}: {exc}")
-                processed_files += 1
-                continue
+            cache_key = (
+                str(hmi_path),
+                target_wcs.to_header().tostring(),
+            )
+            aligned_hmi_map = _HMI_ALIGN_CACHE.get(cache_key)
+            if aligned_hmi_map is None:
+                try:
+                    hmi_map = sunpy.map.Map(hmi_path)
+                    aligned = align_maps_to_reference(hmi_map, target_wcs)
+                    # Keep a private copy so later consumers never mutate the
+                    # cached reprojected map.
+                    aligned_hmi_map = sunpy.map.Map(
+                        aligned.data.copy(),
+                        aligned.meta.copy(),
+                    )
+                except Exception as exc:
+                    print(f"Could not read HMI file {hmi_path}: {exc}")
+                    processed_files += 1
+                    continue
+                if len(_HMI_ALIGN_CACHE) >= _HMI_ALIGN_CACHE_MAX_ITEMS:
+                    _HMI_ALIGN_CACHE.pop(next(iter(_HMI_ALIGN_CACHE)))
+                _HMI_ALIGN_CACHE[cache_key] = aligned_hmi_map
 
             hmi_smoothed = process_hmi_magnetic_field(
                 aligned_hmi_map,
