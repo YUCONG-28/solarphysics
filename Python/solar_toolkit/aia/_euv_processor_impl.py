@@ -1593,7 +1593,11 @@ def _process_difference_band_worker(
 # Batch Processing
 # ==============================================================================
 def _worker_count(cfg: AIAConfig) -> int:
-    return cfg.max_workers or max(1, multiprocessing.cpu_count() - 1)
+    # Each worker holds full-resolution AIA images; cap the implicit default so
+    # memory usage stays predictable on high-core machines.
+    if cfg.max_workers is not None:
+        return cfg.max_workers
+    return max(1, min(multiprocessing.cpu_count() - 1, 8))
 
 
 def _mosaic_worker_count(cfg: AIAConfig) -> int:
