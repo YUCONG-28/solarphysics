@@ -76,7 +76,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -e ".[dev]"
-          python -m pip install ruff
+          python -m pip install ruff==0.15.12
 
       - name: Verify installed dependencies
         run: python -m pip check
@@ -180,6 +180,8 @@ jobs:
           channel-priority: strict
           conda-remove-defaults: "true"
           auto-update-conda: false
+          cache-environment: true
+          cache-downloads: true
 
       - name: Install public library and applications
         run: |
@@ -330,6 +332,8 @@ jobs:
           channel-priority: strict
           conda-remove-defaults: "true"
           auto-update-conda: false
+          cache-environment: true
+          cache-downloads: true
 
       - name: Install public library and applications
         run: |
