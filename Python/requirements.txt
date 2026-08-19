@@ -24,5 +24,6 @@ requests>=2.31.0
 
 # Workflow-specific optional packages:
 # - hvpy: required only by SOHO/LASCO Helioviewer downloads.
+hvpy>=1.1.0
 # Application, GUI, browser, and event-workflow dependencies live in
 # ../Local/requirements.local.txt and are not part of the public wheel.

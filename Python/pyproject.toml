@@ -49,6 +49,7 @@ full = [
     "seaborn>=0.12.0",
     "dask>=2023.6.0",
     "fitsio>=1.2.0",
+    "hvpy>=1.1.0",
     "skyfield>=1.45",
     "requests>=2.31.0",
 ]
