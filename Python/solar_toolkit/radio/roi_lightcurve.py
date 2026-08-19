@@ -2758,18 +2758,6 @@ def _parse_roi_bounds(raw: str) -> RadioRoi:
     return RadioRoi.from_box(parts[0], parts[1], parts[2], parts[3])
 
 
-def _parse_float_csv(raw: str | None) -> list[float]:
-    if not raw:
-        return []
-    return [float(item.strip()) for item in raw.split(",") if item.strip()]
-
-
-def _parse_text_csv(raw: str | None) -> list[str]:
-    if not raw:
-        return []
-    return [item.strip() for item in raw.split(",") if item.strip()]
-
-
 def _parse_optional_datetime(
     value: str | datetime | None, label: str
 ) -> datetime | None:
