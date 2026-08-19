@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import functools
 import logging
+import os
 import time
 
 
@@ -22,25 +23,37 @@ def timing_decorator(func):
 
 
 class SolarLogger:
-    """Logger configured for local solar-data processing workflows."""
+    """Logger configured for local solar-data processing workflows.
+
+    Handlers are installed once per stream/file and shared across instances so
+    that constructing a second logger no longer destroys the first one's
+    handlers.
+    """
+
+    _console_installed = False
+    _file_handlers: set[str] = set()
 
     def __init__(self, log_file: str | None = None, level: str = "INFO"):
         self.logger = logging.getLogger("solar_data_processing")
         self.logger.setLevel(getattr(logging, level))
-        self.logger.handlers.clear()
 
         formatter = logging.Formatter(
             "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
             datefmt="%Y-%m-%d %H:%M:%S",
         )
-        console_handler = logging.StreamHandler()
-        console_handler.setFormatter(formatter)
-        self.logger.addHandler(console_handler)
+        if not SolarLogger._console_installed:
+            console_handler = logging.StreamHandler()
+            console_handler.setFormatter(formatter)
+            self.logger.addHandler(console_handler)
+            SolarLogger._console_installed = True
 
         if log_file:
-            file_handler = logging.FileHandler(log_file, encoding="utf-8")
-            file_handler.setFormatter(formatter)
-            self.logger.addHandler(file_handler)
+            resolved = os.path.abspath(log_file)
+            if resolved not in SolarLogger._file_handlers:
+                file_handler = logging.FileHandler(log_file, encoding="utf-8")
+                file_handler.setFormatter(formatter)
+                self.logger.addHandler(file_handler)
+                SolarLogger._file_handlers.add(resolved)
 
     def debug(self, msg: str) -> None:
         """Log a debug message."""
