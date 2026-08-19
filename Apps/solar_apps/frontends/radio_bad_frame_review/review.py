@@ -32,6 +32,9 @@ from solar_toolkit.map.coordinates import (
     calculate_fits_extent_from_header,
     infer_image_origin_from_header,
 )
+from ._review_helpers import (
+    _format_frequency,
+)
 
 BAD_FRAME_REVIEW_SCHEMA_VERSION = 3
 SUPPORTED_BAD_FRAME_REVIEW_SCHEMA_VERSIONS = frozenset({1, 2, 3})
@@ -242,11 +245,6 @@ class StaleReviewError(RuntimeError):
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-
-
-def _format_frequency(value: float) -> str:
-    number = float(value)
-    return str(int(number)) if number.is_integer() else f"{number:g}"
 
 
 def _optional_finite_float(value: Any, *, label: str) -> float | None:
