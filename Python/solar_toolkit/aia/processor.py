@@ -69,7 +69,8 @@ def process_aia_fits(cfg: AIAConfig) -> None:
     if actual_mode == "mosaic":
         output_mode = cfg.difference_output_mode
         if output_mode == "auto":
-            output_mode = "mosaic" if cfg.draw_difference else "mosaic"
+            # Documented behavior: "auto" resolves to mosaic difference output.
+            output_mode = "mosaic"
 
         if cfg.draw_difference and output_mode in ("mosaic", "both"):
             cfg.mosaic_difference_inline = True

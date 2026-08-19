@@ -105,3 +105,63 @@ def test_difference_worker_uses_serial_execution(monkeypatch) -> None:
     _run_difference_batch(config)
 
     assert calls == [171, 193]
+
+
+def test_auto_difference_output_mode_routes_to_mosaic_batch(monkeypatch) -> None:
+    """Pin the documented auto -> mosaic resolution in the public dispatcher."""
+    import solar_toolkit.aia.processor as processor
+
+    calls: list[str] = []
+
+    class FakeImpl:
+        @staticmethod
+        def _run_mosaic_batch(_cfg):
+            calls.append("mosaic")
+
+        @staticmethod
+        def _run_difference_batch(_cfg):
+            calls.append("difference")
+
+    config = AIAConfig(
+        mode="mosaic",
+        multi_band_composite=True,
+        draw_original=False,
+        draw_difference=True,
+        difference_output_mode="auto",
+    )
+    monkeypatch.setattr(processor, "_load_impl", lambda: FakeImpl)
+    monkeypatch.setattr(processor, "_configure_matplotlib_backend", lambda mode: None)
+
+    processor.process_aia_fits(config)
+
+    assert calls == ["mosaic"]
+
+
+def test_single_difference_output_mode_skips_mosaic_batch(monkeypatch) -> None:
+    """Explicit single difference mode must not route through the mosaic batch."""
+    import solar_toolkit.aia.processor as processor
+
+    calls: list[str] = []
+
+    class FakeImpl:
+        @staticmethod
+        def _run_mosaic_batch(_cfg):
+            calls.append("mosaic")
+
+        @staticmethod
+        def _run_difference_batch(_cfg):
+            calls.append("difference")
+
+    config = AIAConfig(
+        mode="mosaic",
+        multi_band_composite=True,
+        draw_original=False,
+        draw_difference=True,
+        difference_output_mode="single",
+    )
+    monkeypatch.setattr(processor, "_load_impl", lambda: FakeImpl)
+    monkeypatch.setattr(processor, "_configure_matplotlib_backend", lambda mode: None)
+
+    processor.process_aia_fits(config)
+
+    assert calls == ["difference"]
