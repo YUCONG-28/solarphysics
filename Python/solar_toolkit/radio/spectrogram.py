@@ -11,6 +11,7 @@ from __future__ import annotations
 import datetime
 import math
 import os
+import threading
 import warnings
 from dataclasses import dataclass
 
@@ -27,6 +28,7 @@ from .io import (
 __all__ = [
     "SpectrogramCache",
     "build_spectrogram_cache",
+    "clear_spectrogram_cache",
     "get_spectrogram_cache",
     "overlay_spectrogram_panel",
     "resolve_spectrogram_time_window_multi",
@@ -36,7 +38,11 @@ _parse_datetime_value = parse_datetime_value
 _index_range_from_values = index_range_from_values
 _index_range_from_time_values = index_range_from_time_values
 
-_SPECTROGRAM_CACHE = None
+# Keyed cache: multiple radio events/configs can share one process without
+# silently overwriting each other's rebinned dynamic spectrum.
+_SPECTROGRAM_CACHE: dict[tuple, SpectrogramCache] = {}
+_SPECTROGRAM_CACHE_LOCK = threading.Lock()
+_SPECTROGRAM_CACHE_MAX_ITEMS = 8
 
 
 @dataclass
@@ -509,13 +515,45 @@ def build_spectrogram_cache(
     )
 
 
-def get_spectrogram_cache(cfg: dict) -> SpectrogramCache | None:
-    global _SPECTROGRAM_CACHE
+def _spectrogram_cache_key(cfg: dict, radio_time_range=None) -> tuple | None:
+    """Return a stable cache key for one spectrogram configuration window."""
     if not _spectrogram_panel_enabled(cfg):
         return None
-    if _SPECTROGRAM_CACHE is None:
-        _SPECTROGRAM_CACHE = build_spectrogram_cache(cfg)
-    return _SPECTROGRAM_CACHE
+    paths = _normalize_spectrogram_paths(cfg)
+    if not paths:
+        return None
+    return (
+        tuple(str(path) for path in paths),
+        float(cfg.get("spectrogram_f_start", 80.0)),
+        float(cfg.get("spectrogram_f_end", 340.0)),
+        int(cfg.get("spectrogram_rebin_t_target", 1000) or 1000),
+        int(cfg.get("spectrogram_rebin_f_target", 700) or 700),
+        str(cfg.get("spectrogram_polarization", "LL")).lower(),
+        None if radio_time_range is None else repr(radio_time_range),
+    )
+
+
+def get_spectrogram_cache(cfg: dict, radio_time_range=None) -> SpectrogramCache | None:
+    """Return a cached rebinned dynamic spectrum for one config, building if needed."""
+    key = _spectrogram_cache_key(cfg, radio_time_range)
+    if key is None:
+        return None
+    with _SPECTROGRAM_CACHE_LOCK:
+        cached = _SPECTROGRAM_CACHE.get(key)
+        if cached is not None:
+            return cached
+        cache = build_spectrogram_cache(cfg, radio_time_range)
+        if cache is not None:
+            if len(_SPECTROGRAM_CACHE) >= _SPECTROGRAM_CACHE_MAX_ITEMS:
+                _SPECTROGRAM_CACHE.pop(next(iter(_SPECTROGRAM_CACHE)))
+            _SPECTROGRAM_CACHE[key] = cache
+        return cache
+
+
+def clear_spectrogram_cache() -> None:
+    """Drop all cached dynamic spectra, e.g. between independent events."""
+    with _SPECTROGRAM_CACHE_LOCK:
+        _SPECTROGRAM_CACHE.clear()
 
 
 def _spectrogram_time_locator(cfg: dict, span_seconds: float):

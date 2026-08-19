@@ -229,6 +229,7 @@ PUBLIC_EXPORTS = {
     "spectrogram": {
         "SpectrogramCache",
         "build_spectrogram_cache",
+        "clear_spectrogram_cache",
         "get_spectrogram_cache",
         "overlay_spectrogram_panel",
         "resolve_spectrogram_time_window_multi",
