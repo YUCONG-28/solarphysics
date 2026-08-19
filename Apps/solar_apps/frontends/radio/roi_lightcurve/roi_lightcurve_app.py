@@ -58,6 +58,11 @@ from solar_apps.ui.streamlit_paths import (
 )
 from solar_apps.ui.theme import apply_plotly_chrome, render_streamlit_theme
 from solar_apps.workflows.radio.spatial_display import spatial_display_for_reference
+from ._roi_app_helpers import (
+    _expanded_lightcurve_limits,
+    _frequency_state_key,
+    _option_index,
+)
 
 __all__ = [
     "DEFAULT_APP_SETTINGS",
@@ -1957,15 +1962,6 @@ def _lightcurve_metric_frame(
     return result
 
 
-def _expanded_lightcurve_limits(lower: float, upper: float) -> tuple[float, float]:
-    lower = float(lower)
-    upper = float(upper)
-    if lower < upper:
-        return lower, upper
-    padding = max(abs(lower) * 0.05, 1.0)
-    return lower - padding, upper + padding
-
-
 def _full_lightcurve_y_limits(values: np.ndarray) -> tuple[float, float] | None:
     finite = np.asarray(values, dtype=float)
     finite = finite[np.isfinite(finite)]
@@ -2134,10 +2130,6 @@ def _lightcurve_frequencies(data: pd.DataFrame) -> list[float]:
 def _frequency_rows(data: pd.DataFrame, freq_mhz: float) -> pd.DataFrame:
     values = pd.to_numeric(data.get("freq_mhz"), errors="coerce").to_numpy(dtype=float)
     return data.loc[np.isclose(values, float(freq_mhz), rtol=0.0, atol=1e-9)].copy()
-
-
-def _frequency_state_key(freq_mhz: float) -> str:
-    return format(float(freq_mhz), ".12g")
 
 
 def _canonical_frequency_configs(config: dict[str, Any]) -> list[dict[str, Any]]:
@@ -3475,10 +3467,6 @@ def _row_time(row: pd.Series) -> datetime | None:
     value = row.get("inferred_obs_time", "")
     parsed = parse_datetime_value(value)
     return parsed
-
-
-def _option_index(options: list[str], value: str) -> int:
-    return options.index(value) if value in options else 0
 
 
 def _manual_range_editor(
