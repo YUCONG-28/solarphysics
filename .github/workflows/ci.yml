@@ -223,6 +223,21 @@ jobs:
             python -m pytest Apps\tests `
               --basetemp Local\tmp\pytest-apps-ci
 
+      - name: Run offline Apps health matrix
+        run: |
+          $env:SOLAR_MINIFORGE_ROOT = $env:CONDA
+          $healthReport = Join-Path $env:RUNNER_TEMP "apps-health.json"
+          conda run --no-capture-output -n solarphysics_env_latest `
+            powershell.exe -NoProfile -ExecutionPolicy Bypass `
+            -File .\Apps\run.ps1 tools health --output $healthReport
+          $healthExitCode = $LASTEXITCODE
+          if (Test-Path -LiteralPath $healthReport) {
+            Get-Content -Raw -LiteralPath $healthReport
+          }
+          if ($healthExitCode -ne 0) {
+            throw "Apps health matrix failed (exit code $healthExitCode; see $healthReport)"
+          }
+
       - name: Smoke canonical frontend help
         run: |
           $env:SOLAR_MINIFORGE_ROOT = $env:CONDA
@@ -361,6 +376,19 @@ jobs:
           conda run --no-capture-output -n solarphysics_env_latest \
             python -m pytest Apps/tests \
               --basetemp Local/tmp/pytest-apps-macos-ci
+
+      - name: Run offline Apps health matrix
+        run: |
+          export SOLAR_MINIFORGE_ROOT="$CONDA"
+          health_report="${RUNNER_TEMP}/apps-health.json"
+          set +e
+          conda run --no-capture-output -n solarphysics_env_latest \
+            ./Apps/run.sh tools health --output "$health_report"
+          health_exit=$?
+          if [ -f "$health_report" ]; then
+            cat "$health_report"
+          fi
+          exit "$health_exit"
 
       - name: Smoke all canonical frontend help
         run: |

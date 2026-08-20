@@ -216,9 +216,9 @@ Apps/run.sh tools <command> [arguments]
 
 Workflow domains are `aia`, `radio`, `hmi`, `net`, `data`, `visualization`, and
 `xray-dem`. The `tools` group also carries repository maintenance commands:
-`release` (version bump, tag, and GitHub release) and `quick`
-(check/save/push/update). Discover commands without importing heavy optional
-modules:
+`release` (version bump, tag, and GitHub release), `quick`
+(check/save/push/update), and `health` (offline App health matrix). Discover
+commands without importing heavy optional modules:
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Apps\run.ps1 workflow radio --help
@@ -226,10 +226,19 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Apps\run.ps1 workflow 
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Apps\run.ps1 tools bad-frame-ml --help
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Apps\run.ps1 tools release --help
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Apps\run.ps1 tools quick --help
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Apps\run.ps1 tools health --help
 ```
 
 The `release` and `quick` commands are documented in the
 [project workflow guide](../WORKFLOW_README.md) sections 11 and 10.
+
+`tools health --output <json>` runs the offline App health matrix and writes
+the report atomically as structured JSON. By default it covers every
+catalog-driven formal frontend entry, every App 1.0 page, and the offline
+smokes; legacy Flask/Streamlit servers are reported as `not_run` with a
+machine-readable reason. Pass `--include-legacy-servers` only when loopback
+ports are explicitly allowed. The command exits non-zero when the overall
+status is `fail`.
 
 Compatibility aliases preserve established command semantics while scripts
 move to stable IDs:
@@ -463,6 +472,23 @@ $Conda = "<miniforge-root>\Scripts\conda.exe"
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Apps\run.ps1 frontend workbench --help
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Apps\run.ps1 frontend source-map --help
 ```
+
+Run the offline App health matrix from the repository root:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Apps\run.ps1 tools health --output .\Local\tmp\apps-health.json
+```
+
+```bash
+./Apps/run.sh tools health --output Local/tmp/apps-health.json
+```
+
+By default the matrix covers every catalog-driven formal frontend entry, every
+App 1.0 page, and the offline smokes. Legacy Flask/Streamlit servers are
+`not_run` with a machine-readable reason; pass `--include-legacy-servers` only
+when loopback ports are explicitly allowed. The report is atomic structured
+JSON, and the command exits non-zero when the overall status is `fail`. CI runs
+the default matrix without `--include-legacy-servers`.
 
 CI performs the same Apps checks in Windows and macOS arm64 Miniforge
 environments and also

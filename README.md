@@ -123,6 +123,7 @@ Fast daily save, verify, push, and release are available through the launcher:
 ./Apps/run.sh tools release check                  # release preconditions only
 ./Apps/run.sh tools release run --bump patch --note "..."   # dry-run preview
 ./Apps/run.sh tools release run --bump patch --note "..." --execute
+./Apps/run.sh tools health --output Local/tmp/apps-health.json   # offline App health matrix
 ```
 
 Run the complete application test suite with the primary Miniforge

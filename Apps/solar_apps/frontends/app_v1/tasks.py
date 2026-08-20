@@ -97,6 +97,15 @@ class TaskQueueController(QObject):
             for process in self._processes.values()
         )
 
+    @property
+    def running_process_count(self) -> int:
+        """Number of supervised QProcess children that are still running."""
+
+        return sum(
+            process.state() != QProcess.ProcessState.NotRunning
+            for process in self._processes.values()
+        )
+
     def set_max_concurrency(self, value: int) -> None:
         """Set the worker bound without interrupting already-running tasks."""
 

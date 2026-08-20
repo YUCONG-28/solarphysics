@@ -32,6 +32,7 @@ from .function_specs import (
     VariantFamilySpec,
 )
 from .plot_specs import PlotSpec
+from .scientific_plot_renderer import ScientificPlotRenderer
 
 __all__ = [
     "MODULES",
@@ -55,6 +56,7 @@ __all__ = [
     "RunResult",
     "RunStatus",
     "RemoteObservationV1",
+    "ScientificPlotRenderer",
     "SyncSelection",
     "TimelineSource",
     "WorkerEventV1",
