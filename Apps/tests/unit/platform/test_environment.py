@@ -6,6 +6,8 @@ from pathlib import Path
 import pytest
 
 from solar_apps.platform.environment import (
+    LOCK_CANDIDATE_OPT_IN,
+    LOCK_REPLAY_OPT_IN,
     UnsupportedPythonEnvironment,
     inspect_miniforge_runtime,
 )
@@ -38,7 +40,10 @@ def _fake_posix_environment(root: Path, name: str) -> Path:
     return python
 
 
-def test_primary_and_explicit_standby_are_supported(tmp_path: Path) -> None:
+def test_primary_and_explicit_standby_are_supported(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("SOLAR_MINIFORGE_ROOT", raising=False)
     root = tmp_path / "miniforge3"
     latest = _fake_environment(root, "solarphysics_env_latest")
     standby = _fake_environment(root, "solarphysics_env")
@@ -49,8 +54,9 @@ def test_primary_and_explicit_standby_are_supported(tmp_path: Path) -> None:
 
 
 def test_posix_bin_interpreter_and_constructor_provenance_are_supported(
-    tmp_path: Path,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    monkeypatch.delenv("SOLAR_MINIFORGE_ROOT", raising=False)
     root = tmp_path / "miniforge3"
     python = _fake_posix_environment(root, "solarphysics_env_latest")
     runtime = inspect_miniforge_runtime(python)
@@ -69,6 +75,65 @@ def test_backup_venv_and_system_interpreters_are_rejected(tmp_path: Path) -> Non
     venv.touch()
     with pytest.raises(UnsupportedPythonEnvironment):
         inspect_miniforge_runtime(venv)
+
+
+def test_disposable_lock_candidate_requires_exact_opt_in_and_miniforge_root(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "miniforge3"
+    _fake_environment(root, "solarphysics_env_latest")
+    candidate = tmp_path / ".sim_env" / "solarphysics_lock_candidate"
+    (candidate / "conda-meta").mkdir(parents=True)
+    python = candidate / "bin" / "python"
+    python.parent.mkdir()
+    python.touch()
+
+    with pytest.raises(UnsupportedPythonEnvironment):
+        inspect_miniforge_runtime(python, environ={})
+    with pytest.raises(UnsupportedPythonEnvironment, match="SOLAR_MINIFORGE_ROOT"):
+        inspect_miniforge_runtime(
+            python,
+            environ={LOCK_CANDIDATE_OPT_IN: "1"},
+        )
+
+    runtime = inspect_miniforge_runtime(
+        python,
+        environ={
+            LOCK_CANDIDATE_OPT_IN: "1",
+            "SOLAR_MINIFORGE_ROOT": str(root),
+        },
+    )
+    assert runtime.environment_name == "solarphysics_lock_candidate"
+    assert runtime.miniforge_root == root.resolve()
+
+
+def test_disposable_lock_replay_requires_its_own_exact_opt_in(tmp_path: Path) -> None:
+    root = tmp_path / "miniforge3"
+    _fake_environment(root, "solarphysics_env_latest")
+    replay = tmp_path / ".sim_env" / "solarphysics_replay"
+    (replay / "conda-meta").mkdir(parents=True)
+    python = replay / "bin" / "python"
+    python.parent.mkdir()
+    python.touch()
+
+    with pytest.raises(UnsupportedPythonEnvironment):
+        inspect_miniforge_runtime(
+            python,
+            environ={
+                LOCK_CANDIDATE_OPT_IN: "1",
+                "SOLAR_MINIFORGE_ROOT": str(root),
+            },
+        )
+
+    runtime = inspect_miniforge_runtime(
+        python,
+        environ={
+            LOCK_REPLAY_OPT_IN: "1",
+            "SOLAR_MINIFORGE_ROOT": str(root),
+        },
+    )
+    assert runtime.environment_name == "solarphysics_replay"
+    assert runtime.miniforge_root == root.resolve()
 
 
 def test_ci_miniforge_marker_allows_a_nonstandard_installation_name(
@@ -104,8 +169,9 @@ def test_explicit_root_must_own_the_selected_environment(tmp_path: Path) -> None
 
 
 def test_worker_environment_drops_external_python_and_path_injection(
-    tmp_path: Path,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    monkeypatch.delenv("SOLAR_MINIFORGE_ROOT", raising=False)
     root = tmp_path / "miniforge3"
     python = _fake_environment(root, "solarphysics_env_latest")
     env = miniforge_subprocess_environment(

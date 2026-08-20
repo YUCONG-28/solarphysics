@@ -16,6 +16,8 @@ dependencies = [
     "mpl-animators>=1.2.0",
     "matplotlib>=3.7.0",
     "reproject>=0.10.0",
+    # pims 0.7 is source-only; the artifact lock requires a replayable wheel.
+    "pims==0.6.0",
     "scikit-image>=0.21.0",
     "pyyaml>=6.0.0",
     "pandas>=2.0.0",
