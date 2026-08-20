@@ -1,0 +1,46 @@
+{
+  "capture_mode": "read-only-observation-of-installed-environment",
+  "conda_artifacts_exact": true,
+  "conda_artifacts_sha256": true,
+  "environment_lock_sha256": "3bd8030932671a1efad5b1b760f612e0ddddbc9a608b576d266b01947214d8b2",
+  "implementation": "CPython",
+  "local_source_install": "editable-no-deps-no-build-isolation",
+  "lock_files": {
+    "conda-explicit.txt": "eadac2164d5810af8e059dac2722ab59dc910520a01f00238d6a99bec8e56e70",
+    "pip-artifacts.json": "de008ecee48a3a3becb94c7a76292370bc6b3922712961a3ea40098f1a534304",
+    "pip-hashed.txt": "297fb7d61346dc62ef2e34e98321e497d53b07e20124d61a624ce3453f4fd1d9",
+    "pip-pins.txt": "15ad80a834394e4cd66cefb20d0c276bfef33eefc7d2ea022a1317d0970675e2"
+  },
+  "marker_environment": {
+    "implementation_name": "cpython",
+    "implementation_version": "3.14.7",
+    "os_name": "posix",
+    "platform_machine": "arm64",
+    "platform_python_implementation": "CPython",
+    "platform_system": "Darwin",
+    "python_full_version": "3.14.7",
+    "python_version": "3.14",
+    "sys_platform": "darwin"
+  },
+  "pip_artifacts_sha256": true,
+  "pip_versions_exact": true,
+  "platform": "osx-arm64",
+  "profiles": {
+    "Apps/pyproject.toml": [
+      "dev"
+    ],
+    "Python/pyproject.toml": [
+      "dev",
+      "quality-ml"
+    ]
+  },
+  "python_full_version": "3.14.7",
+  "schema": "solarphysics-environment-lock/v1",
+  "source_files": {
+    "Apps/environment.miniforge.yml": "59ba9a89638f6cd46f35003f2b455236f2543ff0caab48a90fef70fdf4a540cf",
+    "Apps/pyproject.toml": "c68bb75738e8f32a636178547ab75b3101428c6c257956c2269f897c86b26931",
+    "Python/pyproject.toml": "88979f2e761128adaeb3779a3a71ab32896addae8c5abec1419a85b72cdd5591",
+    "tools/environment_lock.py": "836f0b5673c67aa5980c2a01987fc32e787ea4efa5ec8689134c1f6a23c73836"
+  },
+  "target": "osx-arm64-py314"
+}

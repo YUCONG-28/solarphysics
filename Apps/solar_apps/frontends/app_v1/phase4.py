@@ -29,7 +29,7 @@ class Phase4ComposerAdapter:
     ) -> None:
         self.layout = layout
         self.runtime = AppV1RuntimePaths.from_layout(layout)
-        self.allowed_roots = (
+        configured = (
             tuple(
                 Path(item).expanduser().resolve(strict=False) for item in allowed_roots
             )
@@ -37,6 +37,15 @@ class Phase4ComposerAdapter:
             else configured_allowed_roots(
                 environ=os.environ,
                 workspace_root=layout.repo_root,
+            )
+        )
+        self.allowed_roots = tuple(
+            dict.fromkeys(
+                (
+                    *configured,
+                    self.runtime.workspaces_dir.resolve(strict=False),
+                    self.runtime.outputs_dir.resolve(strict=False),
+                )
             )
         )
 
@@ -68,12 +77,16 @@ class Phase4ComposerAdapter:
         project: ComposerProject,
         *,
         scale: int = 1,
+        output_path: str | Path | None = None,
     ) -> TaskLaunch:
         if scale < 1 or scale > 8:
             raise ValueError("Export scale must be between 1 and 8")
         project_path = self.save_workspace_project(project)
-        output_dir = self._new_output_dir()
-        output = output_dir / "images" / "composition.png"
+        output_dir, output = self._resolve_output(
+            output_path,
+            default_relative=Path("images/composition.png"),
+            expected_suffix=".png",
+        )
         return self._launch(
             title="Image Composer PNG",
             project=project,
@@ -92,12 +105,19 @@ class Phase4ComposerAdapter:
         scale: int = 1,
         fps: float = 5.0,
         save_png_frames: bool = False,
+        output_path: str | Path | None = None,
     ) -> TaskLaunch:
         if fps <= 0 or fps > 60:
             raise ValueError("FPS must be greater than 0 and no more than 60")
         project_path = self.save_workspace_project(project)
-        output_dir = self._new_output_dir()
-        output = output_dir / "media" / "composition.mp4"
+        expected_suffix = f".{project.export.output_format.casefold()}"
+        if expected_suffix not in {".mp4", ".avi"}:
+            raise ValueError("Sequence output format must be MP4 or AVI")
+        output_dir, output = self._resolve_output(
+            output_path,
+            default_relative=Path(f"media/composition{expected_suffix}"),
+            expected_suffix=expected_suffix,
+        )
         launch = self._launch(
             title="Image Composer Sequence",
             project=project,
@@ -179,6 +199,27 @@ class Phase4ComposerAdapter:
             f"run-{uuid.uuid4().hex[:12]}",
             "image-composer",
         )
+
+    def _resolve_output(
+        self,
+        output_path: str | Path | None,
+        *,
+        default_relative: Path,
+        expected_suffix: str,
+    ) -> tuple[Path, Path]:
+        if output_path is None:
+            output_dir = self._new_output_dir()
+            return output_dir, output_dir / default_relative
+        output = Path(output_path).expanduser().resolve(strict=False)
+        if output.suffix.casefold() != expected_suffix:
+            raise ValueError(f"Output path must end with {expected_suffix}")
+        if not output.parent.is_dir():
+            raise FileNotFoundError(f"Output folder does not exist: {output.parent}")
+        if not self._inside(output):
+            raise PermissionError(
+                f"Output is outside configured allowed roots: {output}"
+            )
+        return output.parent, output
 
     def _inside(self, path: Path) -> bool:
         return any(path == root or root in path.parents for root in self.allowed_roots)

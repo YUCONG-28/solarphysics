@@ -22,7 +22,7 @@ application chrome or framework-specific layout is pixel-identical.
 
 ## Cross-interface release contracts
 
-- App v1 runs PyQt6 in a dedicated process; PySide6 and PyQt5 are rejected if
+- App v1 runs PyQt6 in a dedicated process; foreign Qt bindings are rejected if
   already loaded.
 - All long-running work uses supervised `QProcess` workers. The application
   task queue remains FIFO; a typed workflow uses 1–4 FIFO process lanes for
@@ -30,10 +30,10 @@ application chrome or framework-specific layout is pixel-identical.
   independent branches continue. Tasks and flows can be cancelled or retried.
 - Every real load, calculation, export, and cross-module transfer retains the
   input/parameter/output/workload confirmation gate.
-- Normal App 1.0 operations never start Flask, Streamlit, a browser, or
-  PySide6. Pages with a deprecated predecessor expose it only through
+- Normal App 1.0 operations never start Flask, Streamlit, a browser, or a
+  second Qt binding. Pages with a deprecated predecessor expose it only through
   `More` → `Open legacy interface`, with a separate confirmation and no
-  automatic fallback. Data Download is native-only.
+  automatic fallback. Data Download and Image Composer are native-only.
 - Workers may emit `APP_V1_EVENT` schema 1 records for progress, logs,
   previews, artifacts, and terminal results. Legacy line output remains
   accepted while retained scientific commands migrate to the structured
@@ -65,5 +65,5 @@ application chrome or framework-specific layout is pixel-identical.
 
 The stable launcher is `Apps/run.ps1 frontend app-v1`. The
 `app-v1-preview` launcher remains a compatibility alias for one release cycle.
-Legacy Flask, Streamlit, and PySide6 launchers are marked deprecated but remain
-available and continue to run in separate processes.
+Legacy Flask and Streamlit launchers remain deprecated compatibility surfaces.
+The Image Composer compatibility launcher selects the native App 1.0 page.

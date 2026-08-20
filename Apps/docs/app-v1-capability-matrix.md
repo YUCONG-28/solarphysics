@@ -37,7 +37,7 @@ summarized in the equivalence audit.
 | Source trajectory | Source Trajectory | Native Qt parity page | 2C |
 | Existing DEM workflows | X-ray/DEM workflow modules | Qt adapters; no new inversion algorithm | 2C |
 | Time index and synchronization | Per-workflow nearest-time helpers | Shared private SQLite index and broadcast | 3 |
-| Free image composition | PySide6 Image Composer | PyQt6 rewrite with `.fic.json` import | 4 |
+| Free image composition | Schema-1 Composer model, matching, and renderer | Native PyQt6 page with `.fic.json` import and compatibility command | 4 |
 | Layer/grid/alignment/high-resolution output | Image Composer model/export | Qt parity and visual QA | 4 |
 | Project and parameter save | State stores and `.fic.json` | Versioned `.spapp.json` project | 5 |
 | One-click redraw and batch processing | Individual workflow CLIs | Confirmed process queue plus 1–4 lane DAG execution, branch-safe failure propagation, cancellation, and retry | 5 |

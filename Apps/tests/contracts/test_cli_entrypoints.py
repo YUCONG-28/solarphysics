@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 from solar_apps.cli import router
+from solar_apps.frontends.image_composer import cli as image_composer_cli
 from solar_apps.cli.admin import initialize_runtime
 from solar_apps.platform.environment import inspect_miniforge_runtime
 from solar_apps.platform.environment import UnsupportedPythonEnvironment
@@ -66,6 +67,36 @@ def test_frontend_catalog_has_all_launchable_apps() -> None:
         "source-trajectory",
         "workbench",
     }
+
+
+def test_image_composer_compatibility_cli_redirects_to_app_v1(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    forwarded: list[str] = []
+    monkeypatch.setattr(
+        "solar_apps.frontends.app_v1.cli.main",
+        lambda arguments: forwarded.extend(arguments) or 0,
+    )
+
+    assert (
+        image_composer_cli.main(
+            [
+                "--project",
+                "/allowed/example.fic.json",
+                "--allowed-roots",
+                "/allowed",
+            ]
+        )
+        == 0
+    )
+    assert forwarded == [
+        "--module",
+        "image-composer",
+        "--composer-project",
+        "/allowed/example.fic.json",
+        "--allowed-roots",
+        "/allowed",
+    ]
 
 
 @pytest.mark.parametrize(

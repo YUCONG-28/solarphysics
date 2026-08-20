@@ -20,6 +20,7 @@ from PyQt6.QtGui import QBrush, QColor, QDrag, QPainter, QPen, QPixmap
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
+    QColorDialog,
     QComboBox,
     QDoubleSpinBox,
     QFileDialog,
@@ -31,6 +32,7 @@ from PyQt6.QtWidgets import (
     QGraphicsView,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QListWidget,
     QListWidgetItem,
     QMessageBox,
@@ -54,6 +56,7 @@ from .phase4 import Phase4ComposerAdapter
 from .components import NativeModulePanel, load_preview_pixmap
 
 _FOLDER_MIME = "application/x-app-v1-composer-folder"
+_THUMBNAIL_MIME = "application/x-app-v1-composer-thumbnail"
 
 
 class FolderList(QListWidget):
@@ -78,6 +81,30 @@ class FolderList(QListWidget):
         drag.exec(Qt.DropAction.CopyAction)
 
 
+class ThumbnailList(QListWidget):
+    """Drag an exact folder record ordinal onto the canvas."""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setDragEnabled(True)
+        self.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+
+    def startDrag(self, _actions) -> None:  # type: ignore[no-untyped-def]
+        item = self.currentItem()
+        if item is None:
+            return
+        folder_id, ordinal = item.data(Qt.ItemDataRole.UserRole)
+        payload = QByteArray()
+        stream = QDataStream(payload, QIODevice.OpenModeFlag.WriteOnly)
+        stream.writeQString(str(folder_id))
+        stream.writeInt32(int(ordinal))
+        mime = self.mimeData([item])
+        mime.setData(_THUMBNAIL_MIME, payload)
+        drag = QDrag(self)
+        drag.setMimeData(mime)
+        drag.exec(Qt.DropAction.CopyAction)
+
+
 class ComposerCanvas(QGraphicsView):
     """Drop-enabled scene with a scientific-theme-independent background."""
 
@@ -93,26 +120,35 @@ class ComposerCanvas(QGraphicsView):
         self.setDragMode(QGraphicsView.DragMode.RubberBandDrag)
 
     def dragEnterEvent(self, event) -> None:  # type: ignore[no-untyped-def]
-        if event.mimeData().hasFormat(_FOLDER_MIME):
+        if event.mimeData().hasFormat(_FOLDER_MIME) or event.mimeData().hasFormat(
+            _THUMBNAIL_MIME
+        ):
             event.acceptProposedAction()
             return
         super().dragEnterEvent(event)
 
     def dragMoveEvent(self, event) -> None:  # type: ignore[no-untyped-def]
-        if event.mimeData().hasFormat(_FOLDER_MIME):
+        if event.mimeData().hasFormat(_FOLDER_MIME) or event.mimeData().hasFormat(
+            _THUMBNAIL_MIME
+        ):
             event.acceptProposedAction()
             return
         super().dragMoveEvent(event)
 
     def dropEvent(self, event) -> None:  # type: ignore[no-untyped-def]
-        if not event.mimeData().hasFormat(_FOLDER_MIME):
+        if not (
+            event.mimeData().hasFormat(_FOLDER_MIME)
+            or event.mimeData().hasFormat(_THUMBNAIL_MIME)
+        ):
             super().dropEvent(event)
             return
-        payload = event.mimeData().data(_FOLDER_MIME)
+        exact = event.mimeData().hasFormat(_THUMBNAIL_MIME)
+        payload = event.mimeData().data(_THUMBNAIL_MIME if exact else _FOLDER_MIME)
         stream = QDataStream(payload, QIODevice.OpenModeFlag.ReadOnly)
         folder_id = stream.readQString()
+        ordinal = stream.readInt32() if exact else None
         position = self.mapToScene(event.position().toPoint())
-        self.panel.add_slot(folder_id, position)
+        self.panel.add_slot(folder_id, position, ordinal=ordinal)
         event.acceptProposedAction()
 
     def resizeEvent(self, event) -> None:  # type: ignore[no-untyped-def]
@@ -225,6 +261,8 @@ class Phase4ComposerPanel(NativeModulePanel):
         )
         self.adapter = adapter
         self.project = ComposerProject()
+        self.project_path: Path | None = None
+        self._dirty = False
         self._items: dict[str, SlotGraphicsItem] = {}
         self._updating_controls = False
         root = QVBoxLayout(self)
@@ -249,6 +287,7 @@ class Phase4ComposerPanel(NativeModulePanel):
         layout = QVBoxLayout(panel)
         layout.addWidget(QLabel("Image folders"))
         self.folder_list = FolderList()
+        self.folder_list.currentItemChanged.connect(self._folder_selection_changed)
         self.folder_list.itemDoubleClicked.connect(
             lambda item: self.add_slot(
                 str(item.data(Qt.ItemDataRole.UserRole)),
@@ -256,15 +295,53 @@ class Phase4ComposerPanel(NativeModulePanel):
             )
         )
         layout.addWidget(self.folder_list, 1)
-        add = QPushButton("Add folder...")
-        add.clicked.connect(self.choose_folder)
-        open_project = QPushButton("Import .fic.json...")
-        open_project.clicked.connect(self.choose_project)
-        save = QPushButton("Save .fic.json...")
-        save.clicked.connect(self.choose_save_project)
-        layout.addWidget(add)
-        layout.addWidget(open_project)
-        layout.addWidget(save)
+        self.thumbnail_list = ThumbnailList()
+        self.thumbnail_list.itemDoubleClicked.connect(
+            lambda item: self.add_slot(
+                str(item.data(Qt.ItemDataRole.UserRole)[0]),
+                QPointF(40.0, 40.0),
+                ordinal=int(item.data(Qt.ItemDataRole.UserRole)[1]),
+            )
+        )
+        layout.addWidget(QLabel("Images (drag an exact frame)"))
+        layout.addWidget(self.thumbnail_list, 2)
+        folder_form = QFormLayout()
+        self.folder_start = QSpinBox()
+        self.folder_start.setRange(1, 1)
+        self.folder_end = QSpinBox()
+        self.folder_end.setRange(1, 1)
+        self.folder_offset = QDoubleSpinBox()
+        self.folder_offset.setRange(-86400.0, 86400.0)
+        self.folder_offset.setDecimals(3)
+        folder_form.addRow("First image", self.folder_start)
+        folder_form.addRow("Last image", self.folder_end)
+        folder_form.addRow("Clock offset (s)", self.folder_offset)
+        layout.addLayout(folder_form)
+        self.folder_start.valueChanged.connect(self._folder_settings_changed)
+        self.folder_end.valueChanged.connect(self._folder_settings_changed)
+        self.folder_offset.valueChanged.connect(self._folder_settings_changed)
+        remove = QPushButton("Remove folder")
+        remove.clicked.connect(self.remove_current_folder)
+        layout.addLayout(
+            self._button_row(
+                "Add folder...",
+                "Relink...",
+                self.choose_folder,
+                self.relink_current_folder,
+            )
+        )
+        layout.addWidget(remove)
+        layout.addLayout(
+            self._button_row("New", "Open...", self.new_project, self.choose_project)
+        )
+        layout.addLayout(
+            self._button_row(
+                "Save",
+                "Save as...",
+                self.save_current_project,
+                self.choose_save_project,
+            )
+        )
         return panel
 
     def _canvas_panel(self) -> QWidget:
@@ -294,8 +371,11 @@ class Phase4ComposerPanel(NativeModulePanel):
         self.snap_to_grid.setChecked(True)
         self.lock_aspect = QCheckBox("Lock aspect ratio")
         self.lock_aspect.setChecked(True)
+        self.canvas_background = QPushButton(self.project.canvas.background)
+        self.canvas_background.clicked.connect(self.choose_background)
         form.addRow("Canvas width", self.canvas_width)
         form.addRow("Canvas height", self.canvas_height)
+        form.addRow("Background", self.canvas_background)
         form.addRow("Grid size", self.grid_size)
         form.addRow("", self.snap_to_grid)
         form.addRow("", self.lock_aspect)
@@ -358,7 +438,39 @@ class Phase4ComposerPanel(NativeModulePanel):
                 lambda: self.change_layer(-1),
             )
         )
+        layout.addLayout(
+            self._button_row(
+                "Duplicate layer",
+                "Delete layer",
+                self.duplicate_selected_slot,
+                self.delete_selected_slot,
+            )
+        )
+        match_form = QFormLayout()
+        self.match_master = QComboBox()
+        self.match_mode = QComboBox()
+        self.match_mode.addItems(["time", "relative"])
+        self.match_tolerance = QDoubleSpinBox()
+        self.match_tolerance.setRange(0.0, 86400.0)
+        self.match_tolerance.setDecimals(3)
+        self.match_tolerance.setValue(self.project.matching.tolerance_seconds)
+        self.match_strict = QCheckBox("Require every source within tolerance")
+        self.match_strict.setChecked(self.project.matching.strict)
+        match_form.addRow("Master folder", self.match_master)
+        match_form.addRow("Match mode", self.match_mode)
+        match_form.addRow("Tolerance (s)", self.match_tolerance)
+        match_form.addRow("", self.match_strict)
+        layout.addLayout(match_form)
+        self.match_master.currentIndexChanged.connect(self._matching_changed)
+        self.match_mode.currentTextChanged.connect(self._matching_changed)
+        self.match_tolerance.valueChanged.connect(self._matching_changed)
+        self.match_strict.toggled.connect(self._matching_changed)
         export_form = QFormLayout()
+        self.output_path = QLineEdit()
+        self.output_format = QComboBox()
+        self.output_format.addItems(["mp4", "avi"])
+        choose_output = QPushButton("Choose output...")
+        choose_output.clicked.connect(self.choose_output_path)
         self.export_scale = QSpinBox()
         self.export_scale.setRange(1, 8)
         self.export_scale.setValue(2)
@@ -366,9 +478,16 @@ class Phase4ComposerPanel(NativeModulePanel):
         self.export_fps.setRange(0.1, 60.0)
         self.export_fps.setValue(5.0)
         self.export_frames = QCheckBox("Save PNG frames")
+        export_form.addRow("Sequence output", self.output_path)
+        export_form.addRow("Format", self.output_format)
+        export_form.addRow("", choose_output)
         export_form.addRow("Export scale", self.export_scale)
         export_form.addRow("Sequence FPS", self.export_fps)
         export_form.addRow("", self.export_frames)
+        self.output_path.textChanged.connect(self._export_settings_changed)
+        self.output_format.currentTextChanged.connect(self._output_format_changed)
+        self.export_fps.valueChanged.connect(self._export_settings_changed)
+        self.export_frames.toggled.connect(self._export_settings_changed)
         layout.addLayout(export_form)
         static = QPushButton("Confirm high-resolution PNG")
         static.clicked.connect(self.request_static_export)
@@ -444,24 +563,151 @@ class Phase4ComposerPanel(NativeModulePanel):
         item = QListWidgetItem(f"{folder.name} ({len(records)})")
         item.setData(Qt.ItemDataRole.UserRole, folder.id)
         self.folder_list.addItem(item)
+        self.folder_list.setCurrentItem(item)
+        self._refresh_match_folders(select_id=folder.id)
+        self._mark_dirty()
         return folder
 
-    def add_slot(self, folder_id: str, position: QPointF) -> LayoutSlot | None:
+    def _current_folder(self) -> FolderSource | None:
+        item = self.folder_list.currentItem()
+        if item is None:
+            return None
+        return self.project.folder_map().get(str(item.data(Qt.ItemDataRole.UserRole)))
+
+    def _folder_selection_changed(self, *_args) -> None:
+        folder = self._current_folder()
+        self.thumbnail_list.clear()
+        self._updating_controls = True
+        try:
+            if folder is None:
+                self.folder_start.setRange(1, 1)
+                self.folder_end.setRange(1, 1)
+                self.folder_start.setValue(1)
+                self.folder_end.setValue(1)
+                self.folder_offset.setValue(0.0)
+                return
+            maximum = max(1, len(folder.records))
+            self.folder_start.setRange(1, maximum)
+            self.folder_end.setRange(1, maximum)
+            self.folder_start.setValue(min(maximum, max(1, folder.start_index)))
+            self.folder_end.setValue(min(maximum, max(1, folder.end_index)))
+            self.folder_offset.setValue(folder.offset_seconds)
+            for record in folder.records:
+                item = QListWidgetItem(f"{record.ordinal}: {record.path.name}")
+                item.setData(
+                    Qt.ItemDataRole.UserRole,
+                    (folder.id, record.ordinal),
+                )
+                self.thumbnail_list.addItem(item)
+        finally:
+            self._updating_controls = False
+
+    def _folder_settings_changed(self, *_args) -> None:
+        if self._updating_controls:
+            return
+        folder = self._current_folder()
+        if folder is None:
+            return
+        start = self.folder_start.value()
+        end = self.folder_end.value()
+        if end < start:
+            end = start
+            self._updating_controls = True
+            self.folder_end.setValue(end)
+            self._updating_controls = False
+        folder.start_index = start
+        folder.end_index = end
+        folder.offset_seconds = self.folder_offset.value()
+        self._mark_dirty()
+
+    def relink_current_folder(self) -> None:
+        folder = self._current_folder()
+        if folder is None:
+            return
+        selected = QFileDialog.getExistingDirectory(
+            self,
+            f"Relink {folder.name}",
+            str(folder.path),
+            QFileDialog.Option.ShowDirsOnly,
+        )
+        if not selected:
+            return
+        try:
+            resolved = Path(selected).expanduser().resolve(strict=False)
+            if not self.adapter._inside(resolved):
+                raise PermissionError(
+                    f"Image folder is outside configured allowed roots: {resolved}"
+                )
+            records = scan_folder(resolved)
+            if not records:
+                raise ValueError("The selected folder contains no supported images")
+        except (OSError, ValueError) as exc:
+            QMessageBox.critical(self, "Could not relink folder", str(exc))
+            return
+        folder.path = resolved
+        folder.name = resolved.name or str(resolved)
+        folder.records = records
+        folder.resolved = True
+        folder.start_index = min(max(1, folder.start_index), len(records))
+        folder.end_index = min(max(folder.start_index, folder.end_index), len(records))
+        self._reload_project_ui(select_folder_id=folder.id)
+        self._mark_dirty()
+
+    def remove_current_folder(self) -> None:
+        folder = self._current_folder()
+        if folder is None:
+            return
+        if (
+            QMessageBox.question(
+                self,
+                "Remove image folder",
+                f"Remove {folder.name} and its layers?",
+            )
+            != QMessageBox.StandardButton.Yes
+        ):
+            return
+        removed_slot_ids = {
+            slot.id for slot in self.project.slots if slot.folder_id == folder.id
+        }
+        self.project.folders = [
+            item for item in self.project.folders if item.id != folder.id
+        ]
+        self.project.slots = [
+            slot for slot in self.project.slots if slot.id not in removed_slot_ids
+        ]
+        if self.project.matching.master_folder_id == folder.id:
+            self.project.matching.master_folder_id = (
+                self.project.folders[0].id if self.project.folders else ""
+            )
+        self._reload_project_ui()
+        self._mark_dirty()
+
+    def add_slot(
+        self,
+        folder_id: str,
+        position: QPointF,
+        *,
+        ordinal: int | None = None,
+    ) -> LayoutSlot | None:
         folder = self.project.folder_map().get(folder_id)
         if folder is None or not folder.records:
             return None
+        record = (
+            folder.record_by_ordinal(int(ordinal)) if ordinal is not None else None
+        ) or folder.records[0]
         slot = LayoutSlot.create(
             folder.id,
-            folder.records[0].ordinal,
+            record.ordinal,
             x=max(0.0, position.x()),
             y=max(0.0, position.y()),
             width=min(420.0, self.project.canvas.width),
             height=min(280.0, self.project.canvas.height),
             z_index=len(self.project.slots),
         )
-        slot.preview_relative_path = folder.records[0].path.name
+        slot.preview_relative_path = record.path.name
         self.project.slots.append(slot)
         self._add_graphics_item(slot)
+        self._mark_dirty()
         return slot
 
     def _add_graphics_item(self, slot: LayoutSlot) -> None:
@@ -524,10 +770,12 @@ class Phase4ComposerPanel(NativeModulePanel):
         item.set_pixmap(
             self._slot_pixmap(item.slot, record.path if record is not None else None)
         )
+        self._mark_dirty()
 
     def slot_geometry_changed(self, item: SlotGraphicsItem) -> None:
         if item.isSelected():
             self.load_selected_controls(item)
+        self._mark_dirty()
 
     def _canvas_changed(self) -> None:
         width = self.canvas_width.value()
@@ -541,6 +789,20 @@ class Phase4ComposerPanel(NativeModulePanel):
         self.project.canvas.width = width
         self.project.canvas.height = height
         self._refresh_scene_rect()
+        self._mark_dirty()
+
+    def choose_background(self) -> None:
+        selected = QColorDialog.getColor(
+            QColor(self.project.canvas.background),
+            self,
+            "Choose canvas background",
+        )
+        if not selected.isValid():
+            return
+        self.project.canvas.background = selected.name()
+        self.canvas_background.setText(self.project.canvas.background)
+        self._refresh_scene_rect()
+        self._mark_dirty()
 
     def _refresh_scene_rect(self) -> None:
         self.scene.setSceneRect(
@@ -561,6 +823,7 @@ class Phase4ComposerPanel(NativeModulePanel):
             target = min(item.pos().x() for item in items)
             for item in items:
                 item.setX(target)
+            self._mark_dirty()
 
     def align_top(self) -> None:
         items = self._selected_items()
@@ -568,14 +831,19 @@ class Phase4ComposerPanel(NativeModulePanel):
             target = min(item.pos().y() for item in items)
             for item in items:
                 item.setY(target)
+            self._mark_dirty()
 
     def center_horizontal(self) -> None:
         for item in self._selected_items():
             item.setX((self.project.canvas.width - item.slot.width) / 2.0)
+        if self._selected_items():
+            self._mark_dirty()
 
     def center_vertical(self) -> None:
         for item in self._selected_items():
             item.setY((self.project.canvas.height - item.slot.height) / 2.0)
+        if self._selected_items():
+            self._mark_dirty()
 
     def equal_size(self) -> None:
         items = self._selected_items()
@@ -592,6 +860,7 @@ class Phase4ComposerPanel(NativeModulePanel):
                     item.slot, record.path if record is not None else None
                 )
             )
+        self._mark_dirty()
 
     def auto_grid(self) -> None:
         items = list(self._items.values())
@@ -616,6 +885,7 @@ class Phase4ComposerPanel(NativeModulePanel):
                     item.slot, record.path if record is not None else None
                 )
             )
+        self._mark_dirty()
 
     def change_layer(self, direction: int) -> None:
         items = self._selected_items()
@@ -629,8 +899,75 @@ class Phase4ComposerPanel(NativeModulePanel):
         for index, slot in enumerate(ordered):
             slot.z_index = index
             self._items[slot.id].setZValue(index)
+        self._mark_dirty()
+
+    def duplicate_selected_slot(self) -> None:
+        selected = self._selected_items()
+        if not selected:
+            return
+        original = selected[0].slot
+        duplicate = LayoutSlot.create(
+            original.folder_id,
+            original.preview_ordinal,
+            x=original.x + 20.0,
+            y=original.y + 20.0,
+            width=original.width,
+            height=original.height,
+            z_index=len(self.project.slots),
+        )
+        duplicate.preview_relative_path = original.preview_relative_path
+        duplicate.rotation = original.rotation
+        duplicate.opacity = original.opacity
+        duplicate.fit = original.fit
+        self.project.slots.append(duplicate)
+        self._add_graphics_item(duplicate)
+        self.scene.clearSelection()
+        self._items[duplicate.id].setSelected(True)
+        self._mark_dirty()
+
+    def delete_selected_slot(self) -> None:
+        selected = self._selected_items()
+        if not selected:
+            return
+        for item in selected:
+            self.scene.removeItem(item)
+            self._items.pop(item.slot.id, None)
+            self.project.slots = [
+                slot for slot in self.project.slots if slot.id != item.slot.id
+            ]
+        self.project.normalize_z_indexes()
+        for slot in self.project.slots:
+            self._items[slot.id].setZValue(slot.z_index)
+        self._mark_dirty()
+
+    def _refresh_match_folders(self, *, select_id: str = "") -> None:
+        current = select_id or self.project.matching.master_folder_id
+        self.match_master.blockSignals(True)
+        self.match_master.clear()
+        for folder in self.project.folders:
+            self.match_master.addItem(folder.name, folder.id)
+        index = self.match_master.findData(current)
+        self.match_master.setCurrentIndex(max(0, index))
+        self.match_master.blockSignals(False)
+        if self.match_master.count() and not self.project.matching.master_folder_id:
+            self.project.matching.master_folder_id = str(
+                self.match_master.currentData()
+            )
+
+    def _matching_changed(self, *_args) -> None:
+        if self._updating_controls:
+            return
+        self.project.matching.master_folder_id = str(
+            self.match_master.currentData() or ""
+        )
+        self.project.matching.mode = self.match_mode.currentText()
+        self.project.matching.tolerance_seconds = self.match_tolerance.value()
+        self.project.matching.strict = self.match_strict.isChecked()
+        self._mark_dirty()
 
     def choose_project(self) -> None:
+        if not self.confirm_discard_changes():
+            return
         selected, _filter = QFileDialog.getOpenFileName(
             self,
             "Import Image Composer project",
@@ -641,40 +978,74 @@ class Phase4ComposerPanel(NativeModulePanel):
             self.import_project(selected)
 
     def import_project(self, path: str | Path) -> bool:
+        candidate = Path(path).expanduser().resolve(strict=False)
         try:
-            project = load_project(path)
-            for folder in project.folders:
-                if not self.adapter._inside(folder.path):
-                    raise PermissionError(
-                        f"Project folder is outside allowed roots: {folder.path}"
-                    )
-                folder.records = scan_folder(folder.path)
-                folder.resolved = bool(folder.records)
-                folder.end_index = min(
-                    max(folder.start_index, folder.end_index),
-                    max(1, len(folder.records)),
+            if not self.adapter._inside(candidate):
+                raise PermissionError(
+                    f"Project is outside configured allowed roots: {candidate}"
                 )
-            self.adapter.validate_project_inputs(project)
+            project = load_project(candidate)
+            for folder in project.folders:
+                resolved = folder.path.expanduser().resolve(strict=False)
+                folder.path = resolved
+                folder.records = (
+                    scan_folder(resolved)
+                    if self.adapter._inside(resolved) and resolved.is_dir()
+                    else []
+                )
+                folder.resolved = bool(folder.records)
+                if folder.records:
+                    folder.start_index = min(
+                        max(1, folder.start_index), len(folder.records)
+                    )
+                    folder.end_index = min(
+                        max(folder.start_index, folder.end_index),
+                        len(folder.records),
+                    )
         except (OSError, ValueError) as exc:
             QMessageBox.critical(self, "Could not import project", str(exc))
             return False
         self.project = project
         self._reload_project_ui()
+        self.project_path = candidate
+        self._dirty = False
         return True
 
-    def _reload_project_ui(self) -> None:
+    def _reload_project_ui(self, *, select_folder_id: str = "") -> None:
+        self._updating_controls = True
         self.folder_list.clear()
+        self.thumbnail_list.clear()
         self.scene.clear()
         self._items.clear()
-        self.canvas_width.setValue(self.project.canvas.width)
-        self.canvas_height.setValue(self.project.canvas.height)
-        for folder in self.project.folders:
-            item = QListWidgetItem(f"{folder.name} ({len(folder.records)})")
-            item.setData(Qt.ItemDataRole.UserRole, folder.id)
-            self.folder_list.addItem(item)
-        for slot in sorted(self.project.slots, key=lambda item: item.z_index):
-            self._add_graphics_item(slot)
-        self._refresh_scene_rect()
+        selected_item: QListWidgetItem | None = None
+        try:
+            self.canvas_width.setValue(self.project.canvas.width)
+            self.canvas_height.setValue(self.project.canvas.height)
+            self.canvas_background.setText(self.project.canvas.background)
+            for folder in self.project.folders:
+                state = "" if folder.resolved else " — unresolved"
+                item = QListWidgetItem(f"{folder.name} ({len(folder.records)}){state}")
+                item.setData(Qt.ItemDataRole.UserRole, folder.id)
+                self.folder_list.addItem(item)
+                if folder.id == select_folder_id:
+                    selected_item = item
+            for slot in sorted(self.project.slots, key=lambda item: item.z_index):
+                self._add_graphics_item(slot)
+            self._refresh_match_folders()
+            self.match_mode.setCurrentText(self.project.matching.mode)
+            self.match_tolerance.setValue(self.project.matching.tolerance_seconds)
+            self.match_strict.setChecked(self.project.matching.strict)
+            self.output_path.setText(self.project.export.output_path)
+            self.output_format.setCurrentText(self.project.export.output_format)
+            self.export_fps.setValue(self.project.export.fps)
+            self.export_frames.setChecked(self.project.export.save_png_frames)
+            self._refresh_scene_rect()
+        finally:
+            self._updating_controls = False
+        if selected_item is None and self.folder_list.count():
+            selected_item = self.folder_list.item(0)
+        if selected_item is not None:
+            self.folder_list.setCurrentItem(selected_item)
 
     def choose_save_project(self) -> None:
         selected, _filter = QFileDialog.getSaveFileName(
@@ -685,12 +1056,60 @@ class Phase4ComposerPanel(NativeModulePanel):
         )
         if not selected:
             return
+        self._save_project_to(selected)
+
+    def save_current_project(self) -> bool:
+        if self.project_path is None:
+            self.choose_save_project()
+            return not self._dirty
+        return self._save_project_to(self.project_path)
+
+    def _save_project_to(self, path: str | Path) -> bool:
+        candidate = Path(path).expanduser().resolve(strict=False)
         try:
-            saved = save_project(selected, self.project)
+            if not self.adapter._inside(candidate):
+                raise PermissionError(
+                    f"Project is outside configured allowed roots: {candidate}"
+                )
+            saved = save_project(candidate, self.project)
         except OSError as exc:
             QMessageBox.critical(self, "Could not save project", str(exc))
-            return
+            return False
+        self.project_path = saved
+        self._dirty = False
         QMessageBox.information(self, "Project saved", str(saved))
+        return True
+
+    def new_project(self) -> bool:
+        if not self.confirm_discard_changes():
+            return False
+        self.project = ComposerProject()
+        self.project_path = None
+        self._dirty = False
+        self._reload_project_ui()
+        return True
+
+    def _mark_dirty(self) -> None:
+        if not self._updating_controls:
+            self._dirty = True
+
+    def confirm_discard_changes(self) -> bool:
+        if not self._dirty:
+            return True
+        result = QMessageBox.warning(
+            self,
+            "Unsaved Image Composer project",
+            "Save changes to the current .fic.json project?",
+            QMessageBox.StandardButton.Save
+            | QMessageBox.StandardButton.Discard
+            | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Save,
+        )
+        if result == QMessageBox.StandardButton.Cancel:
+            return False
+        if result == QMessageBox.StandardButton.Save:
+            return self.save_current_project()
+        return True
 
     def set_current_time(self, current_time_utc) -> None:  # type: ignore[no-untyped-def]
         current = current_time_utc.astimezone(timezone.utc).replace(tzinfo=None)
@@ -717,21 +1136,87 @@ class Phase4ComposerPanel(NativeModulePanel):
         )
 
     def request_static_export(self) -> None:
+        default = self.adapter.runtime.outputs_dir / "composition.png"
+        selected, _filter = QFileDialog.getSaveFileName(
+            self,
+            "Export high-resolution PNG",
+            str(default),
+            "PNG image (*.png)",
+        )
+        if not selected or not self._confirm_overwrite(Path(selected)):
+            return
         self._request(
             lambda: self.adapter.build_static_export(
                 self.project,
                 scale=self.export_scale.value(),
+                output_path=selected,
             )
         )
 
     def request_sequence_export(self) -> None:
+        output = self.output_path.text().strip() or None
+        if output is not None and not self._confirm_overwrite(Path(output)):
+            return
         self._request(
             lambda: self.adapter.build_sequence_export(
                 self.project,
                 scale=self.export_scale.value(),
                 fps=self.export_fps.value(),
                 save_png_frames=self.export_frames.isChecked(),
+                output_path=output,
             )
+        )
+
+    def choose_output_path(self) -> None:
+        suffix = self.output_format.currentText()
+        current = self.output_path.text().strip()
+        initial = current or str(
+            self.adapter.runtime.outputs_dir / f"composition.{suffix}"
+        )
+        selected, _filter = QFileDialog.getSaveFileName(
+            self,
+            "Choose sequence output",
+            initial,
+            f"{suffix.upper()} video (*.{suffix})",
+        )
+        if selected:
+            self.output_path.setText(selected)
+
+    def _output_format_changed(self, value: str) -> None:
+        current = self.output_path.text().strip()
+        if current:
+            self.output_path.setText(str(Path(current).with_suffix(f".{value}")))
+        self._export_settings_changed()
+
+    def _export_settings_changed(self, *_args) -> None:
+        if self._updating_controls:
+            return
+        self.project.export.output_path = self.output_path.text().strip()
+        self.project.export.output_format = self.output_format.currentText()
+        self.project.export.fps = self.export_fps.value()
+        self.project.export.save_png_frames = self.export_frames.isChecked()
+        self._mark_dirty()
+
+    def _confirm_overwrite(self, path: Path) -> bool:
+        candidate = path.expanduser().resolve(strict=False)
+        related = (
+            candidate,
+            candidate.with_name(f"{candidate.stem}_matches.csv"),
+            candidate.with_name(f"{candidate.stem}_frames"),
+        )
+        existing = [item for item in related if item.exists()]
+        if not existing:
+            return True
+        names = "\n".join(str(item) for item in existing)
+        return (
+            QMessageBox.warning(
+                self,
+                "Replace existing output?",
+                f"The following output paths already exist:\n{names}",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            == QMessageBox.StandardButton.Yes
         )
 
     def _request(self, builder) -> None:  # type: ignore[no-untyped-def]

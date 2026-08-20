@@ -67,7 +67,7 @@ FRONTENDS: tuple[FrontendSpec, ...] = (
         "image-composer",
         "Image Composer",
         "solar_apps.frontends.image_composer.cli",
-        "pyside6",
+        "pyqt6",
         (InterfaceSpec("image-composer", "Image Composer", "desktop"),),
         True,
     ),

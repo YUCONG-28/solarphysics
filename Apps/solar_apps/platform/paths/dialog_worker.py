@@ -1,4 +1,4 @@
-"""Isolated PySide6 worker for Windows/macOS native file and folder dialogs."""
+"""Isolated PyQt6 worker for Windows/macOS native file and folder dialogs."""
 
 from __future__ import annotations
 
@@ -152,11 +152,11 @@ def run_dialog(payload: dict[str, Any]) -> dict[str, Any]:
         )
         topmost_thread.start()
 
-    from PySide6.QtWidgets import QApplication, QFileDialog
+    from PyQt6.QtWidgets import QApplication, QFileDialog
 
     app = QApplication.instance() or QApplication(["solar-native-path-dialog"])
     dialog = QFileDialog()
-    dialog.setOption(QFileDialog.DontUseNativeDialog, False)
+    dialog.setOption(QFileDialog.Option.DontUseNativeDialog, False)
     dialog.setWindowTitle(str(payload["title"]))
     initial_path = str(payload.get("initial_path") or "")
     if initial_path:
@@ -164,25 +164,25 @@ def run_dialog(payload: dict[str, Any]) -> dict[str, Any]:
     extensions = [str(item) for item in payload.get("extensions") or []]
     dialog.setNameFilters(_name_filters(extensions))
     if mode == "open_file":
-        dialog.setAcceptMode(QFileDialog.AcceptOpen)
-        dialog.setFileMode(QFileDialog.ExistingFile)
+        dialog.setAcceptMode(QFileDialog.AcceptMode.AcceptOpen)
+        dialog.setFileMode(QFileDialog.FileMode.ExistingFile)
     elif mode == "open_files":
-        dialog.setAcceptMode(QFileDialog.AcceptOpen)
-        dialog.setFileMode(QFileDialog.ExistingFiles)
+        dialog.setAcceptMode(QFileDialog.AcceptMode.AcceptOpen)
+        dialog.setFileMode(QFileDialog.FileMode.ExistingFiles)
     elif mode == "select_directory":
-        dialog.setAcceptMode(QFileDialog.AcceptOpen)
-        dialog.setFileMode(QFileDialog.Directory)
-        dialog.setOption(QFileDialog.ShowDirsOnly, True)
+        dialog.setAcceptMode(QFileDialog.AcceptMode.AcceptOpen)
+        dialog.setFileMode(QFileDialog.FileMode.Directory)
+        dialog.setOption(QFileDialog.Option.ShowDirsOnly, True)
     elif mode == "save_file":
-        dialog.setAcceptMode(QFileDialog.AcceptSave)
-        dialog.setFileMode(QFileDialog.AnyFile)
+        dialog.setAcceptMode(QFileDialog.AcceptMode.AcceptSave)
+        dialog.setFileMode(QFileDialog.FileMode.AnyFile)
         suffix = str(payload.get("default_suffix") or "").lstrip(".")
         if suffix:
             dialog.setDefaultSuffix(suffix)
     else:
         raise ValueError(f"Unsupported dialog mode: {mode!r}")
     try:
-        accepted = dialog.exec() == QFileDialog.Accepted
+        accepted = dialog.exec() == QFileDialog.DialogCode.Accepted
         return {
             "status": "selected" if accepted else "cancelled",
             "paths": [str(path) for path in dialog.selectedFiles()] if accepted else [],

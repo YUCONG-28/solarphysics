@@ -17,6 +17,7 @@ from solar_apps.frontends.radio.source_map import jobs as source_map_jobs
 from solar_apps.frontends.radio.source_trajectory import source_app_launcher
 from solar_apps.frontends.workbench import runner as workbench_runner
 from solar_apps.frontends.workbench.radio_workspace import runner as radio_runner
+from solar_apps.platform.environment import inspect_miniforge_runtime
 from solar_apps.platform.processes import (
     PYTHON_EXECUTABLE_ENV,
     miniforge_subprocess_environment,
@@ -49,13 +50,14 @@ def _assert_selected_miniforge_child(
     command: list[str], kwargs: dict[str, Any]
 ) -> None:
     selected = str(selected_python_executable())
+    selected_environment = inspect_miniforge_runtime().environment_name
     environment = kwargs["env"]
 
     assert os.path.normcase(command[0]) == os.path.normcase(selected)
     assert os.path.normcase(environment[PYTHON_EXECUTABLE_ENV]) == os.path.normcase(
         selected
     )
-    assert environment["SOLAR_APPS_ENVIRONMENT"] == "solarphysics_env_latest"
+    assert environment["SOLAR_APPS_ENVIRONMENT"] == selected_environment
     assert environment["PYTHONNOUSERSITE"] == "1"
     assert "PYTHONPATH" not in environment
     assert os.path.normcase(environment["PATH"].split(os.pathsep)[0]) == (

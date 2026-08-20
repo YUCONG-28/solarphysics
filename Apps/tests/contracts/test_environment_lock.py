@@ -81,6 +81,28 @@ def test_capture_requires_explicit_apply_and_has_no_install_subcommand() -> None
     assert '"download"' not in capture_source
 
 
+def test_lock_profiles_include_local_build_backends(lock_module) -> None:
+    requirements = {
+        str(requirement) for requirement in lock_module._source_requirements()
+    }
+
+    assert "setuptools>=77" in requirements
+    assert "wheel" in requirements or "wheel>=0.45" in requirements
+
+
+def test_fresh_capture_invalidates_an_older_pip_seal(lock_module, tmp_path) -> None:
+    for name in ("pip-hashed.txt", "pip-artifacts.json"):
+        (tmp_path / name).write_text("stale", encoding="utf-8")
+    unrelated = tmp_path / "conda-explicit.txt"
+    unrelated.write_text("keep", encoding="utf-8")
+
+    lock_module._invalidate_pip_seal(tmp_path)
+
+    assert not (tmp_path / "pip-hashed.txt").exists()
+    assert not (tmp_path / "pip-artifacts.json").exists()
+    assert unrelated.read_text(encoding="utf-8") == "keep"
+
+
 def test_pep660_editables_accept_only_this_reviewed_checkout(lock_module) -> None:
     payload = (
         "["

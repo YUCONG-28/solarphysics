@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Frame matching for time-based and relative-index compositions."""
 
 from __future__ import annotations

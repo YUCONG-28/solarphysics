@@ -24,7 +24,7 @@ MODULES: tuple[ModuleDescriptor, ...] = (
         "Image Composer",
         "Visualization",
         "4",
-        "image-composer",
+        None,
         True,
     ),
     ModuleDescriptor(

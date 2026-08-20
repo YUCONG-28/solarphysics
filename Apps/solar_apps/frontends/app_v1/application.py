@@ -5,17 +5,21 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import uuid
 from collections.abc import Sequence
+from pathlib import Path
 from types import SimpleNamespace
 
 from PyQt6.QtCore import QTimer
 from PyQt6.QtWidgets import QApplication
 
 from .components import RunConfirmationDialog
+from .catalog import MODULES
 
 from solar_apps.platform.layout import RuntimeLayout
+from solar_apps.platform.paths import AllowedRootPolicyError, configured_allowed_roots
 
 from .window import AppV1MainWindow
 
@@ -58,6 +62,26 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Create the window without showing it.",
     )
+    parser.add_argument(
+        "--module",
+        metavar="MODULE_ID",
+        choices=tuple(module.module_id for module in MODULES),
+        help="Select an App 1.0 module at startup.",
+    )
+    parser.add_argument(
+        "--composer-project",
+        type=Path,
+        default=None,
+        help="Open a schema-1 .fic.json project in the Image Composer.",
+    )
+    parser.add_argument(
+        "--allowed-roots",
+        default=None,
+        help=(
+            "Path-separated directories available to the Image Composer. "
+            "Defaults to the private Local configuration."
+        ),
+    )
     return parser
 
 
@@ -65,11 +89,45 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     if args.auto_close_ms < 0:
         raise ValueError("--auto-close-ms cannot be negative")
+    if args.composer_project is not None and args.module not in {
+        None,
+        "image-composer",
+    }:
+        print(
+            "app-v1: error: --composer-project requires --module image-composer",
+            file=sys.stderr,
+        )
+        return 2
+    initial_module = "image-composer" if args.composer_project else args.module
+    composer_roots: tuple[Path, ...] | None = None
+    if initial_module == "image-composer" or args.allowed_roots is not None:
+        try:
+            configured_roots = configured_allowed_roots(cli_value=args.allowed_roots)
+        except AllowedRootPolicyError as exc:
+            print(f"Invalid allowed-root configuration: {exc}", file=sys.stderr)
+            return 2
+        if not configured_roots:
+            print(
+                "No application allowed roots are configured. Add apps.allowed_roots "
+                "to the private Local config or pass --allowed-roots with "
+                f"{os.pathsep!r} separators.",
+                file=sys.stderr,
+            )
+            return 2
+        composer_roots = tuple(configured_roots)
     application = QApplication.instance() or QApplication(["solar-physics-app-v1"])
     application.setApplicationName("Solar Physics App 1.0")
     application.setOrganizationName("solarphysics")
     layout = RuntimeLayout.discover().ensure()
-    window = AppV1MainWindow(layout, initial_theme=args.theme)
+    window = AppV1MainWindow(
+        layout,
+        initial_theme=args.theme,
+        initial_module=initial_module or "workbench",
+        composer_allowed_roots=composer_roots,
+    )
+    if args.composer_project is not None:
+        if not window.load_composer_project(args.composer_project):
+            return 2
     if not args.no_show:
         window.show()
 

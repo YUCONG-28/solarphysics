@@ -147,11 +147,18 @@ On macOS or Linux, run the same native application from the repository root:
 ./Apps/run.sh frontend app-v1
 ```
 
+Open the native Image Composer directly with
+`./Apps/run.sh frontend app-v1 --module image-composer`. Existing automation
+may continue to use `frontend image-composer --project <file.fic.json>`; that
+compatibility route selects the same App 1.0 page. Composer startup remains
+fail-closed unless allowed roots are configured privately or supplied with
+`--allowed-roots` as an OS path-separated list.
+
 The `app-v1-preview` frontend ID is a compatibility alias to that same module
 for one release cycle. It is not a separate implementation.
 
 Normal App 1.0 actions stay inside the PyQt6 window and use supervised
-headless workers. They do not start Flask, Streamlit, PySide6, or a browser.
+headless workers. They do not start Flask, Streamlit, or a browser.
 Every page can open its predefined typed workflow with **Edit workflow**.
 Atomic functions can be dragged into a visual DAG, connected through typed
 artifact ports, and edited through the shared Common/Advanced schema form.
@@ -178,7 +185,7 @@ surfaces:
 | --- | --- | --- | --- |
 | `workbench` | General Workbench (`/`) and Radio Workspace (`/radio`) | Flask (deprecated) | `... -File .\Apps\run.ps1 frontend workbench` |
 | `image-viewer` | Image sequence viewer and media export | Flask (deprecated) | `... -File .\Apps\run.ps1 frontend image-viewer` |
-| `image-composer` | Free image composer | PySide6 (deprecated) | `... -File .\Apps\run.ps1 frontend image-composer` |
+| `image-composer` | Free image composer compatibility route | App 1.0 / PyQt6 | `... -File .\Apps\run.ps1 frontend image-composer` |
 | `bad-frame-review` | Radio bad-frame review | Flask (deprecated) | `... -File .\Apps\run.ps1 frontend bad-frame-review` |
 | `source-map` | Radio source-map preparation and ROI annotation | Flask (deprecated) | `... -File .\Apps\run.ps1 frontend source-map` |
 | `dart-spectrogram` | DART spectrogram analysis | Streamlit (deprecated) | `... -File .\Apps\run.ps1 frontend dart-spectrogram` |
@@ -436,9 +443,12 @@ ignored and must not be published:
 - credentials, cookies, tokens, authentication files, and private email;
 - historical inventory/manifests and legacy source or test trees.
 
-The application source is licensed under [MIT](LICENSE). The bundled
-Mediabunny asset retains MPL-2.0 terms; its license and notice are shipped next
-to the asset under `solar_apps/ui/media`.
+The Apps distribution contains separately scoped components: general Apps
+source is licensed under [MIT](LICENSE), the App 1.0 source under
+[GPL-3.0-only](solar_apps/frontends/app_v1/LICENSE.md), and the bundled
+Mediabunny asset under MPL-2.0. Complete license texts and the Mediabunny notice
+are included in the distribution. PyQt6 remains separately licensed by its
+publisher.
 
 ## Verification
 

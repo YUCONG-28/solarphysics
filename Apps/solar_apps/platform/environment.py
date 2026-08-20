@@ -12,6 +12,10 @@ from pathlib import Path
 PRIMARY_ENVIRONMENT = "solarphysics_env_latest"
 STANDBY_ENVIRONMENT = "solarphysics_env"
 SUPPORTED_ENVIRONMENTS = (PRIMARY_ENVIRONMENT, STANDBY_ENVIRONMENT)
+LOCK_CANDIDATE_ENVIRONMENT = "solarphysics_lock_candidate"
+LOCK_CANDIDATE_OPT_IN = "SOLAR_APPS_ALLOW_LOCK_CANDIDATE"
+LOCK_REPLAY_ENVIRONMENT = "solarphysics_replay"
+LOCK_REPLAY_OPT_IN = "SOLAR_APPS_ALLOW_LOCK_REPLAY"
 
 
 class UnsupportedPythonEnvironment(RuntimeError):
@@ -78,24 +82,45 @@ def inspect_miniforge_runtime(
         raise UnsupportedPythonEnvironment(f"Python interpreter not found: {selected}")
     environment_root = _environment_root(selected)
     environment_name = environment_root.name
-    if environment_name not in SUPPORTED_ENVIRONMENTS:
+    lock_candidate = (
+        environment_name == LOCK_CANDIDATE_ENVIRONMENT
+        and env.get(LOCK_CANDIDATE_OPT_IN, "").strip() == "1"
+    )
+    lock_replay = (
+        environment_name == LOCK_REPLAY_ENVIRONMENT
+        and env.get(LOCK_REPLAY_OPT_IN, "").strip() == "1"
+    )
+    lock_maintenance = lock_candidate or lock_replay
+    if environment_name not in SUPPORTED_ENVIRONMENTS and not lock_maintenance:
         raise UnsupportedPythonEnvironment(
             "Solar applications require Miniforge environment "
             f"{PRIMARY_ENVIRONMENT!r}, or explicit standby {STANDBY_ENVIRONMENT!r}; "
             f"got {environment_name!r}."
         )
-    if environment_root.parent.name.casefold() != "envs":
+    if not lock_maintenance and environment_root.parent.name.casefold() != "envs":
         raise UnsupportedPythonEnvironment(
             f"Interpreter is not inside a Miniforge envs directory: {selected}"
         )
-    installation_root = environment_root.parent.parent.resolve(strict=False)
     trusted_root_value = miniforge_root or env.get("SOLAR_MINIFORGE_ROOT")
     trusted_root = (
         Path(trusted_root_value).expanduser().resolve(strict=False)
         if trusted_root_value
         else None
     )
-    if trusted_root is not None and trusted_root != installation_root:
+    if lock_maintenance:
+        if trusted_root is None:
+            raise UnsupportedPythonEnvironment(
+                "A disposable lock maintenance environment requires an explicit "
+                "SOLAR_MINIFORGE_ROOT"
+            )
+        installation_root = trusted_root
+    else:
+        installation_root = environment_root.parent.parent.resolve(strict=False)
+    if (
+        not lock_maintenance
+        and trusted_root is not None
+        and trusted_root != installation_root
+    ):
         raise UnsupportedPythonEnvironment(
             "Interpreter environment is not below the explicitly selected Conda root"
         )
@@ -117,6 +142,10 @@ def inspect_miniforge_runtime(
 
 __all__ = [
     "MiniforgeRuntime",
+    "LOCK_CANDIDATE_ENVIRONMENT",
+    "LOCK_CANDIDATE_OPT_IN",
+    "LOCK_REPLAY_ENVIRONMENT",
+    "LOCK_REPLAY_OPT_IN",
     "PRIMARY_ENVIRONMENT",
     "STANDBY_ENVIRONMENT",
     "SUPPORTED_ENVIRONMENTS",

@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Capture and validate platform-specific public research environments.
 
 The lock separates two kinds of evidence deliberately:
@@ -23,11 +22,12 @@ import re
 import subprocess
 import sys
 import tempfile
-import tomllib
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlparse
+
+import tomllib
 
 try:
     from packaging.markers import default_environment
@@ -157,12 +157,23 @@ def _tags_match_target(
     if platform_fragments is None:
         return False
     for tag in tags:
-        python_ok = tag.interpreter in {expected_python, "py3"}
+        # PEP 384 abi3 wheels (e.g. cp39-abi3) are forward-compatible with any
+        # newer CPython, and py2.py3 pure wheels are also acceptable.
+        python_ok = tag.interpreter in {expected_python, "py3", "py2.py3"} or (
+            tag.interpreter.startswith("cp") and tag.abi == "abi3"
+        )
         if not python_ok:
             continue
         if tag.platform == "any":
             return True
         if all(fragment in tag.platform for fragment in platform_fragments):
+            return True
+        if (
+            platform_name == "osx-arm64"
+            and "macosx" in tag.platform
+            and "universal2" in tag.platform
+        ):
+            # universal2 wheels contain the arm64 slice and install on arm64.
             return True
     return False
 
@@ -180,11 +191,18 @@ def _atomic_write(path: Path, data: bytes) -> None:
         temporary.unlink(missing_ok=True)
 
 
+def _invalidate_pip_seal(directory: Path) -> None:
+    for sealed_name in ("pip-hashed.txt", "pip-artifacts.json"):
+        (directory / sealed_name).unlink(missing_ok=True)
+
+
 def _write_once(path: Path, data: bytes) -> None:
     if path.exists():
         if path.read_bytes() == data:
             return
-        raise LockError(f"immutable receipt already exists with different bytes: {path}")
+        raise LockError(
+            f"immutable receipt already exists with different bytes: {path}"
+        )
     _atomic_write(path, data)
 
 
@@ -357,6 +375,10 @@ def _source_requirements() -> list[Requirement]:
     requirements: list[Requirement] = []
     for relative, extras in SOURCE_PROFILES.items():
         payload = tomllib.loads((REPO_ROOT / relative).read_text(encoding="utf-8"))
+        build_system = payload.get("build-system", {})
+        requirements.extend(
+            Requirement(value) for value in build_system.get("requires", [])
+        )
         project = payload["project"]
         requirements.extend(
             Requirement(value) for value in project.get("dependencies", [])
@@ -404,9 +426,7 @@ def _validate_source_constraints(
 
 def _environment_lock_sha(receipt: dict[str, Any]) -> str:
     payload = {
-        key: value
-        for key, value in receipt.items()
-        if key != "environment_lock_sha256"
+        key: value for key, value in receipt.items() if key != "environment_lock_sha256"
     }
     return _sha256_bytes(_canonical_json(payload))
 
@@ -526,6 +546,8 @@ def _capture(args: argparse.Namespace) -> int:
         )
         return 0
 
+    # A fresh observation invalidates every artifact hash from an older seal.
+    _invalidate_pip_seal(destination)
     _atomic_write(destination / "conda-explicit.txt", explicit_bytes)
     _atomic_write(destination / "pip-pins.txt", pins_bytes)
     _atomic_write(destination / "lock-receipt.json", receipt_bytes)
@@ -839,7 +861,9 @@ def _check(args: argparse.Namespace) -> int:
 def _verify_runtime(args: argparse.Namespace) -> int:
     receipt = _check_target(args.target)
     if not receipt["pip_artifacts_sha256"]:
-        raise LockError(f"{args.target} is a version snapshot, not a sealed artifact lock")
+        raise LockError(
+            f"{args.target} is a version snapshot, not a sealed artifact lock"
+        )
     conda = str(Path(args.conda).expanduser())
     explicit = _run([conda, "list", "--explicit", "--sha256", "-n", args.environment])
     expected_explicit = (LOCK_ROOT / args.target / "conda-explicit.txt").read_text(
@@ -923,7 +947,7 @@ def _verify_runtime(args: argparse.Namespace) -> int:
         _write_once(receipt_path, _canonical_json(result))
         _write_once(
             receipt_path.with_suffix(receipt_path.suffix + ".sha256"),
-            f"{replay_sha}  {receipt_path.name}\n".encode("utf-8"),
+            f"{replay_sha}  {receipt_path.name}\n".encode(),
         )
         print(f"wrote replay receipt {receipt_path}")
     return 0

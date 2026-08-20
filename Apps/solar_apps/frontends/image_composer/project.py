@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Versioned JSON persistence for image-composer projects."""
 
 from __future__ import annotations

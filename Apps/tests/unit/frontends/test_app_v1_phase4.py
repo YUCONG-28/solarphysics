@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from PIL import Image
+import pytest
 
 from solar_apps.frontends.app_v1.composer_worker import main as worker_main
 from solar_apps.frontends.app_v1.phase4 import Phase4ComposerAdapter
@@ -86,6 +87,37 @@ def test_adapter_persists_schema1_and_builds_private_exports(tmp_path: Path) -> 
     assert static.output_dir.is_relative_to(local / "outputs" / "app_v1")
     assert sequence.arguments[sequence.arguments.index("--mode") + 1] == "sequence"
     assert "canvas=128x96" in sequence.summary
+
+
+def test_adapter_accepts_explicit_avi_inside_roots_and_rejects_escape(
+    tmp_path: Path,
+) -> None:
+    repo = tmp_path / "repo"
+    (repo / "Apps").mkdir(parents=True)
+    (repo / "Python").mkdir()
+    allowed = tmp_path / "allowed"
+    allowed.mkdir()
+    project = _project(allowed / "observations")
+    layout = RuntimeLayout.discover(
+        repo,
+        environ={"SOLAR_APPS_LOCAL_ROOT": str(tmp_path / "Local")},
+    )
+    adapter = Phase4ComposerAdapter(layout, allowed_roots=(allowed,))
+    project.export.output_format = "avi"
+
+    launch = adapter.build_sequence_export(
+        project,
+        output_path=allowed / "composition.avi",
+    )
+    assert launch.arguments[launch.arguments.index("--output") + 1].endswith(
+        "composition.avi"
+    )
+
+    with pytest.raises(PermissionError, match="outside configured allowed roots"):
+        adapter.build_sequence_export(
+            project,
+            output_path=tmp_path / "escaped.avi",
+        )
 
 
 def test_static_worker_imports_fic_schema1_and_exports_high_resolution_png(

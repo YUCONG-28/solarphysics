@@ -7,10 +7,18 @@ it is not sufficient evidence for a confirmatory research run.
 
 ## Current gate
 
-There is currently no committed, sealed platform lock. The exact-environment
-gate is therefore **red**. A run may use the source specifications for
-exploration, but it must not describe that environment as exact, frozen, or
-release-ready.
+The exact-environment gate is **green** for `osx-arm64-py314`. Its committed
+lock seals 18 Conda artifacts and 206 pip wheels, and a fresh environment has
+passed hash-required installation, runtime verification, `pip check`, and the
+complete Python and Apps test suites. Run `tools/environment_lock.py check
+--require-artifact-hashes` to read the current combined lock digest.
+
+A run may claim this exact environment only when it installs the sealed lock
+with `--require-hashes` and produces a successful detached replay receipt.
+Source-specification installs remain suitable for exploration, but a run must not describe that environment as exact or frozen.
+An earlier candidate failed replay because it
+combined incompatible PyQt6 and PySide6 runtimes; it has been superseded by the
+single-PyQt6 lock and is not release evidence.
 
 The first supported lock target is `osx-arm64-py314`. Windows and Linux jobs
 remain compatibility checks until independently generated and replay-tested
@@ -49,11 +57,18 @@ and install the declared profiles:
 ```bash
 CONDA="<miniforge-root>/bin/conda"
 TARGET_ENV="solarphysics_lock_candidate"
+export SOLAR_MINIFORGE_ROOT="<miniforge-root>"
+export SOLAR_APPS_ALLOW_LOCK_CANDIDATE=1
 "$CONDA" env create -n "$TARGET_ENV" -f Apps/environment.miniforge.yml
 "$CONDA" run -n "$TARGET_ENV" python -m pip install -e "./Python[dev,quality-ml]"
 "$CONDA" run -n "$TARGET_ENV" python -m pip install -e "./Apps[dev]"
 "$CONDA" run -n "$TARGET_ENV" python -m pip check
 ```
+
+The lock-candidate opt-in is accepted only for the exact disposable environment
+name above and still requires an explicitly verified Miniforge root. Normal
+application launches continue to accept only the primary or formal standby
+environment.
 
 Those commands resolve the current ranges and are not yet reproducible. Run
 the complete relevant tests before observing the candidate. Then preview and
@@ -113,6 +128,8 @@ and the strict check passes:
 ```bash
 CONDA="<miniforge-root>/bin/conda"
 REPLAY_ENV="solarphysics_replay"
+export SOLAR_MINIFORGE_ROOT="<miniforge-root>"
+export SOLAR_APPS_ALLOW_LOCK_REPLAY=1
 "$CONDA" create -n "$REPLAY_ENV" \
   --file environment/locks/osx-arm64-py314/conda-explicit.txt
 "$CONDA" run -n "$REPLAY_ENV" python -m pip install \

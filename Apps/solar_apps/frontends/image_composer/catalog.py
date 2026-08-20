@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Image discovery and timestamp extraction for the image composer."""
 
 from __future__ import annotations
@@ -125,9 +126,9 @@ def _timestamp_from_exif(path: Path) -> tuple[datetime, str] | None:
                 exif_ifd = _EXIF_IFD_TAG
             try:
                 values.update(exif.get_ifd(exif_ifd))
-            except (KeyError, TypeError, ValueError):
+            except KeyError, TypeError, ValueError:
                 pass
-    except (OSError, ValueError):
+    except OSError, ValueError:
         return None
 
     for time_tag, subsecond_tag, source in _EXIF_TIME_FIELDS:
