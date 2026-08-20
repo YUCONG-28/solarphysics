@@ -32,6 +32,7 @@ from uuid import uuid4
 
 from solar_apps.frontends.app_v1.catalog import MODULES
 from solar_apps.frontends.catalog import FRONTENDS, FrontendSpec
+from solar_apps.platform.layout import RuntimeLayout
 
 SCHEMA_VERSION = "1.0"
 LEGACY_TOOLKITS = frozenset({"flask", "streamlit"})
@@ -811,9 +812,7 @@ def run_health(
     """Execute the complete offline health matrix and return the report."""
 
     resolved_apps_root = (
-        Path(apps_root)
-        if apps_root is not None
-        else Path(__file__).resolve().parents[2]
+        Path(apps_root) if apps_root is not None else RuntimeLayout.discover().apps_root
     )
     interpreter = python or sys.executable
     provided_local = Path(local_root).expanduser() if local_root is not None else None

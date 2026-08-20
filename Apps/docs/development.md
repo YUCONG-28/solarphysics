@@ -40,6 +40,25 @@ affected UI through a supervised local server. Verify explicit Light and Dark,
 then Auto while changing the emulated operating-system color scheme. Stop the
 server and confirm its port is closed.
 
+## Health matrix
+
+Run the offline App health matrix from the repository root:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Apps\run.ps1 tools health --output .\Local\tmp\apps-health.json
+```
+
+```bash
+./Apps/run.sh tools health --output Local/tmp/apps-health.json
+```
+
+The default matrix covers every catalog-driven formal frontend entry, every App
+1.0 page, and the offline smokes. Legacy Flask/Streamlit servers are reported
+as `not_run` with a machine-readable reason; pass `--include-legacy-servers`
+only when loopback ports are explicitly allowed. The report is atomic
+structured JSON, and the command exits non-zero when the overall status is
+`fail`. CI runs the default matrix without `--include-legacy-servers`.
+
 ## Contributions
 
 - Preserve the package dependency direction and stable CLI IDs.

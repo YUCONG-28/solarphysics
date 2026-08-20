@@ -235,6 +235,33 @@ def test_run_health_preserves_injected_local_root(
     assert (local / "allowed").is_dir()
 
 
+def test_run_health_defaults_apps_root_to_runtime_layout_discovery(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    discovered_apps_root = tmp_path / "discovered" / "Apps"
+
+    class _FakeLayout:
+        def __init__(self) -> None:
+            self.apps_root = discovered_apps_root
+
+        @classmethod
+        def discover(cls) -> "_FakeLayout":
+            return cls()
+
+    monkeypatch.setattr(health, "RuntimeLayout", _FakeLayout)
+    passed: list[object] = []
+
+    def fake_matrix(*, apps_root: object, **kwargs: object) -> dict[str, object]:
+        passed.append(apps_root)
+        return health.build_report([], health.now_utc(), health.now_utc())
+
+    monkeypatch.setattr(health, "_run_health_matrix", fake_matrix)
+    report = health.run_health(local_root=tmp_path / "Local")
+
+    assert report["overall_status"] == "pass"
+    assert passed == [discovered_apps_root]
+
+
 def test_probe_http_accepts_only_2xx_and_3xx(monkeypatch: pytest.MonkeyPatch) -> None:
     process = SimpleNamespace(poll=lambda: None)
 
