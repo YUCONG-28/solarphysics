@@ -172,6 +172,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                     if name in sys.modules
                 ],
                 "process_running": window.task_controller.process_running,
+                "running_qprocess_count": (
+                    window.task_controller.running_process_count
+                ),
             }
         )
         print(SMOKE_PREFIX + json.dumps(smoke, sort_keys=True), flush=True)

@@ -63,6 +63,7 @@ WORKFLOW_COMMAND_TARGETS = {
 
 TOOL_TARGETS = {
     "bad-frame-ml": "solar_apps.frontends.radio_bad_frame_review.ml_cli",
+    "health": "solar_apps.cli.health",
     "release": "solar_apps.cli.release",
     "quick": "solar_apps.cli.quick_update",
 }
@@ -216,7 +217,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         return 0
     group = arguments.pop(0)
-    if group in {"frontend", "workflow", "tools"}:
+    if group in {"frontend", "workflow"} or (
+        group == "tools" and (not arguments or arguments[0] != "health")
+    ):
         try:
             from .admin import initialize_runtime
 
