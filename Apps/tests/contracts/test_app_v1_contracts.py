@@ -43,13 +43,14 @@ def test_all_eleven_interfaces_have_unique_implementation_phases() -> None:
     assert all(
         module.legacy_interface
         for module in MODULES
-        if module.module_id != "data-download"
+        if module.module_id not in {"data-download", "image-composer"}
     )
-    assert (
+    assert all(
         next(
-            module for module in MODULES if module.module_id == "data-download"
+            module for module in MODULES if module.module_id == module_id
         ).legacy_interface
         is None
+        for module_id in ("data-download", "image-composer")
     )
 
 

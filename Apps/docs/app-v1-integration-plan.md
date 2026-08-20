@@ -11,8 +11,8 @@ and `output/` layers to the repository's existing boundaries:
 - observation data is never copied into public source.
 
 The released implementation lives under `solar_apps/frontends/app_v1/`. It
-uses an English PyQt6 interface and does not import PySide6 or PyQt5 in the same
-process. The previous `app-v1-preview` command is a compatibility alias to the
+uses an English PyQt6 interface and does not import a second Qt binding in the
+same process. The previous `app-v1-preview` command is a compatibility alias to the
 same implementation; it does not create a second code path.
 
 ## Phase gates
@@ -102,8 +102,9 @@ belong in public source or test fixtures.
 - Windows is the primary platform and `solarphysics_env_latest` is the primary
   interpreter.
 - Visible App 1.0 interface text is English.
-- PyQt6 is the only Qt binding loaded by the App 1.0 process. Legacy PyQt5 and
-  PySide6 interfaces continue in separate processes.
+- PyQt6 is the only Qt binding installed for native Apps interfaces. The
+  Image Composer compatibility command selects the App 1.0 page rather than
+  starting a second Qt process.
 - The App v1 subtree is GPL-3.0-only. Existing repository licensing
   outside that subtree is unchanged.
 - "Rewrite" refers to interface and orchestration code. Scientific

@@ -82,6 +82,8 @@ class ModulePage(QWidget):
         self,
         descriptor: ModuleDescriptor,
         runtime_layout: RuntimeLayout,
+        *,
+        composer_allowed_roots: tuple[Path, ...] | None = None,
         parent: QWidget | None = None,
     ):
         super().__init__(parent)
@@ -185,7 +187,10 @@ class ModulePage(QWidget):
             active_phase = "2C"
         elif descriptor.module_id == "image-composer":
             self.phase4_panel = Phase4ComposerPanel(
-                Phase4ComposerAdapter(runtime_layout)
+                Phase4ComposerAdapter(
+                    runtime_layout,
+                    allowed_roots=composer_allowed_roots,
+                )
             )
             self.phase4_panel.task_requested.connect(self.task_launch_requested)
             self._register_native_panel(self.phase4_panel)
@@ -306,6 +311,8 @@ class AppV1MainWindow(QMainWindow):
         layout: RuntimeLayout,
         *,
         initial_theme: object = "auto",
+        initial_module: str = "workbench",
+        composer_allowed_roots: tuple[Path, ...] | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -316,6 +323,7 @@ class AppV1MainWindow(QMainWindow):
         self.project_store = AppV1ProjectStore(self.runtime_paths)
         self.project_parameters: dict[str, dict[str, object]] = {}
         self._parameter_module_id: str | None = None
+        self.composer_allowed_roots = composer_allowed_roots
         self.timeline_config_path = (
             self.runtime_paths.workspaces_dir / "preview.timeline.json"
         )
@@ -363,7 +371,7 @@ class AppV1MainWindow(QMainWindow):
         )
         QTimer.singleShot(0, self._constrain_bottom_docks)
         self._connect_signals()
-        self._select_module("workbench")
+        self.select_module(initial_module)
         if self.timeline_load_warning:
             self.log_output.appendPlainText(self.timeline_load_warning)
         self.statusBar().showMessage("App 1.0 ready")
@@ -371,6 +379,24 @@ class AppV1MainWindow(QMainWindow):
     @property
     def registered_module_ids(self) -> tuple[str, ...]:
         return tuple(self.module_pages)
+
+    def select_module(self, module_id: str) -> None:
+        """Select one registered module through a validated public interface."""
+
+        if module_id not in self.module_pages:
+            raise ValueError(f"Unknown App 1.0 module: {module_id}")
+        self._select_module(module_id)
+
+    def load_composer_project(self, path: str | Path) -> bool:
+        """Load a schema-1 Composer project and select its native page."""
+
+        page = self.module_pages["image-composer"]
+        if page.phase4_panel is None:
+            raise RuntimeError("The Image Composer page is unavailable")
+        loaded = page.phase4_panel.import_project(path)
+        if loaded:
+            self.select_module("image-composer")
+        return loaded
 
     def set_theme(self, mode: object) -> str:
         selected = self.theme_controller.set_mode(mode)
@@ -524,7 +550,7 @@ class AppV1MainWindow(QMainWindow):
                 self.workflow_builder.load_flow(
                     self.workflow_builder.store.load(active_flow_id)
                 )
-            except (OSError, KeyError, TypeError, ValueError):
+            except OSError, KeyError, TypeError, ValueError:
                 pass
         self._show_parameter_document(self._current_module_id())
         self.output_list.clear()
@@ -563,9 +589,17 @@ class AppV1MainWindow(QMainWindow):
         return parameters
 
     def closeEvent(self, event: QCloseEvent) -> None:
+        composer = self.module_pages.get("image-composer")
+        if (
+            composer is not None
+            and composer.phase4_panel is not None
+            and not composer.phase4_panel.confirm_discard_changes()
+        ):
+            event.ignore()
+            return
         try:
             self._capture_parameter_document()
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             pass
         self.task_controller.shutdown()
         self.workflow_builder.shutdown()
@@ -659,7 +693,11 @@ class AppV1MainWindow(QMainWindow):
             item = QTreeWidgetItem([descriptor.title])
             item.setData(0, Qt.ItemDataRole.UserRole, descriptor.module_id)
             category.addChild(item)
-            page = ModulePage(descriptor, self.layout)
+            page = ModulePage(
+                descriptor,
+                self.layout,
+                composer_allowed_roots=self.composer_allowed_roots,
+            )
             self.module_pages[descriptor.module_id] = page
             viewport = QScrollArea()
             viewport.setObjectName("appV1PageViewport")
@@ -955,8 +993,6 @@ class AppV1MainWindow(QMainWindow):
             "Input": "Current configured allowed roots",
             "Parameters": (
                 "Launch the deprecated standalone interface in the default browser"
-                if module_id != "image-composer"
-                else "Launch the deprecated standalone PySide6 interface"
             ),
             "Output": "Managed by the legacy interface",
             "Workload": "Compatibility fallback; no automatic fallback is performed",
@@ -979,10 +1015,6 @@ class AppV1MainWindow(QMainWindow):
             "image-viewer": (
                 "solar_apps.frontends.image_viewer.cli",
                 ("--open-browser",),
-            ),
-            "image-composer": (
-                "solar_apps.frontends.image_composer.cli",
-                (),
             ),
             "bad-frame-review": (
                 "solar_apps.frontends.radio_bad_frame_review.cli",

@@ -193,6 +193,8 @@ jobs:
             python -m pip install -e ".\Apps[dev]"
           conda run --no-capture-output -n solarphysics_env_latest `
             python -m pip check
+          conda run --no-capture-output -n solarphysics_env_latest `
+            python -c "import importlib.util; assert importlib.util.find_spec('PySide6') is None; assert importlib.util.find_spec('shiboken6') is None"
 
       - name: Initialize private CI runtime
         run: |
@@ -219,29 +221,13 @@ jobs:
         run: |
           conda run --no-capture-output -n solarphysics_env_latest `
             python -m pytest Apps\tests `
-              --ignore=Apps\tests\ui\test_image_composer_ui.py `
               --basetemp Local\tmp\pytest-apps-ci
-
-      - name: Run PySide6 Image Composer UI tests in isolation
-        run: |
-          conda run --no-capture-output -n solarphysics_env_latest `
-            python -m pytest Apps\tests\ui\test_image_composer_ui.py `
-              --basetemp Local\tmp\pytest-image-composer-ui-ci
 
       - name: Smoke canonical frontend help
         run: |
           $env:SOLAR_MINIFORGE_ROOT = $env:CONDA
-          $frontends = @(
-            "workbench",
-            "image-viewer",
-            "image-composer",
-            "bad-frame-review",
-            "source-map",
-            "dart-spectrogram",
-            "roi-lightcurve",
-            "radio-composite",
-            "source-trajectory"
-          )
+          $frontends = conda run -n solarphysics_env_latest python -c `
+            "from solar_apps.frontends.catalog import FRONTENDS; print(*sorted(item.id for item in FRONTENDS), sep='\n')"
           foreach ($frontend in $frontends) {
             conda run --no-capture-output -n solarphysics_env_latest `
               powershell.exe -NoProfile -ExecutionPolicy Bypass `
@@ -345,6 +331,8 @@ jobs:
             python -m pip install -e "./Apps[dev]"
           conda run --no-capture-output -n solarphysics_env_latest \
             python -m pip check
+          conda run --no-capture-output -n solarphysics_env_latest \
+            python -c "import importlib.util; assert importlib.util.find_spec('PySide6') is None; assert importlib.util.find_spec('shiboken6') is None"
 
       - name: Initialize private CI runtime
         run: |
@@ -363,18 +351,13 @@ jobs:
             python -m black --check Apps/solar_apps Apps/tests
           conda run --no-capture-output -n solarphysics_env_latest \
             python -m pytest Apps/tests \
-              --ignore=Apps/tests/ui/test_image_composer_ui.py \
               --basetemp Local/tmp/pytest-apps-macos-ci
-          conda run --no-capture-output -n solarphysics_env_latest \
-            python -m pytest Apps/tests/ui/test_image_composer_ui.py \
-              --basetemp Local/tmp/pytest-image-composer-ui-macos-ci
 
       - name: Smoke all canonical frontend help
         run: |
           export SOLAR_MINIFORGE_ROOT="$CONDA"
-          for frontend in \
-            workbench image-viewer image-composer bad-frame-review source-map \
-            dart-spectrogram roi-lightcurve radio-composite source-trajectory
+          for frontend in $(conda run -n solarphysics_env_latest python -c \
+            "from solar_apps.frontends.catalog import FRONTENDS; print(*sorted(item.id for item in FRONTENDS), sep='\n')")
           do
             conda run --no-capture-output -n solarphysics_env_latest \
               ./Apps/run.sh frontend "$frontend" --help

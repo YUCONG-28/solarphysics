@@ -147,11 +147,18 @@ On macOS or Linux, run the same native application from the repository root:
 ./Apps/run.sh frontend app-v1
 ```
 
+Open the native Image Composer directly with
+`./Apps/run.sh frontend app-v1 --module image-composer`. Existing automation
+may continue to use `frontend image-composer --project <file.fic.json>`; that
+compatibility route selects the same App 1.0 page. Composer startup remains
+fail-closed unless allowed roots are configured privately or supplied with
+`--allowed-roots` as an OS path-separated list.
+
 The `app-v1-preview` frontend ID is a compatibility alias to that same module
 for one release cycle. It is not a separate implementation.
 
 Normal App 1.0 actions stay inside the PyQt6 window and use supervised
-headless workers. They do not start Flask, Streamlit, PySide6, or a browser.
+headless workers. They do not start Flask, Streamlit, or a browser.
 Every page can open its predefined typed workflow with **Edit workflow**.
 Atomic functions can be dragged into a visual DAG, connected through typed
 artifact ports, and edited through the shared Common/Advanced schema form.
@@ -178,7 +185,7 @@ surfaces:
 | --- | --- | --- | --- |
 | `workbench` | General Workbench (`/`) and Radio Workspace (`/radio`) | Flask (deprecated) | `... -File .\Apps\run.ps1 frontend workbench` |
 | `image-viewer` | Image sequence viewer and media export | Flask (deprecated) | `... -File .\Apps\run.ps1 frontend image-viewer` |
-| `image-composer` | Free image composer | PySide6 (deprecated) | `... -File .\Apps\run.ps1 frontend image-composer` |
+| `image-composer` | Free image composer compatibility route | App 1.0 / PyQt6 | `... -File .\Apps\run.ps1 frontend image-composer` |
 | `bad-frame-review` | Radio bad-frame review | Flask (deprecated) | `... -File .\Apps\run.ps1 frontend bad-frame-review` |
 | `source-map` | Radio source-map preparation and ROI annotation | Flask (deprecated) | `... -File .\Apps\run.ps1 frontend source-map` |
 | `dart-spectrogram` | DART spectrogram analysis | Streamlit (deprecated) | `... -File .\Apps\run.ps1 frontend dart-spectrogram` |

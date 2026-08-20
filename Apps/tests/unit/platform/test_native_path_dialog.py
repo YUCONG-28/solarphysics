@@ -34,7 +34,7 @@ def _completed(payload: dict, *, returncode: int = 0, stderr: str = ""):
     )
 
 
-def _install_fake_pyside6(monkeypatch: pytest.MonkeyPatch, *, accepted: bool) -> dict:
+def _install_fake_pyqt6(monkeypatch: pytest.MonkeyPatch, *, accepted: bool) -> dict:
     state: dict = {}
 
     class FakeApplication:
@@ -54,15 +54,22 @@ def _install_fake_pyside6(monkeypatch: pytest.MonkeyPatch, *, accepted: bool) ->
             self.process_events_calls += 1
 
     class FakeFileDialog:
-        DontUseNativeDialog = 1
-        ShowDirsOnly = 2
-        AcceptOpen = 3
-        AcceptSave = 4
-        ExistingFile = 5
-        ExistingFiles = 6
-        Directory = 7
-        AnyFile = 8
-        Accepted = 9
+        class Option:
+            DontUseNativeDialog = 1
+            ShowDirsOnly = 2
+
+        class AcceptMode:
+            AcceptOpen = 3
+            AcceptSave = 4
+
+        class FileMode:
+            ExistingFile = 5
+            ExistingFiles = 6
+            Directory = 7
+            AnyFile = 8
+
+        class DialogCode:
+            Accepted = 9
 
         def __init__(self):
             self.options = []
@@ -92,7 +99,7 @@ def _install_fake_pyside6(monkeypatch: pytest.MonkeyPatch, *, accepted: bool) ->
             self.default_suffix = suffix
 
         def exec(self):
-            return self.Accepted if accepted else 0
+            return self.DialogCode.Accepted if accepted else 0
 
         def selectedFiles(self):
             return [r"C:\allowed\selected"]
@@ -103,14 +110,14 @@ def _install_fake_pyside6(monkeypatch: pytest.MonkeyPatch, *, accepted: bool) ->
         def deleteLater(self):
             self.delete_later_calls += 1
 
-    pyside6 = types.ModuleType("PySide6")
-    pyside6.__path__ = []
-    qt_widgets = types.ModuleType("PySide6.QtWidgets")
+    pyqt6 = types.ModuleType("PyQt6")
+    pyqt6.__path__ = []
+    qt_widgets = types.ModuleType("PyQt6.QtWidgets")
     qt_widgets.QApplication = FakeApplication
     qt_widgets.QFileDialog = FakeFileDialog
-    pyside6.QtWidgets = qt_widgets
-    monkeypatch.setitem(sys.modules, "PySide6", pyside6)
-    monkeypatch.setitem(sys.modules, "PySide6.QtWidgets", qt_widgets)
+    pyqt6.QtWidgets = qt_widgets
+    monkeypatch.setitem(sys.modules, "PyQt6", pyqt6)
+    monkeypatch.setitem(sys.modules, "PyQt6.QtWidgets", qt_widgets)
     return state
 
 
@@ -130,7 +137,7 @@ def test_dialog_worker_keeps_only_directories_topmost_and_always_closes(
     expects_monitor: bool,
 ) -> None:
     monkeypatch.setattr(dialog_worker.sys, "platform", "win32")
-    state = _install_fake_pyside6(monkeypatch, accepted=accepted)
+    state = _install_fake_pyqt6(monkeypatch, accepted=accepted)
     monitor_calls: list[str] = []
 
     def monitor(title: str, stop_event: threading.Event, ready_path: str) -> None:
@@ -150,10 +157,10 @@ def test_dialog_worker_keeps_only_directories_topmost_and_always_closes(
         "status": expected_status,
         "paths": [r"C:\allowed\selected"] if accepted else [],
     }
-    assert (dialog.DontUseNativeDialog, False) in dialog.options
+    assert (dialog.Option.DontUseNativeDialog, False) in dialog.options
     assert monitor_calls == (["Choose a local path"] if expects_monitor else [])
     if mode == "select_directory":
-        assert (dialog.ShowDirsOnly, True) in dialog.options
+        assert (dialog.Option.ShowDirsOnly, True) in dialog.options
     assert dialog.close_calls == 1
     assert dialog.delete_later_calls == 1
     assert state["app"].process_events_calls == 1

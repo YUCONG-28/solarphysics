@@ -43,7 +43,10 @@ panel = Phase4ComposerPanel(
     Phase4ComposerAdapter(layout, allowed_roots=(root,))
 )
 folder = panel.add_folder(root)
-first = panel.add_slot(folder.id, QPointF(10, 10))
+panel.folder_start.setValue(1)
+panel.folder_end.setValue(2)
+panel.folder_offset.setValue(0.5)
+first = panel.add_slot(folder.id, QPointF(10, 10), ordinal=2)
 second = panel.add_slot(folder.id, QPointF(20, 20))
 panel.scene.clearSelection()
 panel._items[first.id].setSelected(True)
@@ -51,8 +54,23 @@ panel._items[second.id].setSelected(True)
 panel.equal_size()
 panel.auto_grid()
 panel.change_layer(1)
-panel.set_current_time(datetime(2026, 7, 24, 12, 0, 1, tzinfo=timezone.utc))
+panel.match_mode.setCurrentText("relative")
+panel.match_tolerance.setValue(2.5)
+panel.match_strict.setChecked(False)
+panel.scene.clearSelection()
+panel._items[first.id].setSelected(True)
+panel.duplicate_selected_slot()
+duplicate_id = panel._selected_items()[0].slot.id
+panel.delete_selected_slot()
+panel.set_current_time(
+    datetime(2026, 7, 24, 12, 0, 1, 500000, tzinfo=timezone.utc)
+)
 launch = panel.adapter.build_static_export(panel.project, scale=2)
+panel.project.export.output_format = "avi"
+sequence = panel.adapter.build_sequence_export(
+    panel.project,
+    output_path=root / "composition.avi",
+)
 result = {
     "folder_count": len(panel.project.folders),
     "slot_count": len(panel.project.slots),
@@ -60,6 +78,11 @@ result = {
     "grid_positions": [[slot.x, slot.y] for slot in panel.project.slots],
     "z_indexes": sorted(slot.z_index for slot in panel.project.slots),
     "sync_ordinals": [slot.preview_ordinal for slot in panel.project.slots],
+    "range": [folder.start_index, folder.end_index, folder.offset_seconds],
+    "matching": [panel.project.matching.mode, panel.project.matching.tolerance_seconds, panel.project.matching.strict],
+    "exact_drag_ordinal": first.preview_ordinal,
+    "duplicate_deleted": duplicate_id not in panel._items,
+    "sequence_suffix": sequence.arguments[sequence.arguments.index("--output") + 1],
     "output_local": str(launch.output_dir).startswith(str(local)),
     "foreign_qt": any(name.startswith("PySide6") or name.startswith("PyQt5") for name in sys.modules),
 }
@@ -101,5 +124,10 @@ application.processEvents()
     assert result["overlap_supported"] is True
     assert result["z_indexes"] == [0, 1]
     assert result["sync_ordinals"] == [2, 2]
+    assert result["range"] == [1, 2, 0.5]
+    assert result["matching"] == ["relative", 2.5, False]
+    assert result["exact_drag_ordinal"] == 2
+    assert result["duplicate_deleted"] is True
+    assert result["sequence_suffix"].endswith("composition.avi")
     assert result["output_local"] is True
     assert result["foreign_qt"] is False
