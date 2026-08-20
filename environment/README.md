@@ -12,6 +12,14 @@ gate is therefore **red**. A run may use the source specifications for
 exploration, but it must not describe that environment as exact, frozen, or
 release-ready.
 
+The first candidate (osx-arm64-py314, Python 3.14) was captured and sealed
+successfully, but its replay does not pass the complete Apps suite: installing
+both PyQt6==6.9.1 and PySide6 (Qt 6.11 line) into one environment triggers a
+Qt ABI abort on macOS arm64 when PySide6 is imported after PyQt6. The gate
+stays red until the source specification isolates or removes one binding (or
+runs PySide6-based tests in a separate environment), after which the lock must
+be re-captured and replayed.
+
 The first supported lock target is `osx-arm64-py314`. Windows and Linux jobs
 remain compatibility checks until independently generated and replay-tested
 locks for those platforms are committed. A lock from one platform must never

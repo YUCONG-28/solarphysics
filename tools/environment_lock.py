@@ -157,12 +157,19 @@ def _tags_match_target(
     if platform_fragments is None:
         return False
     for tag in tags:
-        python_ok = tag.interpreter in {expected_python, "py3"}
+        # PEP 384 abi3 wheels (e.g. cp39-abi3) are forward-compatible with any
+        # newer CPython, and py2.py3 pure wheels are also acceptable.
+        python_ok = tag.interpreter in {expected_python, "py3", "py2.py3"} or (
+            tag.interpreter.startswith("cp") and tag.abi == "abi3"
+        )
         if not python_ok:
             continue
         if tag.platform == "any":
             return True
         if all(fragment in tag.platform for fragment in platform_fragments):
+            return True
+        if platform_name == "osx-arm64" and "macosx" in tag.platform and "universal2" in tag.platform:
+            # universal2 wheels contain the arm64 slice and install on arm64.
             return True
     return False
 
