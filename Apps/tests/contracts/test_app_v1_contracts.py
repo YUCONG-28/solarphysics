@@ -87,6 +87,25 @@ def test_pyqt6_is_declared_and_app_v1_has_scoped_gpl_notice() -> None:
     dependencies = project["project"]["dependencies"]
     assert "PyQt6==6.9.1" in dependencies
     assert "PyQt6-Qt6==6.9.1" in dependencies
+    assert not any(
+        dependency.casefold().startswith(("pyside6", "shiboken6"))
+        for dependency in dependencies
+    )
+    assert project["project"]["license"] == "MIT AND GPL-3.0-only AND MPL-2.0"
+    assert project["build-system"]["requires"][0] == "setuptools>=77"
+    license_files = set(project["project"]["license-files"])
+    assert {
+        "LICENSE",
+        "LICENSES/GPL-3.0-only.txt",
+        "solar_apps/frontends/app_v1/LICENSE.md",
+        "solar_apps/ui/media/NOTICE.txt",
+        "solar_apps/ui/media/mediabunny-MPL-2.0.txt",
+    } <= license_files
+    assert (
+        (APPS_ROOT / "LICENSES" / "GPL-3.0-only.txt")
+        .read_text(encoding="utf-8")
+        .startswith("                    GNU GENERAL PUBLIC LICENSE")
+    )
     license_text = (APP_V1_ROOT / "LICENSE.md").read_text(encoding="utf-8")
     assert "SPDX-License-Identifier: GPL-3.0-only" in license_text
 

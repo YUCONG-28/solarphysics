@@ -269,6 +269,9 @@ jobs:
               ".html",
               ".css",
               ".js",
+              "licenses/LICENSE",
+              "licenses/LICENSES/GPL-3.0-only.txt",
+              "licenses/solar_apps/frontends/app_v1/LICENSE.md",
               "mediabunny-1.50.8.cjs",
               "mediabunny-MPL-2.0.txt",
               "NOTICE.txt",
@@ -276,6 +279,10 @@ jobs:
 
           with ZipFile(wheels[0]) as archive:
               names = archive.namelist()
+              metadata_name = next(
+                  name for name in names if name.endswith(".dist-info/METADATA")
+              )
+              metadata = archive.read(metadata_name).decode("utf-8")
           forbidden = [
               name
               for name in names
@@ -291,6 +298,8 @@ jobs:
           ]
           if missing:
               raise SystemExit(f"required frontend assets missing from wheel: {missing}")
+          if "License-Expression: MIT AND GPL-3.0-only AND MPL-2.0" not in metadata:
+              raise SystemExit("Apps wheel has incorrect License-Expression")
           print(f"Apps wheel boundary ok: {wheels[0]}")
           '@ | conda run --no-capture-output -n solarphysics_env_latest python -
 

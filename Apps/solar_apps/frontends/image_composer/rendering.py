@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Pillow composition and OpenCV video export for the image composer."""
 
 from __future__ import annotations

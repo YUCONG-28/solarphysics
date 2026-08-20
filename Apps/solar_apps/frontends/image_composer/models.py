@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Data models for the local image composer."""
 
 from __future__ import annotations

@@ -443,9 +443,12 @@ ignored and must not be published:
 - credentials, cookies, tokens, authentication files, and private email;
 - historical inventory/manifests and legacy source or test trees.
 
-The application source is licensed under [MIT](LICENSE). The bundled
-Mediabunny asset retains MPL-2.0 terms; its license and notice are shipped next
-to the asset under `solar_apps/ui/media`.
+The Apps distribution contains separately scoped components: general Apps
+source is licensed under [MIT](LICENSE), the App 1.0 source under
+[GPL-3.0-only](solar_apps/frontends/app_v1/LICENSE.md), and the bundled
+Mediabunny asset under MPL-2.0. Complete license texts and the Mediabunny notice
+are included in the distribution. PyQt6 remains separately licensed by its
+publisher.
 
 ## Verification
 

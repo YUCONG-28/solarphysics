@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: MIT
 """Image discovery and timestamp extraction for the image composer."""
 
 from __future__ import annotations
