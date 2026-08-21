@@ -159,6 +159,9 @@ for one release cycle. It is not a separate implementation.
 
 Normal App 1.0 actions stay inside the PyQt6 window and use supervised
 headless workers. They do not start Flask, Streamlit, or a browser.
+App 1.0 uses a user-settable working directory (Parameters dock, persisted
+in Local state) as the cwd for every supervised task; the default is the
+repository root.
 Every page can open its predefined typed workflow with **Edit workflow**.
 Atomic functions can be dragged into a visual DAG, connected through typed
 artifact ports, and edited through the shared Common/Advanced schema form.

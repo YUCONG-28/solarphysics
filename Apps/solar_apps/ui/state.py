@@ -10,7 +10,7 @@ from solar_apps.platform.layout import RuntimeLayout
 from solar_apps.platform.paths.memory import RecentPathMemory
 from solar_apps.platform.state import StateStore
 
-FRONTEND_STATE_KEYS = ("theme", "fields", "legacy_imported")
+FRONTEND_STATE_KEYS = ("theme", "fields", "legacy_imported", "working_directory")
 
 
 def frontend_state_store(
