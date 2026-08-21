@@ -553,7 +553,7 @@ class AppV1MainWindow(QMainWindow):
                 self.workflow_builder.load_flow(
                     self.workflow_builder.store.load(active_flow_id)
                 )
-            except (OSError, KeyError, TypeError, ValueError):
+            except OSError, KeyError, TypeError, ValueError:
                 pass
         self._show_parameter_document(self._current_module_id())
         self.output_list.clear()
@@ -602,7 +602,7 @@ class AppV1MainWindow(QMainWindow):
             return
         try:
             self._capture_parameter_document()
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             pass
         self.task_controller.shutdown()
         self.workflow_builder.shutdown()
@@ -732,7 +732,7 @@ class AppV1MainWindow(QMainWindow):
         roots = [self.layout.repo_root]
         try:
             configured = configured_allowed_roots(workspace_root=self.layout.repo_root)
-        except (AllowedRootPolicyError, OSError, TypeError, ValueError):
+        except AllowedRootPolicyError, OSError, TypeError, ValueError:
             configured = ()
         roots.extend(configured)
         return tuple(dict.fromkeys(roots))
@@ -753,17 +753,25 @@ class AppV1MainWindow(QMainWindow):
         return candidate
 
     def _browse_working_directory(self) -> None:
-        current = self.working_directory_edit.text().strip() or str(self.layout.repo_root)
-        selected = QFileDialog.getExistingDirectory(self, "Select working directory", current)
+        current = self.working_directory_edit.text().strip() or str(
+            self.layout.repo_root
+        )
+        selected = QFileDialog.getExistingDirectory(
+            self, "Select working directory", current
+        )
         if selected:
             self.working_directory_edit.setText(selected)
             self._apply_working_directory()
 
     def _apply_working_directory(self, persist: bool = True) -> None:
         try:
-            candidate = self._validate_working_directory(self.working_directory_edit.text())
+            candidate = self._validate_working_directory(
+                self.working_directory_edit.text()
+            )
         except (OSError, TypeError, ValueError) as exc:
-            self.working_directory_edit.setText(str(self.task_controller.working_directory))
+            self.working_directory_edit.setText(
+                str(self.task_controller.working_directory)
+            )
             self.statusBar().showMessage(f"Working directory not applied: {exc}")
             return
         self.task_controller.set_working_directory(candidate)
@@ -802,7 +810,9 @@ class AppV1MainWindow(QMainWindow):
             widget.setProperty("muted", True)
         self.working_directory_edit = QLineEdit()
         self.working_directory_edit.setPlaceholderText("Repository root")
-        self.working_directory_edit.editingFinished.connect(self._apply_working_directory)
+        self.working_directory_edit.editingFinished.connect(
+            self._apply_working_directory
+        )
         working_row = QWidget()
         working_layout = QHBoxLayout(working_row)
         working_layout.setContentsMargins(0, 0, 0, 0)
