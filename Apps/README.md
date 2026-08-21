@@ -181,6 +181,49 @@ compatibility fallback is needed. The application chrome supports Auto,
 Light, Dark, and Dark Dimmed GitHub Primer-inspired themes; scientific images
 and exports are not recolored by the UI theme.
 
+### Terminal shortcut (`solarphysics`, optional and machine-local)
+
+The `solarphysics` command is an optional local convenience that launches the
+repository launcher from any terminal directory. It is **not part of this
+repository** and is therefore not committed or pushed with the code; a fresh
+machine must reinstall it locally.
+
+On the current machine the install lives in two local files:
+
+- `~/bin/solarphysics` — a sourced zsh function that resolves the workspace
+  and calls `<workspace>/Apps/run.sh "$@"`.
+- `~/.zshrc` — sources that file with:
+
+```zsh
+[ -f "$HOME/bin/solarphysics" ] && source "$HOME/bin/solarphysics"
+```
+
+To reinstall on a new machine, create `~/bin/solarphysics` with:
+
+```zsh
+# Solar Physics App 1.0 terminal shortcut (sourced by ~/.zshrc).
+solarphysics() {
+  local repo="${SOLARPHYSICS_REPO_ROOT:-<workspace-root>}"
+  local launcher="$repo/Apps/run.sh"
+  if [ ! -x "$launcher" ]; then
+    echo "solarphysics: launcher not found at $launcher" >&2
+    return 127
+  fi
+  "$launcher" "$@"
+}
+```
+
+then add the source line above to `~/.zshrc` and start a new terminal.
+Replace `<workspace-root>` with the repository root (the directory containing
+`Apps/` and `Python/`), or set `SOLARPHYSICS_REPO_ROOT` at runtime.
+
+Examples:
+
+```bash
+solarphysics --help
+solarphysics frontend app-v1
+```
+
 The earlier frontends remain launchable but are deprecated compatibility
 surfaces:
 
