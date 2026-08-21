@@ -72,6 +72,7 @@ class TaskQueueController(QObject):
         self._processes: dict[str, QProcess] = {}
         self._stdout_buffers: dict[str, str] = {}
         self._max_concurrency = 1
+        self.working_directory = layout.repo_root
         self._shutdown = False
 
     @property
@@ -114,6 +115,17 @@ class TaskQueueController(QObject):
             raise ValueError("Task concurrency must be between 1 and 4")
         self._max_concurrency = clean
         QTimer.singleShot(0, self._start_next)
+
+    def set_working_directory(self, value: str | Path) -> Path:
+        """Validate and update the cwd used for future supervised launches."""
+        candidate = Path(value).expanduser()
+        if not candidate.is_absolute():
+            raise ValueError("Working directory must be an absolute path.")
+        candidate = candidate.resolve(strict=False)
+        if not candidate.is_dir():
+            raise NotADirectoryError(f"Working directory does not exist: {candidate}")
+        self.working_directory = candidate
+        return candidate
 
     def task(self, task_id: str) -> TaskRecord:
         try:
@@ -243,7 +255,7 @@ class TaskQueueController(QObject):
     def _launch(self, record: TaskRecord) -> None:
         process = QProcess(self)
         process.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
-        process.setWorkingDirectory(str(self.layout.apps_root))
+        process.setWorkingDirectory(str(self.working_directory))
         environment = QProcessEnvironment()
         for key, value in miniforge_subprocess_environment().items():
             environment.insert(str(key), str(value))

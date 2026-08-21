@@ -17,6 +17,7 @@ from PyQt6.QtWidgets import (
     QComboBox,
     QDockWidget,
     QDoubleSpinBox,
+    QFileDialog,
     QFormLayout,
     QFrame,
     QHBoxLayout,
@@ -41,6 +42,7 @@ from PyQt6.QtWidgets import (
 )
 
 from solar_apps.platform.layout import RuntimeLayout
+from solar_apps.platform.paths import AllowedRootPolicyError, configured_allowed_roots
 from solar_apps.platform.processes import selected_python_executable
 from solar_apps.ui.state import frontend_state_store
 
@@ -338,10 +340,10 @@ class AppV1MainWindow(QMainWindow):
         self.setWindowTitle("Solar Physics App 1.0")
         self.resize(1320, 860)
 
-        state_store = frontend_state_store("app-v1", layout=layout)
+        self.state_store = frontend_state_store("app-v1", layout=layout)
         self.theme_controller = AppV1ThemeController(
             self._application(),
-            state_store=state_store,
+            state_store=self.state_store,
             initial_mode=initial_theme,
         )
         self.task_controller = TaskQueueController(layout, self)
@@ -353,6 +355,7 @@ class AppV1MainWindow(QMainWindow):
         self._build_toolbar()
         self._build_central()
         self._build_parameter_dock()
+        self._restore_working_directory()
         self._build_flow_dock()
         self._build_project_dock()
         self._build_task_dock()
@@ -550,7 +553,7 @@ class AppV1MainWindow(QMainWindow):
                 self.workflow_builder.load_flow(
                     self.workflow_builder.store.load(active_flow_id)
                 )
-            except OSError, KeyError, TypeError, ValueError:
+            except (OSError, KeyError, TypeError, ValueError):
                 pass
         self._show_parameter_document(self._current_module_id())
         self.output_list.clear()
@@ -599,7 +602,7 @@ class AppV1MainWindow(QMainWindow):
             return
         try:
             self._capture_parameter_document()
-        except TypeError, ValueError:
+        except (TypeError, ValueError):
             pass
         self.task_controller.shutdown()
         self.workflow_builder.shutdown()
@@ -725,6 +728,57 @@ class AppV1MainWindow(QMainWindow):
             Qt.Orientation.Vertical,
         )
 
+    def _working_directory_allowed_roots(self) -> tuple[Path, ...]:
+        roots = [self.layout.repo_root]
+        try:
+            configured = configured_allowed_roots(workspace_root=self.layout.repo_root)
+        except (AllowedRootPolicyError, OSError, TypeError, ValueError):
+            configured = ()
+        roots.extend(configured)
+        return tuple(dict.fromkeys(roots))
+
+    def _validate_working_directory(self, value: str) -> Path:
+        raw = value.strip() or str(self.layout.repo_root)
+        candidate = Path(raw).expanduser()
+        if not candidate.is_absolute():
+            raise ValueError("Working directory must be an absolute path.")
+        candidate = candidate.resolve(strict=False)
+        if not candidate.is_dir():
+            raise NotADirectoryError(f"Working directory does not exist: {candidate}")
+        allowed = self._working_directory_allowed_roots()
+        if not any(candidate == root or root in candidate.parents for root in allowed):
+            raise PermissionError(
+                "Working directory must be inside the repository root or a configured allowed root."
+            )
+        return candidate
+
+    def _browse_working_directory(self) -> None:
+        current = self.working_directory_edit.text().strip() or str(self.layout.repo_root)
+        selected = QFileDialog.getExistingDirectory(self, "Select working directory", current)
+        if selected:
+            self.working_directory_edit.setText(selected)
+            self._apply_working_directory()
+
+    def _apply_working_directory(self, persist: bool = True) -> None:
+        try:
+            candidate = self._validate_working_directory(self.working_directory_edit.text())
+        except (OSError, TypeError, ValueError) as exc:
+            self.working_directory_edit.setText(str(self.task_controller.working_directory))
+            self.statusBar().showMessage(f"Working directory not applied: {exc}")
+            return
+        self.task_controller.set_working_directory(candidate)
+        self.working_directory_edit.setText(str(candidate))
+        if persist:
+            self.state_store.update({"working_directory": str(candidate)})
+        self.statusBar().showMessage(f"Working directory: {candidate}")
+
+    def _restore_working_directory(self) -> None:
+        saved = self.state_store.load(default={})
+        value = saved.get("working_directory")
+        self.working_directory_edit.setText(str(self.task_controller.working_directory))
+        if isinstance(value, str) and value.strip():
+            self._apply_working_directory(value, persist=False)
+
     def _build_parameter_dock(self) -> None:
         self.parameter_dock = QDockWidget("Parameters", self)
         self.parameter_dock.setObjectName("appV1ParametersDock")
@@ -746,6 +800,20 @@ class AppV1MainWindow(QMainWindow):
         ):
             widget.setWordWrap(True)
             widget.setProperty("muted", True)
+        self.working_directory_edit = QLineEdit()
+        self.working_directory_edit.setPlaceholderText("Repository root")
+        self.working_directory_edit.editingFinished.connect(self._apply_working_directory)
+        working_row = QWidget()
+        working_layout = QHBoxLayout(working_row)
+        working_layout.setContentsMargins(0, 0, 0, 0)
+        working_layout.addWidget(self.working_directory_edit, 1)
+        browse = QPushButton("Browse…")
+        browse.clicked.connect(self._browse_working_directory)
+        apply_button = QPushButton("Apply")
+        apply_button.clicked.connect(lambda: self._apply_working_directory())
+        working_layout.addWidget(browse)
+        working_layout.addWidget(apply_button)
+        form.addRow("Working Directory", working_row)
         form.addRow("Module", self.parameter_module)
         form.addRow("Input", self.parameter_input)
         form.addRow("Output", self.parameter_output)
@@ -1045,7 +1113,7 @@ class AppV1MainWindow(QMainWindow):
         started, process_id = QProcess.startDetached(
             str(selected_python_executable()),
             ["-m", module, *arguments],
-            str(self.layout.apps_root),
+            str(self.task_controller.working_directory),
         )
         if started:
             self.log_output.appendPlainText(

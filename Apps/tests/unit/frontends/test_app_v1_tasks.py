@@ -120,3 +120,94 @@ def test_worker_artifact_event_preserves_source_port_and_content_identity(
             "bytes": 2,
         }
     ]
+
+
+def test_working_directory_defaults_to_repo_root(tmp_path: Path) -> None:
+    controller = TaskQueueController(_layout(tmp_path))
+
+    assert controller.working_directory == _layout(tmp_path).repo_root
+
+
+def test_set_working_directory_accepts_existing_subdirectory(tmp_path: Path) -> None:
+    layout = _layout(tmp_path)
+    controller = TaskQueueController(layout)
+    target = tmp_path / "subdir"
+    target.mkdir()
+
+    result = controller.set_working_directory(target)
+
+    assert result == target.resolve()
+    assert controller.working_directory == target.resolve()
+
+
+def test_set_working_directory_rejects_relative_path(tmp_path: Path) -> None:
+    controller = TaskQueueController(_layout(tmp_path))
+
+    with pytest.raises(ValueError, match="absolute"):
+        controller.set_working_directory("relative/dir")
+
+
+def test_set_working_directory_rejects_missing_path(tmp_path: Path) -> None:
+    controller = TaskQueueController(_layout(tmp_path))
+
+    with pytest.raises(NotADirectoryError):
+        controller.set_working_directory(tmp_path / "does-not-exist")
+
+
+def test_launch_uses_configured_working_directory(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class FakeSignal:
+        def connect(self, _slot: object) -> None:
+            pass
+
+    class FakeQProcess:
+        ProcessChannelMode = type("ProcessChannelMode", (), {"MergedChannels": 1})
+        ProcessError = type("ProcessError", (), {})
+        ProcessState = type("ProcessState", (), {"NotRunning": 1})
+        ExitStatus = type("ExitStatus", (), {})
+
+        def __init__(self, parent: object | None = None) -> None:
+            self.working_directory: str | None = None
+            self.readyReadStandardOutput = FakeSignal()
+            self.started = FakeSignal()
+            self.errorOccurred = FakeSignal()
+            self.finished = FakeSignal()
+
+        def setProcessChannelMode(self, _mode: object) -> None:
+            pass
+
+        def setWorkingDirectory(self, path: object) -> None:
+            self.working_directory = str(path)
+
+        def setProcessEnvironment(self, _environment: object) -> None:
+            pass
+
+        def setProgram(self, _program: object) -> None:
+            pass
+
+        def setArguments(self, _arguments: object) -> None:
+            pass
+
+        def start(self) -> None:
+            pass
+
+    controller = TaskQueueController(_layout(tmp_path))
+    monkeypatch.setattr(tasks, "QProcess", FakeQProcess)
+    monkeypatch.setattr(
+        tasks, "selected_python_executable", lambda: Path(sys.executable)
+    )
+    monkeypatch.setattr(tasks, "miniforge_subprocess_environment", lambda: {})
+    record = TaskRecord(
+        task_id="task-wd",
+        title="worker",
+        module_id="workbench",
+        python_module="example.worker",
+        arguments=(),
+    )
+
+    controller._launch(record)
+
+    process = controller._processes["task-wd"]
+    assert process.working_directory == str(controller.working_directory)
