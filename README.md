@@ -63,6 +63,8 @@ The complete application manual is [Apps/README.md](Apps/README.md).
 
 ## Supporting code
 
+- [Documentation index](docs/README.md) — guides, examples, and maintenance boundaries.
+- [STEREO EUVI example](Python/examples/stereo/README.md) — local FITS input and reproducible ROI plots.
 - [`Python/README.md`](Python/README.md) — library boundary, install, and verification.
 - [`Paper/README.md`](Paper/README.md) — literature catalog and update rules.
 - [`tools/literature/README.md`](tools/literature/README.md) — catalog retrieval and validation.
