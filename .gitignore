@@ -28,6 +28,8 @@
 /overview/
 
 # Repository-local test and lint caches.
+.DS_Store
+.ipynb_checkpoints/
 __pycache__/
 *.py[cod]
 /.pytest_cache/
