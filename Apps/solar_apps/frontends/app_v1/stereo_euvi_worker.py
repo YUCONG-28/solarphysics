@@ -32,6 +32,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--target-time", default=None)
     parser.add_argument("--roi", default=None)
     parser.add_argument("--fps", type=int, default=4)
+    parser.add_argument(
+        "--calibration", choices=("legacy", "secchi-prep"), default="legacy"
+    )
+    parser.add_argument("--ssw-root", default=None)
+    parser.add_argument("--idl-executable", default="idl")
     return parser
 
 
@@ -52,6 +57,40 @@ def main(argv: list[str] | None = None) -> int:
         wavelengths = tuple(
             int(x) for x in args.wavelengths.split(",") if x.strip()
         ) or (171, 195, 284, 304)
+        if args.calibration == "secchi-prep":
+            from solar_toolkit.map.secchi import prepare_euvi, runtime_environment
+
+            if not args.ssw_root:
+                raise ValueError(
+                    "SECCHI_PREP requires --ssw-root and a working IDL installation"
+                )
+            runtime_environment(Path(args.ssw_root), args.idl_executable)
+            files = sorted(
+                {
+                    p.resolve()
+                    for pattern in ("*.fts", "*.fits", "*.fit")
+                    for p in input_dir.rglob(pattern)
+                }
+            )
+            from astropy.io import fits
+
+            files = [
+                p
+                for p in files
+                if int(fits.getheader(p).get("WAVELNTH", 0)) in wavelengths
+            ]
+            if not files:
+                raise FileNotFoundError("No requested EUVI bands found for calibration")
+            calibrated = output_dir / "calibrated"
+            for index, path in enumerate(files, 1):
+                prepare_euvi(
+                    path,
+                    calibrated,
+                    ssw_root=Path(args.ssw_root),
+                    idl_executable=args.idl_executable,
+                )
+                _event("progress", {"percent": int(50 * index / len(files))})
+            input_dir = calibrated
         target_time = None
         if args.target_time:
             target_time = datetime.fromisoformat(

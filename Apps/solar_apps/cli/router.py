@@ -24,7 +24,6 @@ FRONTEND_TARGETS = {
     ),
     "image-composer": "solar_apps.frontends.image_composer.cli",
     "image-viewer": "solar_apps.frontends.image_viewer.cli",
-    "jet-lab": "solar_apps.frontends.jet_lab.cli",
     "roi-lightcurve": (
         "solar_apps.frontends.radio.roi_lightcurve.roi_lightcurve_launcher"
     ),
