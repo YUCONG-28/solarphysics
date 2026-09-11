@@ -28,9 +28,9 @@ APPS_ROOT = Path(__file__).resolve().parents[2]
 APP_V1_ROOT = APPS_ROOT / "solar_apps" / "frontends" / "app_v1"
 
 
-def test_all_eleven_interfaces_have_unique_implementation_phases() -> None:
-    assert len(MODULES) == 11
-    assert len({module.module_id for module in MODULES}) == 11
+def test_all_twelve_interfaces_have_unique_implementation_phases() -> None:
+    assert len(MODULES) == 12
+    assert len({module.module_id for module in MODULES}) == 12
     assert {module.target_phase for module in MODULES} <= {
         "1",
         "2A",
@@ -43,14 +43,14 @@ def test_all_eleven_interfaces_have_unique_implementation_phases() -> None:
     assert all(
         module.legacy_interface
         for module in MODULES
-        if module.module_id not in {"data-download", "image-composer"}
+        if module.module_id not in {"data-download", "image-composer", "pfss"}
     )
     assert all(
         next(
             module for module in MODULES if module.module_id == module_id
         ).legacy_interface
         is None
-        for module_id in ("data-download", "image-composer")
+        for module_id in ("data-download", "image-composer", "pfss")
     )
 
 

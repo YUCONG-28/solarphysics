@@ -24,6 +24,7 @@ FRONTEND_TARGETS = {
     ),
     "image-composer": "solar_apps.frontends.image_composer.cli",
     "image-viewer": "solar_apps.frontends.image_viewer.cli",
+    "jet-lab": "solar_apps.frontends.jet_lab.cli",
     "roi-lightcurve": (
         "solar_apps.frontends.radio.roi_lightcurve.roi_lightcurve_launcher"
     ),
@@ -38,6 +39,7 @@ FRONTEND_TARGETS = {
 }
 
 WORKFLOW_TARGETS = {
+    "pfss": "solar_apps.workflows.pfss.cli",
     "aia": "solar_apps.workflows.aia.cli",
     "radio": "solar_apps.workflows.radio.cli",
 }

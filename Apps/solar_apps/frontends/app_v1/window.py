@@ -59,6 +59,7 @@ from .phase2c import Phase2CAdapter
 from .phase2c_page import Phase2CPanel
 from .phase4 import Phase4ComposerAdapter
 from .phase4_page import Phase4ComposerPanel
+from .pfss_page import PFSSPanel
 from .project_store import AppV1ProjectStore
 from .project_ui import ProjectPanel
 from .runtime import AppV1RuntimePaths
@@ -130,7 +131,12 @@ class ModulePage(QWidget):
             self.time_status.setProperty("muted", True)
             layout.addWidget(self.time_status)
         active_phase = None
-        if descriptor.module_id == "workbench":
+        if descriptor.module_id == "pfss":
+            panel = PFSSPanel(runtime_layout)
+            self._register_native_panel(panel)
+            layout.addWidget(panel, 1)
+            active_phase = "5 native"
+        elif descriptor.module_id == "workbench":
             workbench = WorkbenchNativePanel(
                 AppV1RuntimePaths.from_layout(runtime_layout)
             )
@@ -281,8 +287,13 @@ class ModulePage(QWidget):
         self.time_status.setText(f"UTC sync: {current} — {detail}")
         if self.phase4_panel is not None:
             self.phase4_panel.set_current_time(selection.current_time_utc)
+        for panel in self.native_panels:
+            if isinstance(panel, PFSSPanel):
+                panel.set_current_time(selection.current_time_utc)
 
     def _description(self) -> str:
+        if self.descriptor.module_id == "pfss":
+            return "Inspect synchronized global PFSS results, compare conditional radio geometry, and prepare parameters for remote recomputation."
         if self.descriptor.module_id == "workbench":
             return (
                 "Application home, project context, recent tasks, and output summary. "

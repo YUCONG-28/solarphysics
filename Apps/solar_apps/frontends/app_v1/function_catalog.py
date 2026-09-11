@@ -106,6 +106,25 @@ OUTPUT_DIR = _p(
 
 FUNCTIONS: tuple[FunctionSpec, ...] = (
     FunctionSpec(
+        "pfss-result-inspect",
+        "Verify PFSS Results",
+        "Magnetic Field",
+        "Verify a completed synchronized PFSS bundle without loading the solver.",
+        "solar_apps.frontends.app_v1.pfss_result_worker",
+        parameters=(
+            _p(
+                "input_dir",
+                "PFSS run directory",
+                "directory",
+                required=True,
+                flag="--input-dir",
+            ),
+        ),
+        outputs=(_out("manifest", "Verified run manifest", "manifest"),),
+        allowed_roots_flag="--allowed-roots",
+        page_templates=("pfss", "workbench"),
+    ),
+    FunctionSpec(
         "artifact-input",
         "Existing Artifact",
         "Data",
@@ -1856,6 +1875,7 @@ FUNCTIONS = (*FUNCTIONS, *radio_workspace_functions(FUNCTIONS))
 DEFAULT_FUNCTION_CATALOG = FunctionCatalog(FUNCTIONS)
 
 PAGE_TEMPLATE_FUNCTIONS: dict[str, tuple[str, ...]] = {
+    "pfss": ("pfss-result-inspect",),
     "workbench": tuple(function.function_id for function in FUNCTIONS),
     "data-download": ("observation-search", "observation-download"),
     "radio-workspace": tuple(

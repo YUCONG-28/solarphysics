@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-only
-"""The ten visible interfaces assigned to App 1.0 implementation phases."""
+"""Visible interfaces assigned to App 1.0 implementation phases."""
 
 from __future__ import annotations
 
@@ -68,6 +68,7 @@ MODULES: tuple[ModuleDescriptor, ...] = (
         "source-trajectory",
         True,
     ),
+    ModuleDescriptor("pfss", "Global PFSS", "Magnetic Field", "5", None, True),
 )
 
 _BY_ID = {module.module_id: module for module in MODULES}

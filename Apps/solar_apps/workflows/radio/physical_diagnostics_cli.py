@@ -85,6 +85,8 @@ def run_physical_diagnostics(
 
     gaussian_df = _read_optional_table(gaussian_csv)
     drift_df = _read_optional_table(drift_csv)
+    if not drift_df.empty:
+        height_config["drift_selections"] = drift_df.to_dict("records")
     height_df = (
         build_gaussian_newkirk_height_table(gaussian_df, height_config)
         if not gaussian_df.empty
@@ -170,7 +172,8 @@ def _read_optional_table(value: str | Path | None):
     path = Path(value)
     if not path.is_file():
         raise FileNotFoundError(f"Diagnostics table not found: {path}")
-    return pd.read_csv(path)
+    # Preserve compact UTC timestamps exactly (17 digits exceed float precision).
+    return pd.read_csv(path, dtype={"time": str})
 
 
 def _mapping_section(value: dict[str, Any], key: str) -> dict[str, Any]:

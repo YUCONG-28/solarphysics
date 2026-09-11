@@ -9,6 +9,8 @@ from __future__ import annotations
 from importlib import import_module
 
 _SUBMODULES = {
+    "fieldline_association": "solar_toolkit.radio.fieldline_association",
+    "source_geometry": "solar_toolkit.radio.source_geometry",
     "centers": "solar_toolkit.radio.centers",
     "config": "solar_toolkit.radio.config",
     "coordinates": "solar_toolkit.radio.coordinates",
@@ -29,6 +31,7 @@ _SUBMODULES = {
     "height_comparison": "solar_toolkit.radio.height_comparison",
     "height_plots": "solar_toolkit.radio.height_plots",
     "io": "solar_toolkit.radio.io",
+    "jet_cone": "solar_toolkit.radio.jet_cone",
     "newkirk": "solar_toolkit.radio.newkirk",
     "output_paths": "solar_toolkit.radio.output_paths",
     "physical_diagnostics": "solar_toolkit.radio.physical_diagnostics",

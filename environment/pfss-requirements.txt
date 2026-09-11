@@ -1,0 +1,4 @@
+# Optional compute-host backend. Result viewing does not require these packages.
+# The linux-64-py314 artifact lock independently seals the complete environment.
+sunkit-magex==1.1.0
+streamtracer==2.6.0

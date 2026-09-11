@@ -81,12 +81,12 @@ def test_preview_help_accepts_all_themes(theme: str) -> None:
     assert "frontend app-v1" in completed.stdout
 
 
-def test_offscreen_preview_registers_eleven_pages_and_switches_themes(
+def test_offscreen_preview_registers_twelve_pages_and_switches_themes(
     tmp_path: Path,
 ) -> None:
     result = _run_smoke(tmp_path, "basic")
 
-    assert len(result["registered_modules"]) == 11
+    assert len(result["registered_modules"]) == 12
     assert result["themes"]["light"] == "light"
     assert result["themes"]["dark"] == "dark"
     assert result["themes"]["dark_dimmed"] == "dark_dimmed"
@@ -216,7 +216,7 @@ def test_offscreen_preview_broadcasts_restored_utc_selection(
 
     assert result["source_count"] == 2
     assert result["matched_count"] == 2
-    assert result["synced_page_count"] == 9
+    assert result["synced_page_count"] == 10
     assert result["current_time_utc"] == "2025-01-24T23:59:59Z"
 
 

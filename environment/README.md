@@ -20,10 +20,12 @@ An earlier candidate failed replay because it
 combined incompatible PyQt6 and PySide6 runtimes; it has been superseded by the
 single-PyQt6 lock and is not release evidence.
 
-The first supported lock target is `osx-arm64-py314`. Windows and Linux jobs
-remain compatibility checks until independently generated and replay-tested
-locks for those platforms are committed. A lock from one platform must never
-be relabeled for another platform.
+The first replay-validated lock target is `osx-arm64-py314`. The independent
+`linux-64-py314` lock also seals Conda artifacts and pip wheels, including the
+optional PFSS backend. Offline lock validation checks its hashes and source
+specifications; a Linux run still needs a successful target-platform replay
+receipt before claiming an exact environment. Windows jobs remain compatibility
+checks. A lock from one platform must never be relabeled for another platform.
 
 ## Evidence model
 

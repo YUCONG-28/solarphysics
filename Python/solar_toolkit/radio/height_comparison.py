@@ -104,7 +104,13 @@ def classify_source_type(row, config):
     return "unknown"
 
 
-def build_gaussian_newkirk_height_table(gaussian_df, config):
+def build_gaussian_newkirk_height_table(gaussian_df, config, geometry_df=None):
+    """Compare projected heights, optionally attaching independent 3D geometry.
+
+    Geometry rows use source_id, height_rsun, geometry_valid, method, evidence_id;
+    each source must have at most one solution. Compare ambiguous scenarios in
+    separate calls. The original projected columns retain their definitions.
+    """
     cfg = dict(config or {})
     df = pd.DataFrame(gaussian_df).copy()
     if df.empty:
@@ -185,6 +191,7 @@ def build_gaussian_newkirk_height_table(gaussian_df, config):
             )
             rows.append(
                 {
+                    "source_id": row.get("source_id", ""),
                     "time": row.get("time", ""),
                     "frequency_mhz": freq,
                     "source_type": source_type,
@@ -228,7 +235,52 @@ def build_gaussian_newkirk_height_table(gaussian_df, config):
     for column in HEIGHT_COLUMNS:
         if column not in out.columns:
             out[column] = np.nan
-    return out[HEIGHT_COLUMNS]
+    if geometry_df is None:
+        return out[HEIGHT_COLUMNS]
+    geometry = pd.DataFrame(geometry_df).copy()
+    required = {"source_id", "height_rsun", "geometry_valid", "method", "evidence_id"}
+    if not required.issubset(geometry.columns) or "source_id" not in df:
+        raise ValueError(
+            "Independent geometry requires source_id, height_rsun, geometry_valid, method, evidence_id"
+        )
+    geometry = geometry.rename(
+        columns={
+            "height_rsun": "source_height_3d_rsun",
+            "method": "geometry_method",
+            "evidence_id": "geometry_evidence_id",
+        }
+    )
+    out = out.merge(geometry, on="source_id", how="left", validate="many_to_one")
+    out["height_3d_valid"] = (
+        out.gaussian_fit_success
+        & out.geometry_valid.fillna(False).map(truthy)
+        & np.isfinite(out.source_height_3d_rsun)
+        & np.isfinite(out.newkirk_height_rsun)
+    )
+    out["height_residual_3d_rsun"] = (
+        out.source_height_3d_rsun - out.newkirk_height_rsun
+    ).where(out.height_3d_valid)
+    # New model-constrained geometry must not silently become independent data.
+    # Legacy geometry tables without an evidence flag retain their old contract.
+    if "independent_geometry_valid" in out:
+        out["height_3d_independent_valid"] = (
+            out.height_3d_valid
+            & out.independent_geometry_valid.fillna(False).map(truthy)
+        )
+    else:
+        out["height_3d_independent_valid"] = (
+            out.height_3d_valid
+            & ~out.geometry_method.astype(str).str.contains(
+                "pfss|conditional", case=False, regex=True
+            )
+        )
+    out["height_3d_independent_valid"] &= ~out.geometry_method.astype(str).str.contains(
+        "pfss|conditional", case=False, regex=True
+    )
+    out["height_3d_evidence_class"] = np.where(
+        out.height_3d_independent_valid, "independent", "conditional_or_unverified"
+    )
+    return out
 
 
 def build_gaussian_newkirk_height_summary_table(height_df, config=None):
