@@ -99,6 +99,16 @@ def load_map(path: Path) -> "sunpy.map.Map":
 
 def exposure_normalized(path: Path) -> "sunpy.map.Map":
     euvi_map = Map(path)
+    if euvi_map.meta.get("spprep"):
+        from solar_toolkit.map.secchi import verify_prepared
+
+        verify_prepared(path)
+        return euvi_map
+    native_unit = str(euvi_map.meta.get("bunit", "")).upper().replace(" ", "")
+    if "/S" in native_unit or "S-1" in native_unit:
+        raise ValueError(
+            "Already normalized EUVI requires verified calibration provenance"
+        )
     exptime = getattr(euvi_map, "exposure_time", None)
     if exptime is not None:
         seconds = exptime.to_value(u.s)
@@ -316,6 +326,8 @@ def plot_euvi_overview(config: EuvPlotConfig) -> list[Path]:
     items = []
     for sequence, record in enumerate(selected, start=1):
         euvi_map = exposure_normalized(Path(record["path"]))
+        if config.roi_bounds is not None:
+            euvi_map = crop_roi(euvi_map, config.roi_bounds)
         norm = make_norm(euvi_map)
         out_png = overview_dir / out_name(
             euvi_map, sequence=sequence, generated_at=generated_at

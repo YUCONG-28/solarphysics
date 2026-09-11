@@ -1818,6 +1818,29 @@ FUNCTIONS: tuple[FunctionSpec, ...] = (
         "solar_apps.frontends.app_v1.stereo_euvi_worker",
         parameters=(
             _p(
+                "calibration",
+                "Calibration",
+                "enum",
+                default="legacy",
+                choices=("legacy", "secchi-prep"),
+                flag="--calibration",
+            ),
+            _p(
+                "ssw_root",
+                "SolarSoft installation",
+                "directory",
+                advanced=True,
+                flag="--ssw-root",
+            ),
+            _p(
+                "idl_executable",
+                "IDL executable",
+                "string",
+                advanced=True,
+                default="idl",
+                flag="--idl-executable",
+            ),
+            _p(
                 "input_dir",
                 "EUVI input directory",
                 "directory",

@@ -35,11 +35,11 @@ For a machine-local `solarphysics` command that works from any directory, see
 
 ## App 1.0 at a glance
 
-The native application ships eleven PyQt6 modules:
+The native application ships twelve PyQt6 modules:
 
 `Workbench`, `Data Download`, `Radio Workspace`, `Image Viewer`,
 `Image Composer`, `Bad Frame Review`, `Source Map`, `DART Spectrogram`,
-`ROI Light Curve`, `Radio Composite`, `Source Trajectory`.
+`ROI Light Curve`, `Radio Composite`, `Source Trajectory`, `Global PFSS`.
 
 Launch one module directly:
 
@@ -49,6 +49,22 @@ Launch one module directly:
 
 The public command hierarchy is `frontend`, `workflow`, `admin`, and `tools`.
 The complete application manual is [Apps/README.md](Apps/README.md).
+
+## Current capabilities
+
+- **STEREO EUVI:** Workbench produces single images, overviews and ROI movies.
+  Optional official SolarSoft/IDL `secchi-prep` calibration saves verified FITS
+  and provenance; the default `legacy` mode is not full SECCHI calibration.
+- **Global PFSS:** inspect verified result bundles, magnetic field lines and
+  conditional radio-source diagnostics in the native viewer. Computation uses
+  a global radial-field boundary and separately installed optional dependencies;
+  the viewer does not launch remote jobs or require the solver.
+- **Radio diagnostics:** preserve precise observation times and distinguish
+  projected heights from model-dependent three-dimensional constraints.
+  Conditional associations do not establish a unique source location.
+
+See the [application guide](Apps/README.md) and
+[PFSS scientific contract](Python/solar_toolkit/modeling/pfss/README.md).
 
 ## Repository layout
 

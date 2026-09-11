@@ -114,6 +114,18 @@ def test_function_spec_builds_arguments() -> None:
     assert "--output-dir" in argv
     assert values["wavelengths"] == [171, 195]
 
+    _, calibration_args, _ = function.build_arguments(
+        {
+            "input_dir": str(allowed / "euvi"),
+            "output_dir": str(allowed / "out"),
+            "calibration": "secchi-prep",
+            "ssw_root": str(allowed / "ssw"),
+        },
+        allowed_roots=[str(allowed)],
+    )
+    assert "--calibration" in calibration_args
+    assert "secchi-prep" in calibration_args
+
     with pytest.raises(ValueError):
         function.build_arguments(
             {
@@ -142,3 +154,51 @@ def test_plot_euvi_overview_produces_pngs(tmp_path: Path) -> None:
     assert produced
     assert produced[0].exists()
     assert produced[0].suffix == ".png"
+
+
+def test_verified_secchi_output_is_not_exposure_divided_twice(tmp_path):
+    import json
+    from solar_toolkit.map.secchi import RECIPE, file_sha256, provenance_path
+    from solar_apps.workflows.visualization.stereo_euvi_plot import exposure_normalized
+
+    path = _make_euvi_fits(tmp_path, 171, "2025-01-24T04:48:30")
+    with fits.open(path, mode="update") as hdus:
+        hdus[0].data[:] = 20.0
+        hdus[0].header["EXPTIME"] = 4.0
+        hdus[0].header["BUNIT"] = "DN/s"
+        hdus[0].header["SPPREP"] = RECIPE
+    provenance_path(path).write_text(
+        json.dumps(
+            dict(recipe=RECIPE, status="verified", output_sha256=file_sha256(path))
+        )
+    )
+    assert np.all(exposure_normalized(path).data == 20.0)
+    provenance_path(path).unlink()
+    with pytest.raises(FileNotFoundError):
+        exposure_normalized(path)
+
+
+def test_worker_calibration_failure_does_not_render(monkeypatch, tmp_path, capsys):
+    from solar_apps.frontends.app_v1.stereo_euvi_worker import main
+
+    def unexpected(config):
+        pytest.fail("Renderer must not be called when calibration is unavailable")
+
+    monkeypatch.setattr(
+        "solar_apps.workflows.visualization.stereo_euvi_plot.plot_euvi_overview",
+        unexpected,
+    )
+    assert (
+        main(
+            [
+                "--input-dir",
+                str(tmp_path),
+                "--output-dir",
+                str(tmp_path / "out"),
+                "--calibration",
+                "secchi-prep",
+            ]
+        )
+        == 1
+    )
+    assert "requires --ssw-root" in capsys.readouterr().out

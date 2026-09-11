@@ -134,7 +134,7 @@ Run every command from the repository root.
 
 ## Applications and interfaces
 
-Solar Physics App 1.0 is the stable native application. It contains eleven
+Solar Physics App 1.0 is the stable native application. It contains twelve
 English PyQt6 interfaces behind one process-isolated entry point:
 
 ```powershell
@@ -164,6 +164,18 @@ in Local state) as the cwd for every supervised task; the default is the
 repository root.
 App 1.0 can also plot STEREO EUVI FITS from the Workbench page (single/overview
 PNGs and ROI MP4 movies).
+The STEREO EUVI Plot action has an optional `secchi-prep` calibration mode.
+Set the SolarSoft installation directory and the IDL executable in Advanced
+parameters. It calls the official SECCHI_PREP with `/NORMAL_OFF` and
+`/DN2P_OFF`; bias, exposure, pointing, SEB processing, calibration-image
+handling and missing-block masking remain enabled. Missing blocks stay NaN.
+Verified calibrated FITS and their SHA-256 provenance are stored under the
+selected output directory. Plotting does not divide these products by exposure
+a second time. An unavailable IDL/SolarSoft installation or failed calibration
+stops this mode before plotting. The existing `legacy` default is retained for
+compatibility and does not represent full SECCHI calibration. The official
+runtime and calibration data must be installed separately; selecting this mode
+does not install IDL or supply a license.
 Every page can open its predefined typed workflow with **Edit workflow**.
 Atomic functions can be dragged into a visual DAG, connected through typed
 artifact ports, and edited through the shared Common/Advanced schema form.
@@ -578,3 +590,17 @@ not be left running after validation.
 Confirm that both `Python` and `Apps` are installed editable in the selected
 Miniforge environment and inspect that command's `--help` for optional package
 requirements.
+
+## Global PFSS
+
+Launch the native result viewer with `./Apps/run.sh frontend app-v1 --module pfss`.
+It verifies synchronized result bundles, displays magnetic field lines and
+precomputed conditional radio diagnostics, and exports parameters for a later
+compute run. It does not submit remote jobs. The Workbench also provides
+**Verify PFSS Results** without loading the optional solver.
+
+The compute entry point is `./Apps/run.sh workflow pfss --help`. It requires
+a global radial magnetic boundary and the optional dependencies listed in
+`environment/pfss-requirements.txt`. A visible-disk LOS magnetogram is not an
+acceptable global boundary. See the [PFSS scientific contract](../Python/solar_toolkit/modeling/pfss/README.md)
+for configuration, bundle verification and interpretation limits.

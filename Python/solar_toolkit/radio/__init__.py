@@ -31,7 +31,6 @@ _SUBMODULES = {
     "height_comparison": "solar_toolkit.radio.height_comparison",
     "height_plots": "solar_toolkit.radio.height_plots",
     "io": "solar_toolkit.radio.io",
-    "jet_cone": "solar_toolkit.radio.jet_cone",
     "newkirk": "solar_toolkit.radio.newkirk",
     "output_paths": "solar_toolkit.radio.output_paths",
     "physical_diagnostics": "solar_toolkit.radio.physical_diagnostics",
