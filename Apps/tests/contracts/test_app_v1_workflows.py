@@ -91,8 +91,8 @@ def test_infrastructure_flags_can_never_be_exposed_as_business_parameters() -> N
     assert not exposed.intersection(INFRASTRUCTURE_FLAGS)
 
 
-def test_all_eleven_pages_have_schema_one_editable_flow_templates() -> None:
-    assert len(PAGE_TEMPLATE_FUNCTIONS) == 11
+def test_all_twelve_pages_have_schema_one_editable_flow_templates() -> None:
+    assert len(PAGE_TEMPLATE_FUNCTIONS) == 12
     for module_id in PAGE_TEMPLATE_FUNCTIONS:
         flow = page_template(module_id)
         assert flow.schema_version == 1

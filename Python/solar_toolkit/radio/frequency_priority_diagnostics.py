@@ -14,7 +14,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from .io import ensure_output_dir, parse_datetime_value
+from .io import ensure_output_dir, parse_datetime_value, truthy
 from ._image_naming import build_radio_image_filename
 from .newkirk import (
     SPEED_OF_LIGHT_KM_S,
@@ -112,6 +112,8 @@ def build_frequency_priority_summary(
     drift = pd.DataFrame(drift_df).copy() if drift_df is not None else pd.DataFrame()
     height = _filter_to_comparison_frequencies(height, frequencies, "frequency_mhz")
     gaussian = _filter_to_comparison_frequencies(gaussian, frequencies, "frequency_mhz")
+    if "height_valid" in height:
+        height = height[height["height_valid"].fillna(False).map(truthy)].copy()
 
     unique_gaussian_height = height.drop_duplicates(
         subset=["time", "frequency_mhz", "gaussian_x_arcsec", "gaussian_y_arcsec"]

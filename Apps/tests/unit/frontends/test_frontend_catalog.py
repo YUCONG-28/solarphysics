@@ -7,15 +7,15 @@ from solar_apps.frontends.catalog import FRONTENDS, INTERFACES
 
 
 def test_catalog_matches_router_and_has_stable_app_plus_preview_alias() -> None:
-    assert len(FRONTENDS) == 12
-    assert len(INTERFACES) == 13
+    assert len(FRONTENDS) == 13
+    assert len(INTERFACES) == 14
     assert {item.id for item in FRONTENDS} == set(FRONTEND_TARGETS)
     assert {item.id: item.entry_module for item in FRONTENDS} == FRONTEND_TARGETS
-    assert len({item.id for item in INTERFACES}) == 13
+    assert len({item.id for item in INTERFACES}) == 14
     assert all(
         frontend.deprecated
         for frontend in FRONTENDS
-        if frontend.id not in {"app-v1", "app-v1-preview"}
+        if frontend.id not in {"app-v1", "app-v1-preview", "jet-lab"}
     )
 
 

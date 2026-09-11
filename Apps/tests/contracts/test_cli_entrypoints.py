@@ -61,6 +61,7 @@ def test_frontend_catalog_has_all_launchable_apps() -> None:
         "dart-spectrogram",
         "image-composer",
         "image-viewer",
+        "jet-lab",
         "roi-lightcurve",
         "radio-composite",
         "source-map",

@@ -1,0 +1,46 @@
+{
+  "capture_mode": "read-only-observation-of-installed-environment",
+  "conda_artifacts_exact": true,
+  "conda_artifacts_sha256": true,
+  "environment_lock_sha256": "f19ff86743baa07c7ce9397bd4a589d7f5f5a19a0200390d4bee081ee1b6427d",
+  "implementation": "CPython",
+  "local_source_install": "editable-no-deps-no-build-isolation",
+  "lock_files": {
+    "conda-explicit.txt": "4903366ce48c691685d9e85d9aff1f5cc2138ade6cb5fadf580491abbce519c0",
+    "pip-artifacts.json": "4ab4dd5f6ea2b0536152f3144f89a97fad31711925cae20d49b053aa6694c693",
+    "pip-hashed.txt": "490a2ebeb740fd787c803649188e08fa3912d5bf503c000430643d8406ec04e6",
+    "pip-pins.txt": "52ee96fca1a20ccae239a2c8fdeabd7b4a4f5a65695c3e0fc544387986784f36"
+  },
+  "marker_environment": {
+    "implementation_name": "cpython",
+    "implementation_version": "3.14.7",
+    "os_name": "posix",
+    "platform_machine": "x86_64",
+    "platform_python_implementation": "CPython",
+    "platform_system": "Linux",
+    "python_full_version": "3.14.7",
+    "python_version": "3.14",
+    "sys_platform": "linux"
+  },
+  "pip_artifacts_sha256": true,
+  "pip_versions_exact": true,
+  "platform": "linux-64",
+  "profiles": {
+    "Apps/pyproject.toml": [
+      "dev"
+    ],
+    "Python/pyproject.toml": [
+      "dev",
+      "quality-ml"
+    ]
+  },
+  "python_full_version": "3.14.7",
+  "schema": "solarphysics-environment-lock/v1",
+  "source_files": {
+    "Apps/environment.miniforge.yml": "59ba9a89638f6cd46f35003f2b455236f2543ff0caab48a90fef70fdf4a540cf",
+    "Apps/pyproject.toml": "c68bb75738e8f32a636178547ab75b3101428c6c257956c2269f897c86b26931",
+    "Python/pyproject.toml": "88979f2e761128adaeb3779a3a71ab32896addae8c5abec1419a85b72cdd5591",
+    "tools/environment_lock.py": "836f0b5673c67aa5980c2a01987fc32e787ea4efa5ec8689134c1f6a23c73836"
+  },
+  "target": "linux-64-py314"
+}

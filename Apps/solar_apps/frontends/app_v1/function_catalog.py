@@ -106,6 +106,25 @@ OUTPUT_DIR = _p(
 
 FUNCTIONS: tuple[FunctionSpec, ...] = (
     FunctionSpec(
+        "pfss-result-inspect",
+        "Verify PFSS Results",
+        "Magnetic Field",
+        "Verify a completed synchronized PFSS bundle without loading the solver.",
+        "solar_apps.frontends.app_v1.pfss_result_worker",
+        parameters=(
+            _p(
+                "input_dir",
+                "PFSS run directory",
+                "directory",
+                required=True,
+                flag="--input-dir",
+            ),
+        ),
+        outputs=(_out("manifest", "Verified run manifest", "manifest"),),
+        allowed_roots_flag="--allowed-roots",
+        page_templates=("pfss", "workbench"),
+    ),
+    FunctionSpec(
         "artifact-input",
         "Existing Artifact",
         "Data",
@@ -1791,6 +1810,64 @@ FUNCTIONS: tuple[FunctionSpec, ...] = (
         allowed_roots_flag="--allowed-roots",
         page_templates=("image-composer",),
     ),
+    FunctionSpec(
+        "stereo-euvi-plot",
+        "STEREO EUVI Plot",
+        "STEREO and SUVI",
+        "Plot STEREO-A/B EUVI FITS into single-band or overview PNGs, or ROI MP4 movies.",
+        "solar_apps.frontends.app_v1.stereo_euvi_worker",
+        parameters=(
+            _p(
+                "input_dir",
+                "EUVI input directory",
+                "directory",
+                required=True,
+                flag="--input-dir",
+            ),
+            _p(
+                "output_dir",
+                "Output folder",
+                "directory",
+                advanced=True,
+                flag="--output-dir",
+            ),
+            _p(
+                "mode",
+                "Plot mode",
+                "enum",
+                default="overview",
+                flag="--mode",
+                choices=("overview", "movie"),
+            ),
+            _p(
+                "wavelengths",
+                "Wavelengths (A)",
+                "list",
+                default=(171, 195, 284, 304),
+                flag="--wavelengths",
+                item_kind="integer",
+            ),
+            _p("target_time", "Target UTC time", "time", flag="--target-time"),
+            _p(
+                "roi_bounds",
+                "ROI xmin,xmax,ymin,ymax",
+                "string",
+                advanced=True,
+                flag="--roi",
+            ),
+            _p(
+                "fps",
+                "Movie FPS",
+                "integer",
+                advanced=True,
+                default=4,
+                minimum=1,
+                flag="--fps",
+            ),
+        ),
+        outputs=(_out("stereo_products", "STEREO products", "image", "media"),),
+        page_templates=("workbench",),
+    ),
 )
 
 FUNCTIONS = (*FUNCTIONS, *radio_workspace_functions(FUNCTIONS))
@@ -1798,6 +1875,7 @@ FUNCTIONS = (*FUNCTIONS, *radio_workspace_functions(FUNCTIONS))
 DEFAULT_FUNCTION_CATALOG = FunctionCatalog(FUNCTIONS)
 
 PAGE_TEMPLATE_FUNCTIONS: dict[str, tuple[str, ...]] = {
+    "pfss": ("pfss-result-inspect",),
     "workbench": tuple(function.function_id for function in FUNCTIONS),
     "data-download": ("observation-search", "observation-download"),
     "radio-workspace": tuple(

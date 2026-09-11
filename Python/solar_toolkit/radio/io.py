@@ -6,6 +6,7 @@ import csv
 import datetime
 import json
 import os
+import re
 from pathlib import Path
 from typing import Any
 
@@ -258,12 +259,38 @@ def parse_datetime_value(value) -> datetime.datetime | None:
     if value is None or value == "":
         return None
     if isinstance(value, datetime.datetime):
+        if value.tzinfo is not None:
+            value = value.astimezone(datetime.timezone.utc)
         return value.replace(tzinfo=None)
     if isinstance(value, datetime.date):
         return datetime.datetime.combine(value, datetime.time())
     text = str(value).strip()
     if not text or text.lower() == "none" or text == "Unknown":
         return None
+    # DART writes milliseconds as a width-three integer, sometimes padded with
+    # spaces. Never route these 17-digit timestamps through float/nanoseconds.
+    compact = re.fullmatch(r"(\d{14})([ ]*\d{1,6})?", text)
+    if compact:
+        try:
+            result = datetime.datetime.strptime(compact[1], "%Y%m%d%H%M%S")
+            suffix = (compact[2] or "").strip()
+            if suffix:
+                microseconds = (
+                    int(suffix) * 1000
+                    if len(suffix) <= 3
+                    else int(suffix.ljust(6, "0"))
+                )
+                result += datetime.timedelta(microseconds=microseconds)
+            return result
+        except ValueError:
+            return None
+    try:
+        iso = datetime.datetime.fromisoformat(text.replace("Z", "+00:00"))
+        if iso.tzinfo is not None:
+            iso = iso.astimezone(datetime.timezone.utc)
+        return iso.replace(tzinfo=None)
+    except ValueError:
+        pass
     text = text.replace("Z", "").replace("T", " ")
     for fmt in (
         "%Y-%m-%d %H:%M:%S.%f",

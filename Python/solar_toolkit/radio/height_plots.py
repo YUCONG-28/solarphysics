@@ -294,18 +294,22 @@ def _plot_gaussian_frequency_median_iqr(ax, df: pd.DataFrame):
     )
     if summary.empty:
         return
+    color = "#d62728"
     ax.errorbar(
         summary["frequency_mhz"],
         summary["median"],
         yerr=[summary["median"] - summary["q25"], summary["q75"] - summary["median"]],
         fmt="o",
-        markersize=4.5,
-        color="black",
-        ecolor="black",
-        elinewidth=1.0,
-        capsize=2.5,
-        label="Gaussian median ± IQR",
-        zorder=5,
+        markersize=9,
+        color=color,
+        ecolor=color,
+        elinewidth=3.0,
+        capsize=6,
+        capthick=3.0,
+        markeredgecolor="white",
+        markeredgewidth=1.2,
+        label="Gaussian median ± IQR (Q1–Q3)",
+        zorder=6,
     )
 
 

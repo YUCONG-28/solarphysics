@@ -25,6 +25,13 @@ class FrontendSpec:
 
 FRONTENDS: tuple[FrontendSpec, ...] = (
     FrontendSpec(
+        "jet-lab",
+        "Jet Lab Prototype",
+        "solar_apps.frontends.jet_lab.cli",
+        "pyqt6",
+        (InterfaceSpec("jet-lab", "Jet Lab", "desktop"),),
+    ),
+    FrontendSpec(
         "app-v1",
         "Solar Physics App 1.0",
         "solar_apps.frontends.app_v1.cli",

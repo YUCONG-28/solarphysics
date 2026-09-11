@@ -59,6 +59,7 @@ from .phase2c import Phase2CAdapter
 from .phase2c_page import Phase2CPanel
 from .phase4 import Phase4ComposerAdapter
 from .phase4_page import Phase4ComposerPanel
+from .pfss_page import PFSSPanel
 from .project_store import AppV1ProjectStore
 from .project_ui import ProjectPanel
 from .runtime import AppV1RuntimePaths
@@ -130,7 +131,12 @@ class ModulePage(QWidget):
             self.time_status.setProperty("muted", True)
             layout.addWidget(self.time_status)
         active_phase = None
-        if descriptor.module_id == "workbench":
+        if descriptor.module_id == "pfss":
+            panel = PFSSPanel(runtime_layout)
+            self._register_native_panel(panel)
+            layout.addWidget(panel, 1)
+            active_phase = "5 native"
+        elif descriptor.module_id == "workbench":
             workbench = WorkbenchNativePanel(
                 AppV1RuntimePaths.from_layout(runtime_layout)
             )
@@ -281,8 +287,13 @@ class ModulePage(QWidget):
         self.time_status.setText(f"UTC sync: {current} — {detail}")
         if self.phase4_panel is not None:
             self.phase4_panel.set_current_time(selection.current_time_utc)
+        for panel in self.native_panels:
+            if isinstance(panel, PFSSPanel):
+                panel.set_current_time(selection.current_time_utc)
 
     def _description(self) -> str:
+        if self.descriptor.module_id == "pfss":
+            return "Inspect synchronized global PFSS results, compare conditional radio geometry, and prepare parameters for remote recomputation."
         if self.descriptor.module_id == "workbench":
             return (
                 "Application home, project context, recent tasks, and output summary. "
@@ -553,7 +564,7 @@ class AppV1MainWindow(QMainWindow):
                 self.workflow_builder.load_flow(
                     self.workflow_builder.store.load(active_flow_id)
                 )
-            except (OSError, KeyError, TypeError, ValueError):
+            except OSError, KeyError, TypeError, ValueError:
                 pass
         self._show_parameter_document(self._current_module_id())
         self.output_list.clear()
@@ -602,7 +613,7 @@ class AppV1MainWindow(QMainWindow):
             return
         try:
             self._capture_parameter_document()
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             pass
         self.task_controller.shutdown()
         self.workflow_builder.shutdown()
@@ -732,7 +743,7 @@ class AppV1MainWindow(QMainWindow):
         roots = [self.layout.repo_root]
         try:
             configured = configured_allowed_roots(workspace_root=self.layout.repo_root)
-        except (AllowedRootPolicyError, OSError, TypeError, ValueError):
+        except AllowedRootPolicyError, OSError, TypeError, ValueError:
             configured = ()
         roots.extend(configured)
         return tuple(dict.fromkeys(roots))
@@ -753,17 +764,25 @@ class AppV1MainWindow(QMainWindow):
         return candidate
 
     def _browse_working_directory(self) -> None:
-        current = self.working_directory_edit.text().strip() or str(self.layout.repo_root)
-        selected = QFileDialog.getExistingDirectory(self, "Select working directory", current)
+        current = self.working_directory_edit.text().strip() or str(
+            self.layout.repo_root
+        )
+        selected = QFileDialog.getExistingDirectory(
+            self, "Select working directory", current
+        )
         if selected:
             self.working_directory_edit.setText(selected)
             self._apply_working_directory()
 
     def _apply_working_directory(self, persist: bool = True) -> None:
         try:
-            candidate = self._validate_working_directory(self.working_directory_edit.text())
+            candidate = self._validate_working_directory(
+                self.working_directory_edit.text()
+            )
         except (OSError, TypeError, ValueError) as exc:
-            self.working_directory_edit.setText(str(self.task_controller.working_directory))
+            self.working_directory_edit.setText(
+                str(self.task_controller.working_directory)
+            )
             self.statusBar().showMessage(f"Working directory not applied: {exc}")
             return
         self.task_controller.set_working_directory(candidate)
@@ -802,7 +821,9 @@ class AppV1MainWindow(QMainWindow):
             widget.setProperty("muted", True)
         self.working_directory_edit = QLineEdit()
         self.working_directory_edit.setPlaceholderText("Repository root")
-        self.working_directory_edit.editingFinished.connect(self._apply_working_directory)
+        self.working_directory_edit.editingFinished.connect(
+            self._apply_working_directory
+        )
         working_row = QWidget()
         working_layout = QHBoxLayout(working_row)
         working_layout.setContentsMargins(0, 0, 0, 0)
