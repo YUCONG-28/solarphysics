@@ -298,7 +298,9 @@ def test_terminate_posix_group_escalates_to_sigkill_when_group_survives_term(
         if sig == health.signal.SIGKILL:
             raise ProcessLookupError("group gone")
 
-    monkeypatch.setattr(health.os, "killpg", fake_killpg)
+    # Model POSIX APIs explicitly even when this contract runs on Windows.
+    monkeypatch.setattr(health.os, "killpg", fake_killpg, raising=False)
+    monkeypatch.setattr(health.signal, "SIGKILL", 9, raising=False)
     process = SimpleNamespace(
         poll=lambda: 0,
         pid=111,
@@ -360,6 +362,7 @@ def test_terminate_windows_tree_uses_taskkill_and_never_killpg(
         health.os,
         "killpg",
         lambda *_args: pytest.fail("killpg must not be used on Windows"),
+        raising=False,
     )
     process = SimpleNamespace(
         pid=222, wait=lambda timeout=None: None, kill=lambda: None
