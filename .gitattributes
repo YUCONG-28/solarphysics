@@ -14,6 +14,9 @@
 .gitignore text eol=lf
 .gitattributes text eol=lf
 
+# Lock receipts hash exact bytes; checkout must preserve LF on every platform.
+environment/locks/** text eol=lf
+
 *.png binary
 *.jpg binary
 *.jpeg binary

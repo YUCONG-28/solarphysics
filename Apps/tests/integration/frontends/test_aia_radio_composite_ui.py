@@ -131,10 +131,15 @@ def test_paths_and_controls_restore_in_a_new_session(
     app.checkbox(key="use_custom_fov").set_value(True)
     app.number_input(key="hpln_min").set_value(-800.0)
     app.selectbox(key="extended_canvas_color").set_value("white")
-    app.checkbox(key="use_custom_spectrum_frequency_range").set_value(True)
+    # Render the enabled controls before interacting, as a browser would.
+    assert app.number_input(key="spectrum_frequency_min").disabled
+    app.checkbox(key="use_custom_spectrum_frequency_range").set_value(True).run()
+    assert not app.number_input(key="spectrum_frequency_min").disabled
     app.number_input(key="spectrum_frequency_min").set_value(145.0)
     app.number_input(key="spectrum_frequency_max").set_value(210.0)
-    app.checkbox(key="use_custom_spectrum_intensity_range").set_value(True)
+    assert app.number_input(key="spectrum_intensity_min").disabled
+    app.checkbox(key="use_custom_spectrum_intensity_range").set_value(True).run()
+    assert not app.number_input(key="spectrum_intensity_min").disabled
     app.number_input(key="spectrum_intensity_min").set_value(2.0)
     app.number_input(key="spectrum_intensity_max").set_value(8.0)
     app.radio(key="flux_plot_layout").set_value("One chart per frequency")
