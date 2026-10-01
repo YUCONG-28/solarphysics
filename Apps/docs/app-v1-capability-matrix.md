@@ -3,8 +3,8 @@
 Every capability in the approved plan has an existing anchor, a delivered
 App 1.0 surface, and an owning phase. "Adapter" means a PyQt6 application
 surface over existing scientific code, not a second implementation of the
-calculation. All rows are assigned and implemented; release evidence is
-summarized in the equivalence audit.
+calculation. The interface map describes implementation ownership; execution
+evidence belongs to a specific commit, environment and test run.
 
 | Capability | Current anchor | Delivered App 1.0 work | Phase |
 | --- | --- | --- | --- |
@@ -42,7 +42,8 @@ summarized in the equivalence audit.
 | Project and parameter save | State stores and `.fic.json` | Versioned `.spapp.json` project | 5 |
 | One-click redraw and batch processing | Individual workflow CLIs | Confirmed process queue plus 1–4 lane DAG execution, branch-safe failure propagation, cancellation, and retry | 5 |
 | Video generation | Existing media and composite exporters | Shared project-aware orchestration | 5 |
-| Stable App 1.0 release | Nine compatibility launchers and eleven interfaces | Normal operations stay native; legacy launch is an explicit per-page More action where a predecessor exists | 5 |
+| Global PFSS | Verified `solar_toolkit.modeling.pfss` result bundles | Native inspection, filtering and export; optional backend computation has a separate dependency and verification gate | 5 |
+| Stable App 1.0 release | Twelve native pages and retained compatibility commands | Normal operations stay native; legacy launch is an explicit per-page More action where a predecessor exists | 5 |
 
 GPU acceleration, new DEM algorithms, AI event detection/classification, a
 remote Web service, and multi-user collaboration remain App 2.0 scope.

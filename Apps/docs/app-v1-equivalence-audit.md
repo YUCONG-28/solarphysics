@@ -1,6 +1,6 @@
 # App 1.0 Interface Equivalence Audit
 
-This audit maps each of the eleven approved App 1.0 interfaces to its retained
+This map covers all twelve App 1.0 interfaces and their retained
 scientific implementation and native PyQt6 surface. "Equivalent" means that
 the user can reach the established workflow, pass the same scientific inputs
 and parameters, and retain its outputs and metadata. It does not mean that
@@ -19,6 +19,11 @@ application chrome or framework-specific layout is pixel-identical.
 | ROI Light Curve | Existing ROI Light Curve frontend | Equivalent adapter for supervised, confirmed one-ROI analysis while retaining multi-region import selection. |
 | Radio Composite Figure | Existing composite application and sequence exporter | Equivalent adapter for confirmed multi-frequency composite images, frame packages, video, and recoverable supervised execution. |
 | Source Trajectory | Existing Source Trajectory and DEM workflows | Equivalent adapter for trajectory inspection plus existing DEM/radio products; no new DEM inversion or GPU algorithm is introduced. |
+| Global PFSS | `solar_toolkit.modeling.pfss` verified result bundles | Native bundle inspection, filtering, field-line display and export. Solver execution and backend dependencies are separate from viewer availability. |
+
+The table describes implementation ownership and supported surfaces. A fresh
+verification records which workflows actually ran, with input and environment
+evidence; interface availability alone does not establish scientific parity.
 
 ## Cross-interface release contracts
 

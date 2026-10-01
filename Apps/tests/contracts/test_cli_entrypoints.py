@@ -53,6 +53,9 @@ def test_direct_cli_rejects_an_unsupported_python(
 
 
 def test_frontend_catalog_has_all_launchable_apps() -> None:
+    from solar_apps.frontends.catalog import FRONTENDS
+
+    assert router.FRONTEND_TARGETS == {item.id: item.entry_module for item in FRONTENDS}
     assert set(router.FRONTEND_TARGETS) == {
         "aia-radio-composite",
         "app-v1",

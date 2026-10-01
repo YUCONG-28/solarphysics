@@ -330,7 +330,7 @@ git status --short
 Release。**默认是 dry-run**，只有显式传入 `--execute` 才会写盘和推送；
 它不会 force-push、不会改写历史，也只在 `main` 干净且与远端同步时执行。
 
-### 11.1 只做前置检查（不写任何文件）
+### 11.1 发布前置检查
 
 ```bash
 ./Apps/run.sh tools release check
@@ -338,6 +338,9 @@ Release。**默认是 dry-run**，只有显式传入 `--execute` 才会写盘和
 
 检查内容包括：位于 `main`、工作区干净、无未推送提交、与 `origin/main`
 同步，并报告当前版本与环境锁门禁状态。
+
+该命令会执行 `git fetch origin` 更新远端引用，因此不是完全无副作用的
+只读盘点；它不修改源码、暂存区或发布内容。
 
 ### 11.2 预览一次发布
 

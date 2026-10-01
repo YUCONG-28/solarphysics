@@ -8,7 +8,7 @@ solar_apps/
 |-- cli/          command routing and compatibility aliases
 |-- platform/     runtime layout, configuration, state, paths, processes
 |-- ui/           theme and Web, Streamlit, Qt, and media adapters
-|-- frontends/    eight launchable applications
+|-- frontends/    App 1.0 and retained compatibility interfaces
 `-- workflows/    AIA, HMI, radio, visualization, data, net, and X-ray flows
 ```
 

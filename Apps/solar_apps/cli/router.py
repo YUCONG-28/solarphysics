@@ -13,29 +13,9 @@ from solar_apps.platform.environment import (
     launcher_program,
 )
 from solar_apps.platform.dispatch import forward_main
+from solar_apps.frontends.catalog import FRONTENDS
 
-FRONTEND_TARGETS = {
-    "aia-radio-composite": "solar_apps.frontends.radio.aia_radio_composite.cli",
-    "app-v1": "solar_apps.frontends.app_v1.cli",
-    "app-v1-preview": "solar_apps.frontends.app_v1.cli",
-    "bad-frame-review": "solar_apps.frontends.radio_bad_frame_review.cli",
-    "dart-spectrogram": (
-        "solar_apps.frontends.radio.dart_spectrogram.dart_spectrogram_launcher"
-    ),
-    "image-composer": "solar_apps.frontends.image_composer.cli",
-    "image-viewer": "solar_apps.frontends.image_viewer.cli",
-    "roi-lightcurve": (
-        "solar_apps.frontends.radio.roi_lightcurve.roi_lightcurve_launcher"
-    ),
-    "radio-composite": (
-        "solar_apps.frontends.radio.composite_figure.composite_figure_launcher"
-    ),
-    "source-map": "solar_apps.frontends.radio.source_map.cli",
-    "source-trajectory": (
-        "solar_apps.frontends.radio.source_trajectory.source_app_launcher"
-    ),
-    "workbench": "solar_apps.frontends.workbench.cli",
-}
+FRONTEND_TARGETS = {item.id: item.entry_module for item in FRONTENDS}
 
 WORKFLOW_TARGETS = {
     "pfss": "solar_apps.workflows.pfss.cli",

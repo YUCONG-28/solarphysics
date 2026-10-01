@@ -1,5 +1,10 @@
 # Solar Physics App 1.0 Integration Plan
 
+This is the historical integration plan for the original App 1.0 phases.
+Its phase gates describe that development effort. Current use and maintenance
+follow [the application guide](../README.md), [development guide](development.md),
+and [capability matrix](app-v1-capability-matrix.md).
+
 This document is the repository UTF-8 version of the approved phased
 integration plan. It adapts the original conceptual `core/`, `gui/`, `data/`,
 and `output/` layers to the repository's existing boundaries:
