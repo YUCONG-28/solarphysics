@@ -73,26 +73,34 @@ def test_power_of_ten_ticks_preserve_log_color_limits() -> None:
 
 
 @pytest.mark.parametrize("scale,exponent", [(1e5, "5"), (1e-7, "−7")])
+@pytest.mark.parametrize("unicode_minus", [False, True])
 def test_linear_ticks_use_mathtext_scientific_offset(
-    scale: float, exponent: str
+    scale: float, exponent: str, unicode_minus: bool
 ) -> None:
-    fig, axis = plt.subplots()
-    image = axis.imshow(
-        np.array([[1.0, 2.0], [3.0, 4.0]]) * scale,
-        vmin=scale,
-        vmax=4.0 * scale,
-    )
-    colorbar = fig.colorbar(image)
+    # Scientific notation respects caller styling; previous plotters may have
+    # changed the process default. Verify both policies with explicit isolation.
+    with matplotlib.rc_context({"axes.unicode_minus": unicode_minus}):
+        fig, axis = plt.subplots()
+        try:
+            image = axis.imshow(
+                np.array([[1.0, 2.0], [3.0, 4.0]]) * scale,
+                vmin=scale,
+                vmax=4.0 * scale,
+            )
+            colorbar = fig.colorbar(image)
+            notation = apply_colorbar_tick_notation(colorbar, transform="linear")
+            fig.canvas.draw()
 
-    notation = apply_colorbar_tick_notation(colorbar, transform="linear")
-    fig.canvas.draw()
-
-    assert notation == "scientific_offset"
-    offset = colorbar.ax.yaxis.get_offset_text().get_text()
-    assert "\\times" in offset
-    assert f"10^{{{exponent}}}" in offset
-    assert (image.norm.vmin, image.norm.vmax) == pytest.approx((scale, 4.0 * scale))
-    plt.close(fig)
+            assert notation == "scientific_offset"
+            offset = colorbar.ax.yaxis.get_offset_text().get_text()
+            assert "\\times" in offset
+            expected = exponent if unicode_minus else exponent.replace("−", "-")
+            assert f"10^{{{expected}}}" in offset
+            assert (image.norm.vmin, image.norm.vmax) == pytest.approx(
+                (scale, 4.0 * scale)
+            )
+        finally:
+            plt.close(fig)
 
 
 @pytest.mark.parametrize(
