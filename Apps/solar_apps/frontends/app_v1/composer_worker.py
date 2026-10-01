@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import copy
+import hashlib
 import json
 import os
 import uuid
@@ -21,6 +22,7 @@ from solar_apps.frontends.image_composer.rendering import (
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Render an App v1 composer project.")
     parser.add_argument("--project", required=True)
+    parser.add_argument("--project-sha256")
     parser.add_argument("--mode", choices=("static", "sequence"), required=True)
     parser.add_argument("--output", required=True)
     parser.add_argument("--scale", type=int, default=1)
@@ -118,6 +120,10 @@ def main(argv: list[str] | None = None) -> int:
         raise PermissionError(f"Project is outside allowed roots: {project_path}")
     if not _inside(output, roots):
         raise PermissionError(f"Output is outside allowed roots: {output}")
+    if args.project_sha256:
+        actual_sha256 = hashlib.sha256(project_path.read_bytes()).hexdigest()
+        if actual_sha256 != args.project_sha256:
+            raise ValueError(f"Composer snapshot SHA-256 mismatch: {project_path}")
     project = load_project(project_path)
     _hydrate(project, roots)
     project = _scaled(project, args.scale)

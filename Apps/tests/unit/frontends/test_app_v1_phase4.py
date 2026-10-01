@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import hashlib
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -87,6 +88,59 @@ def test_adapter_persists_schema1_and_builds_private_exports(tmp_path: Path) -> 
     assert static.output_dir.is_relative_to(local / "outputs" / "app_v1")
     assert sequence.arguments[sequence.arguments.index("--mode") + 1] == "sequence"
     assert "canvas=128x96" in sequence.summary
+
+
+def test_preparing_and_discarding_second_export_preserves_first_snapshot(
+    tmp_path: Path,
+) -> None:
+    repo = tmp_path / "repo"
+    (repo / "Apps").mkdir(parents=True)
+    (repo / "Python").mkdir()
+    layout = RuntimeLayout.discover(
+        repo, environ={"SOLAR_APPS_LOCAL_ROOT": str(tmp_path / "Local")}
+    )
+    adapter = Phase4ComposerAdapter(layout, allowed_roots=(tmp_path,))
+    project = _project(tmp_path / "observations", frames=2)
+    first = adapter.build_static_export(project)
+    first_path = Path(first.arguments[first.arguments.index("--project") + 1])
+    original_bytes = first_path.read_bytes()
+    adapter.confirm_prepared_export(first)
+    project.slots[0].preview_ordinal = 2
+    second = adapter.build_static_export(project)
+    second_path = Path(second.arguments[second.arguments.index("--project") + 1])
+
+    assert second_path != first_path
+    adapter.discard_prepared_export(second)
+    adapter.discard_prepared_export(first)
+    assert not second_path.exists()
+    assert adapter._prepared_projects == set()
+    assert first_path.read_bytes() == original_bytes
+    assert load_project(first_path).slots[0].preview_ordinal == 1
+    assert first.arguments[first.arguments.index("--project-sha256") + 1] == (
+        hashlib.sha256(original_bytes).hexdigest()
+    )
+    output = first.output_dir / "images" / "composition.png"
+    assert worker_main(list(first.arguments)) == 0
+    with Image.open(output) as image:
+        assert image.getpixel((32, 24)) == (255, 0, 0)
+
+
+def test_export_worker_rejects_changed_snapshot(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    (repo / "Apps").mkdir(parents=True)
+    (repo / "Python").mkdir()
+    layout = RuntimeLayout.discover(
+        repo, environ={"SOLAR_APPS_LOCAL_ROOT": str(tmp_path / "Local")}
+    )
+    adapter = Phase4ComposerAdapter(layout, allowed_roots=(tmp_path,))
+    project = _project(tmp_path / "observations")
+    launch = adapter.build_static_export(project)
+    project_path = Path(launch.arguments[launch.arguments.index("--project") + 1])
+    project.canvas.background = "#0000ff"
+    save_project(project_path, project)
+
+    with pytest.raises(ValueError, match="snapshot SHA-256 mismatch"):
+        worker_main(list(launch.arguments))
 
 
 def test_adapter_accepts_explicit_avi_inside_roots_and_rejects_escape(

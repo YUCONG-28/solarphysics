@@ -1231,7 +1231,10 @@ class Phase4ComposerPanel(NativeModulePanel):
             "Confirm Image Composer export",
             launch.summary,
         ):
+            self.adapter.confirm_prepared_export(launch)
             self.task_requested.emit(launch)
+        else:
+            self.adapter.discard_prepared_export(launch)
 
 
 __all__ = [
