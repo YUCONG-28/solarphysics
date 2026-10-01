@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
@@ -15,6 +15,8 @@ from solar_toolkit.radio.dart_spectrogram import (
     extract_dart_narrowband_lightcurves,
     read_dart_spectrogram_window,
 )
+
+UTC = timezone.utc
 
 
 def _write_dataset(

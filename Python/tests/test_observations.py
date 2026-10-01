@@ -18,7 +18,7 @@ from solar_toolkit.net.observations import (
     write_search_result,
 )
 
-UTC = dt.UTC
+UTC = dt.timezone.utc
 
 
 def _query(product_id: str = "stereo-euvi") -> ObservationQueryV1:

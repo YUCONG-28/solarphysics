@@ -543,7 +543,7 @@ def _obs_date_ymd(
 
 def _observation_datetime(aia_map) -> dt.datetime | None:
     try:
-        value = aia_map.date.to_datetime(timezone=dt.UTC)
+        value = aia_map.date.to_datetime(timezone=dt.timezone.utc)
     except TypeError:
         try:
             value = aia_map.date.to_datetime()
@@ -552,8 +552,8 @@ def _observation_datetime(aia_map) -> dt.datetime | None:
     except Exception:
         return None
     if value.tzinfo is None:
-        return value.replace(tzinfo=dt.UTC)
-    return value.astimezone(dt.UTC)
+        return value.replace(tzinfo=dt.timezone.utc)
+    return value.astimezone(dt.timezone.utc)
 
 
 def _validated_filename_time(
@@ -822,7 +822,7 @@ def _process_single_worker(
             )
             save_dir = output_band / cfg.single_band_output_subdir
             save_dir.mkdir(parents=True, exist_ok=True)
-            batch_time = generated_at or dt.datetime.now(dt.UTC)
+            batch_time = generated_at or dt.datetime.now(dt.timezone.utc)
             observation_time = _observation_datetime(current_map)
             filename_time, time_source = _validated_filename_time(
                 observation_time,
@@ -1316,7 +1316,7 @@ def _process_multi_band_worker(
                 filename_end = observation_times[-1]
                 time_source = "observation"
             else:
-                filename_start = generated_at or dt.datetime.now(dt.UTC)
+                filename_start = generated_at or dt.datetime.now(dt.timezone.utc)
                 filename_end = None
                 time_source = "generated"
             save_path = save_dir / build_image_filename(
@@ -1373,7 +1373,7 @@ def _process_difference_band_worker(
     import matplotlib.pyplot as plt
 
     data_path = Path(cfg.data_path)
-    generated_at = generated_at or dt.datetime.now(dt.UTC)
+    generated_at = generated_at or dt.datetime.now(dt.timezone.utc)
     success_count = 0
     error_messages: list[str] = []
 
@@ -1617,7 +1617,7 @@ def _run_single_batch(cfg: AIAConfig) -> None:
     success_count = 0
     error_count = 0
     workers = _worker_count(cfg)
-    batch_generated_at = dt.datetime.now(dt.UTC)
+    batch_generated_at = dt.datetime.now(dt.timezone.utc)
 
     print(f"Single-band mode: {len(selected_files)} files")
     print(
@@ -1695,7 +1695,7 @@ def _run_mosaic_batch(cfg: AIAConfig) -> None:
     success_count = 0
     error_count = 0
     workers = _mosaic_worker_count(cfg)
-    batch_generated_at = dt.datetime.now(dt.UTC)
+    batch_generated_at = dt.datetime.now(dt.timezone.utc)
 
     print(f"Multi-band mosaic mode: slot wavelengths {waves}")
     if cfg.mosaic_difference_inline:
@@ -1802,7 +1802,7 @@ def _run_difference_batch(cfg: AIAConfig) -> None:
     start_time = time.time()
     success_count = 0
     error_count = 0
-    batch_generated_at = dt.datetime.now(dt.UTC)
+    batch_generated_at = dt.datetime.now(dt.timezone.utc)
 
     if workers == 1:
         results = (

@@ -31,7 +31,7 @@ def _query(
     detectors: tuple[str, ...] = (),
     wavelengths: tuple[int, ...] = (),
 ) -> ObservationQueryV1:
-    begin = dt.datetime.fromisoformat(start).replace(tzinfo=dt.UTC)
+    begin = dt.datetime.fromisoformat(start).replace(tzinfo=dt.timezone.utc)
     return ObservationQueryV1(
         query_id,
         product_id,

@@ -125,7 +125,7 @@ def _coerce_utc_datetime(value: Any) -> dt.datetime:
         result = value.to_pydatetime()
     elif hasattr(value, "to_datetime"):
         try:
-            result = value.to_datetime(timezone=dt.UTC)
+            result = value.to_datetime(timezone=dt.timezone.utc)
         except TypeError:
             result = value.to_datetime()
     else:
@@ -133,8 +133,8 @@ def _coerce_utc_datetime(value: Any) -> dt.datetime:
     if not isinstance(result, dt.datetime):
         raise TypeError(f"Image filename time did not resolve to datetime: {value!r}")
     if result.tzinfo is None:
-        return result.replace(tzinfo=dt.UTC)
-    return result.astimezone(dt.UTC)
+        return result.replace(tzinfo=dt.timezone.utc)
+    return result.astimezone(dt.timezone.utc)
 
 
 def _parse_datetime_text(value: str) -> dt.datetime:

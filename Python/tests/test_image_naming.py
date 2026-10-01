@@ -82,7 +82,7 @@ def test_build_filename_supports_composite_stokes_token() -> None:
 
 
 def test_generated_time_source_is_explicit_and_deterministic() -> None:
-    batch_time = dt.datetime(2026, 7, 17, 10, 11, 12, tzinfo=dt.UTC)
+    batch_time = dt.datetime(2026, 7, 17, 10, 11, 12, tzinfo=dt.timezone.utc)
     spec = ImageFilenameSpec(
         sequence=1,
         start_time=batch_time,

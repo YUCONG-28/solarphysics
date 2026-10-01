@@ -164,7 +164,7 @@ def run_overlay_workflow(
     processed_files = 0
     output_paths: list[Path] = []
     start_time = time.time()
-    batch_generated_at = dt.datetime.now(dt.UTC)
+    batch_generated_at = dt.datetime.now(dt.timezone.utc)
     iterator = (
         tqdm(aia_files, desc="Processing", unit="file") if show_progress else aia_files
     )

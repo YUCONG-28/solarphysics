@@ -152,12 +152,12 @@ def _utc(value: str | dt.datetime, *, label: str) -> dt.datetime:
         rendered = str(value).strip().replace("Z", "+00:00")
         parsed = dt.datetime.fromisoformat(rendered)
     if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=dt.UTC)
-    return parsed.astimezone(dt.UTC)
+        parsed = parsed.replace(tzinfo=dt.timezone.utc)
+    return parsed.astimezone(dt.timezone.utc)
 
 
 def _iso(value: dt.datetime) -> str:
-    return value.astimezone(dt.UTC).isoformat().replace("+00:00", "Z")
+    return value.astimezone(dt.timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 def _clean_choices(
@@ -352,7 +352,7 @@ class ObservationCollectionV1:
 
     collection_id: str
     items: tuple[ObservationDownloadItemV1, ...]
-    created_at_utc: dt.datetime = field(default_factory=lambda: dt.datetime.now(dt.UTC))
+    created_at_utc: dt.datetime = field(default_factory=lambda: dt.datetime.now(dt.timezone.utc))
     schema_version: int = SCHEMA_VERSION
 
     def to_dict(self) -> dict[str, Any]:
@@ -685,11 +685,11 @@ def _search_suvi(query: ObservationQueryV1) -> list[RemoteObservationV1]:
     while cursor <= query.end_utc.date():
         day_start = max(
             query.start_utc,
-            dt.datetime.combine(cursor, dt.time.min, tzinfo=dt.UTC),
+            dt.datetime.combine(cursor, dt.time.min, tzinfo=dt.timezone.utc),
         )
         day_end = min(
             query.end_utc,
-            dt.datetime.combine(cursor, dt.time.max, tzinfo=dt.UTC),
+            dt.datetime.combine(cursor, dt.time.max, tzinfo=dt.timezone.utc),
         )
         date_path = cursor.strftime("%Y/%m/%d")
         date_stamp = cursor.strftime("%Y%m%d")
@@ -825,7 +825,7 @@ def _parse_provider_time(value: str) -> dt.datetime:
         from astropy.time import Time
 
         return _utc(
-            Time(rendered, format="isot", scale="tai").utc.to_datetime(timezone=dt.UTC),
+            Time(rendered, format="isot", scale="tai").utc.to_datetime(timezone=dt.timezone.utc),
             label="provider time",
         )
     return _utc(rendered, label="provider time")
@@ -834,7 +834,7 @@ def _parse_provider_time(value: str) -> dt.datetime:
 def _astropy_time(value: Any) -> dt.datetime:
     converted = getattr(value, "to_datetime", None)
     if callable(converted):
-        result = converted(timezone=dt.UTC)
+        result = converted(timezone=dt.timezone.utc)
         return _utc(result, label="astropy time")
     return _utc(str(value), label="astropy time")
 
@@ -875,7 +875,7 @@ def _suvi_filename_time(filename: str) -> dt.datetime:
         raise ValueError(f"Could not parse SUVI observation time: {filename}")
     return dt.datetime.strptime(
         f"{match.group(1)}T{match.group(2)}", "%Y%m%dT%H%M%S"
-    ).replace(tzinfo=dt.UTC)
+    ).replace(tzinfo=dt.timezone.utc)
 
 
 def resolve_download_urls(
