@@ -5973,57 +5973,8 @@ def _run_source_map_config(config: dict, *, argv=None):
             )
             print(f"Selected {len(files)} FITS files, output directory: {output_dir}")
 
-            # 为单波段模式计算固定颜色范围
-            if len(files) > 0:
-                print("计算单波段模式的固定颜色范围...")
-                all_band_data = []
-
-                for file_path in tqdm(files, desc="读取文件数据", unit="文件"):
-                    try:
-                        img_data, header = read_fits(file_path)
-
-                        # 如果是RR+LL模式，需要读取对应的LL文件
-                        if combine_polarizations and polarization == "RR+LL":
-                            # 获取对应的LL文件路径
-                            base_dir = os.path.dirname(os.path.dirname(file_path))
-                            file_name = os.path.basename(file_path)
-                            ll_path = os.path.join(
-                                base_dir, cfg["ll_dir_suffix"], file_name
-                            )
-
-                            if os.path.exists(ll_path):
-                                ll_data, ll_header = read_fits(ll_path)
-                                # 组合数据
-                                img_data = _combine_polarization_data(
-                                    img_data, ll_data, cfg
-                                )
-
-                        # 对数化处理
-                        mask = img_data > 0
-                        log_data = np.full_like(img_data, np.nan, dtype=np.float64)
-                        log_data[mask] = np.log10(img_data[mask])
-
-                        # 收集有效数据
-                        valid_data = log_data[~np.isnan(log_data)]
-                        if len(valid_data) > 0:
-                            all_band_data.extend(valid_data)
-
-                    except Exception as e:
-                        warnings.warn(f"读取文件时出错 {file_path}: {e}", stacklevel=2)
-                        continue
-
-                if len(all_band_data) > 0:
-                    all_band_data_array = np.array(all_band_data)
-                    vmin_band, vmax_band = _calculate_range(
-                        all_band_data_array, cfg, is_global=False
-                    )
-                    cfg["fixed_vmin"] = vmin_band
-                    cfg["fixed_vmax"] = vmax_band
-                    print(
-                        f"单波段固定颜色范围: [{vmin_band:.3f}, {vmax_band:.3f}] (基于{len(all_band_data)}个数据点)"
-                    )
-                else:
-                    print("警告: 没有有效数据用于计算颜色范围")
+            # Single-band rendering is linear. Fixed limits belong to the
+            # request; global limits are computed below, and auto is per frame.
 
     # ── 1.5 预加载动态频谱（仅一次）──────────────────────────
     if _spectrogram_panel_enabled(cfg):
