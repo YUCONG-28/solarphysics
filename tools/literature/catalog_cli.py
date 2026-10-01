@@ -88,6 +88,9 @@ def validate_catalog(papers: list[dict[str, Any]]) -> None:
             elif not isinstance(value, str):
                 raise CatalogError(f"record {title!r} field {field!r} must be a string")
 
+        if not title.strip():
+            raise CatalogError(f"record {index} must have a non-empty title")
+
         citekey = paper["citekey"].strip()
         if not CITEKEY_RE.fullmatch(citekey):
             raise CatalogError(f"record {title!r} has invalid citekey {citekey!r}")

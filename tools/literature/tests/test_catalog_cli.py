@@ -13,6 +13,15 @@ SPEC.loader.exec_module(catalog_cli)
 
 
 class CatalogCliTests(unittest.TestCase):
+    def test_blank_title_is_rejected(self) -> None:
+        catalog, _ = catalog_cli.default_paths()
+        for title in ("", " ", "\t\n"):
+            with self.subTest(title=title):
+                paper = dict(catalog_cli.load_catalog(catalog)[0])
+                paper["title"] = title
+                with self.assertRaisesRegex(catalog_cli.CatalogError, "title"):
+                    catalog_cli.validate_catalog([paper])
+
     def test_repository_catalog_is_valid_and_deterministic(self) -> None:
         catalog, markdown = catalog_cli.default_paths()
         papers = catalog_cli.load_catalog(catalog)
