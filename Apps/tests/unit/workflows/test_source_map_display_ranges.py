@@ -63,4 +63,3 @@ def test_directory_run_keeps_single_band_limits_in_linear_units(
     assert len(captured) == 1
     assert captured[0]["fixed_vmin"] == 10.0
     assert captured[0]["fixed_vmax"] == 10000.0
-
