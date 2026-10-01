@@ -27,6 +27,8 @@ from .centers import (
     POL_SUM,
     POL_UNKNOWN,
     RadioImage,
+    _spatial_wcs_signature,
+    _sum_pair_incompatibility,
     filter_radio_images,
     infer_pol_from_stokes_axis,
     infer_polarization,
@@ -88,26 +90,6 @@ _ANGULAR_UNITS = {
     "radians",
 }
 _SPATIAL_CTYPE_MARKERS = (("HPLN", "SOLX"), ("HPLT", "SOLY"))
-_WCS_KEYS = (
-    "CTYPE1",
-    "CTYPE2",
-    "CUNIT1",
-    "CUNIT2",
-    "CRPIX1",
-    "CRPIX2",
-    "CRVAL1",
-    "CRVAL2",
-    "CDELT1",
-    "CDELT2",
-    "PC1_1",
-    "PC1_2",
-    "PC2_1",
-    "PC2_2",
-    "CD1_1",
-    "CD1_2",
-    "CD2_1",
-    "CD2_2",
-)
 _GRID_CACHE: dict[tuple[Any, ...], tuple[np.ndarray, np.ndarray]] = {}
 _GRID_CACHE_MAX_ITEMS = 32
 _ROI_CROP_CACHE_MAX_BYTES = 64 * 1024 * 1024
@@ -1957,27 +1939,11 @@ def _metadata_compatibility_key(
 
 
 def _pair_incompatibility(left: RadioImage, right: RadioImage) -> str:
-    if left.image.shape != right.image.shape:
-        return f"shape mismatch: {left.image.shape} vs {right.image.shape}"
-    left_bunit = str(left.header.get("BUNIT", "")).strip().casefold()
-    right_bunit = str(right.header.get("BUNIT", "")).strip().casefold()
-    if left_bunit != right_bunit:
-        return f"BUNIT mismatch: {left.header.get('BUNIT', '')!r} vs {right.header.get('BUNIT', '')!r}"
-    if _wcs_signature(left.header, left.image.shape) != _wcs_signature(
-        right.header, right.image.shape
-    ):
-        return "spatial WCS mismatch"
-    return ""
+    return _sum_pair_incompatibility(left, right)
 
 
 def _wcs_signature(header: fits.Header, shape: tuple[int, int]) -> tuple[Any, ...]:
-    values: list[Any] = [tuple(shape)]
-    for key in _WCS_KEYS:
-        value = header.get(key, None)
-        if isinstance(value, float):
-            value = round(float(value), 12)
-        values.append((key, value))
-    return tuple(values)
+    return _spatial_wcs_signature(header, shape)
 
 
 def _same_frequency(left_mhz: float, right_mhz: float) -> bool:

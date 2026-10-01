@@ -65,6 +65,28 @@ POL_UNKNOWN = "UNKNOWN"
 
 FITS_SUFFIXES = {".fits", ".fit", ".fts"}
 
+_SPATIAL_WCS_KEYS = (
+    "CTYPE1",
+    "CTYPE2",
+    "CUNIT1",
+    "CUNIT2",
+    "CRPIX1",
+    "CRPIX2",
+    "CRVAL1",
+    "CRVAL2",
+    "CDELT1",
+    "CDELT2",
+    "PC1_1",
+    "PC1_2",
+    "PC2_1",
+    "PC2_2",
+    "CD1_1",
+    "CD1_2",
+    "CD2_1",
+    "CD2_2",
+    "CROTA2",
+)
+
 
 @dataclass
 class RadioImage:
@@ -790,13 +812,15 @@ def maybe_make_sum_images(
         if best_index is None:
             continue
         right = r_items[best_index]
-        used_r.add(best_index)
-        if left.image.shape != right.image.shape:
+        detail = _sum_pair_incompatibility(left, right)
+        if detail:
             warnings.warn(
-                f"Skipping L+R pair with mismatched shapes: {left.path.name}, {right.path.name}",
+                f"Skipping incompatible L+R pair ({detail}): "
+                f"{left.path.name}, {right.path.name}",
                 stacklevel=2,
             )
             continue
+        used_r.add(best_index)
         header = left.header.copy()
         header["POLAR"] = POL_SUM
         midpoint = left.obs_time + (right.obs_time - left.obs_time) / 2
@@ -814,6 +838,31 @@ def maybe_make_sum_images(
             )
         )
     return sums
+
+
+def _spatial_wcs_signature(header: fits.Header, shape: tuple[int, int]) -> tuple:
+    """Describe the existing linear spatial grid without resampling either image."""
+    values: list = [tuple(shape)]
+    for key in _SPATIAL_WCS_KEYS:
+        value = header.get(key, None)
+        if isinstance(value, float):
+            value = round(float(value), 12)
+        values.append((key, value))
+    return tuple(values)
+
+
+def _sum_pair_incompatibility(left: RadioImage, right: RadioImage) -> str:
+    if left.image.shape != right.image.shape:
+        return f"shape mismatch: {left.image.shape} vs {right.image.shape}"
+    left_bunit = str(left.header.get("BUNIT", "")).strip().casefold()
+    right_bunit = str(right.header.get("BUNIT", "")).strip().casefold()
+    if left_bunit != right_bunit:
+        return f"BUNIT mismatch: {left.header.get('BUNIT', '')!r} vs {right.header.get('BUNIT', '')!r}"
+    if _spatial_wcs_signature(left.header, left.image.shape) != _spatial_wcs_signature(
+        right.header, right.image.shape
+    ):
+        return "spatial WCS mismatch"
+    return ""
 
 
 def _same_frequency(left_mhz: float, right_mhz: float) -> bool:
