@@ -122,9 +122,12 @@ def render_slot_tile(
 
 
 def compose_frame(
-    project: ComposerProject, matched_records: dict[str, ImageRecord]
+    project: ComposerProject,
+    matched_records: dict[str, ImageRecord],
+    *,
+    slot_records: dict[str, ImageRecord] | None = None,
 ) -> Image.Image:
-    """Render one RGB canvas from the folder matches for a single frame."""
+    """Render one RGB canvas, optionally overriding matches for exact slots."""
 
     try:
         background = ImageColor.getrgb(project.canvas.background)
@@ -136,7 +139,9 @@ def compose_frame(
         "RGBA", (project.canvas.width, project.canvas.height), (*background, 255)
     )
     for slot in sorted(project.slots, key=lambda item: item.z_index):
-        record = matched_records.get(slot.folder_id)
+        record = (slot_records or {}).get(slot.id) or matched_records.get(
+            slot.folder_id
+        )
         if record is None:
             raise ExportError(f"No matched image for slot {slot.id}")
         image = load_oriented_rgba(record.path)

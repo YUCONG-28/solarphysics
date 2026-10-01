@@ -84,7 +84,7 @@ def _scaled(project, scale: int):  # type: ignore[no-untyped-def]
 
 def _static(project, output: Path) -> dict[str, object]:  # type: ignore[no-untyped-def]
     folders = project.folder_map()
-    matched = {}
+    slot_records = {}
     for slot in project.slots:
         folder = folders.get(slot.folder_id)
         if folder is None:
@@ -94,8 +94,8 @@ def _static(project, output: Path) -> dict[str, object]:  # type: ignore[no-unty
             raise ValueError(
                 f"Preview ordinal {slot.preview_ordinal} is unavailable in {folder.name}"
             )
-        matched[folder.id] = record
-    image = compose_frame(project, matched)
+        slot_records[slot.id] = record
+    image = compose_frame(project, {}, slot_records=slot_records)
     output.parent.mkdir(parents=True, exist_ok=True)
     temporary = output.with_name(f".{output.stem}.{uuid.uuid4().hex}.tmp.png")
     try:
