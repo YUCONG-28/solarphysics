@@ -13,6 +13,7 @@ __all__ = [
 ]
 
 import argparse
+import copy
 import csv
 import datetime
 import hashlib
@@ -5761,17 +5762,25 @@ def _run_select_drift_workflow(cfg):
 
 
 def _run_source_map_workflow(user_config=None, *, argv=None):
-    """
-    Main function: process single-band or multi-band radio data according to configuration mode, parallel plotting and saving results.
-    """
-    global CONFIG, USER_CONFIG
+    """Resolve the legacy callable configuration without changing shared defaults."""
     if user_config is not None:
-        USER_CONFIG = dict(user_config or {})
         path_config = load_script_config(
             "radio_source_map_plot_gaussian_overlay",
-            DEFAULT_CONFIG,
+            copy.deepcopy(DEFAULT_CONFIG),
         )
-        CONFIG = build_config(USER_CONFIG, path_config)
+        cfg = build_config(copy.deepcopy(user_config), copy.deepcopy(path_config))
+    else:
+        # CONFIG remains a supported legacy facade override. Explicit requests
+        # are passed separately and never rebind this compatibility value.
+        cfg = _facade.CONFIG
+    return _run_source_map_config(cfg, argv=argv)
+
+
+def _run_source_map_config(config: dict, *, argv=None):
+    """Execute one already-resolved configuration with request-owned mutable state."""
+    if not isinstance(config, dict):
+        raise TypeError("config must be a dictionary")
+    cfg = copy.deepcopy(config)
 
     parser = argparse.ArgumentParser(add_help=True)
     parser.add_argument("--self-test", action="store_true")
@@ -5786,7 +5795,6 @@ def _run_source_map_workflow(user_config=None, *, argv=None):
     parser.add_argument("--disable-drift", action="store_true")
     parser.add_argument("--enable-drift", action="store_true")
     args, _unknown = parser.parse_known_args(argv)
-    cfg = CONFIG
     cfg = _migrate_config(cfg)
     if args.disable_drift:
         cfg["enable_drift_rate_overlay"] = False
