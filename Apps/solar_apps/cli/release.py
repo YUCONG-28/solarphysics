@@ -180,8 +180,8 @@ def _check_clean(repo_root: Path) -> list[str]:
     if status and status.strip():
         problems.append("working tree is not clean:\n" + (status or "").strip())
     _git(repo_root, "fetch", "origin", dry_run=False)
-    ahead = _git(repo_root, "rev-list", "--count", "HEAD..origin/main", dry_run=False)
-    behind = _git(repo_root, "rev-list", "--count", "origin/main..HEAD", dry_run=False)
+    ahead = _git(repo_root, "rev-list", "--count", "origin/main..HEAD", dry_run=False)
+    behind = _git(repo_root, "rev-list", "--count", "HEAD..origin/main", dry_run=False)
     if (ahead or "0").strip() != "0":
         problems.append("local main has unpushed commits")
     if (behind or "0").strip() != "0":

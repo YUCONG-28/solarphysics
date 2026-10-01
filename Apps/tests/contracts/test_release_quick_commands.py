@@ -55,6 +55,39 @@ def test_version_bump_levels() -> None:
     assert release._bump_version("0.3.9", "patch") == "0.3.10"
 
 
+@pytest.mark.parametrize(
+    ("ahead", "behind", "expected"),
+    [
+        (3, 0, "local main has unpushed commits"),
+        (0, 2, "local main is behind origin/main; run: git pull --ff-only"),
+        (0, 0, None),
+    ],
+)
+def test_release_check_reports_commit_direction(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    ahead: int,
+    behind: int,
+    expected: str | None,
+) -> None:
+    """No fetch or other Git operation touches the checkout in this test."""
+    responses = {
+        ("rev-parse", "--abbrev-ref", "HEAD"): "main\n",
+        ("status", "--short"): "",
+        ("fetch", "origin"): "",
+        ("rev-list", "--count", "origin/main..HEAD"): str(ahead),
+        ("rev-list", "--count", "HEAD..origin/main"): str(behind),
+    }
+
+    def fake_git(root: Path, *arguments: str, dry_run: bool = False) -> str:
+        assert root == tmp_path
+        assert not dry_run
+        return responses[arguments]
+
+    monkeypatch.setattr(release, "_git", fake_git)
+    assert release._check_clean(tmp_path) == ([] if expected is None else [expected])
+
+
 def test_version_bump_rejects_malformed() -> None:
     with pytest.raises(ValueError):
         release._bump_version("0.3", "patch")
