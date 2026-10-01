@@ -296,7 +296,7 @@ class TaskQueueController(QObject):
 
     def _process_started(self, task_id: str) -> None:
         record = self._records.get(task_id)
-        if record is None:
+        if record is None or task_id not in self._processes:
             return
         record.status = "running"
         self.task_changed.emit(record.task_id)
@@ -378,13 +378,17 @@ class TaskQueueController(QObject):
     def _process_error(
         self,
         task_id: str,
-        _error: QProcess.ProcessError,
+        error: QProcess.ProcessError,
     ) -> None:
         record = self._records.get(task_id)
-        if record is None or record.status == "cancelling":
+        if record is None or task_id not in self._processes:
             return
-        record.logs.append("The worker process could not be started or continued.")
-        self.log_line.emit(record.task_id, record.logs[-1])
+        if record.status != "cancelling":
+            record.logs.append("The worker process could not be started or continued.")
+            self.log_line.emit(record.task_id, record.logs[-1])
+        if error == QProcess.ProcessError.FailedToStart:
+            # FailedToStart does not emit finished on every Qt backend.
+            self._process_finished(task_id, -1, QProcess.ExitStatus.CrashExit)
 
     def _process_finished(
         self,
@@ -392,6 +396,8 @@ class TaskQueueController(QObject):
         exit_code: int,
         _exit_status: QProcess.ExitStatus,
     ) -> None:
+        if task_id not in self._processes:
+            return
         self._read_output(task_id)
         record = self._records.get(task_id)
         if record is not None:

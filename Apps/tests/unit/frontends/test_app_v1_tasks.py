@@ -7,7 +7,7 @@ import sys
 from pathlib import Path
 
 import pytest
-from PyQt6.QtCore import QCoreApplication, QEventLoop, QTimer
+from PyQt6.QtCore import QCoreApplication, QEventLoop, QProcess, QTimer
 
 from solar_apps.frontends.app_v1 import tasks
 from solar_apps.frontends.app_v1.tasks import TaskQueueController, TaskRecord
@@ -80,6 +80,116 @@ def test_two_tasks_can_run_concurrently_and_finish_cleanly(
         "sunpy",
         "xdg",
     }
+    controller.shutdown()
+
+
+def test_failed_to_start_finishes_once_and_continues_queue(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    app = QCoreApplication.instance() or QCoreApplication([])
+    executables = iter((tmp_path / "missing-python", Path(sys.executable)))
+    monkeypatch.setattr(tasks, "selected_python_executable", lambda: next(executables))
+    controller = TaskQueueController(_layout(tmp_path))
+    terminal_events: list[str] = []
+    controller.task_changed.connect(
+        lambda task_id: (
+            terminal_events.append(task_id)
+            if controller.task(task_id).status in {"succeeded", "failed", "cancelled"}
+            else None
+        )
+    )
+    failed = controller.enqueue_python_module(
+        title="cannot start",
+        module_id="workbench",
+        python_module="solar_apps.frontends.app_v1.task_worker",
+    )
+    following = controller.enqueue_python_module(
+        title="following",
+        module_id="workbench",
+        python_module="solar_apps.frontends.app_v1.task_worker",
+        arguments=("--steps", "1", "--delay-ms", "0"),
+    )
+    loop = QEventLoop()
+    controller.queue_idle.connect(loop.quit)
+    QTimer.singleShot(3_000, loop.quit)
+    loop.exec()
+    app.processEvents()
+    assert failed.status == "failed"
+    # Some Qt backends may deliver finished after the error notification.
+    controller._process_finished(failed.task_id, 0, QProcess.ExitStatus.NormalExit)
+
+    assert failed.status == "failed"
+    assert following.status == "succeeded"
+    assert terminal_events.count(failed.task_id) == 1
+    assert terminal_events.count(following.task_id) == 1
+    assert controller.active_task_ids == ()
+    assert controller._stdout_buffers == {}
+    assert not controller._pending
+    controller.shutdown()
+
+
+def test_failed_to_start_blocks_dependents_and_finishes_independent_dag_branch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from solar_apps.frontends.app_v1.flow_execution import FlowExecutionController
+    from solar_apps.frontends.app_v1.function_catalog import DEFAULT_FUNCTION_CATALOG
+    from solar_apps.frontends.app_v1.flows import AppV1FlowV1, FlowEdgeV1, FlowNodeV1
+
+    app = QCoreApplication.instance() or QCoreApplication([])
+    executables = iter((tmp_path / "missing-python", Path(sys.executable)))
+    monkeypatch.setattr(tasks, "selected_python_executable", lambda: next(executables))
+    monkeypatch.setenv("SOLAR_APPS_ALLOWED_ROOTS", str(tmp_path))
+    source = tmp_path / "input.csv"
+    source.write_text("synthetic", encoding="utf-8")
+    controller = FlowExecutionController(_layout(tmp_path), DEFAULT_FUNCTION_CATALOG)
+    flow = AppV1FlowV1(
+        "start-failure",
+        "Start failure",
+        nodes=(
+            FlowNodeV1(
+                "bad", "artifact-input", {"path": str(source), "artifact_type": "table"}
+            ),
+            FlowNodeV1(
+                "independent",
+                "artifact-input",
+                {"path": str(source), "artifact_type": "table"},
+            ),
+            FlowNodeV1("blocked", "newkirk-diagnostics"),
+        ),
+        edges=(FlowEdgeV1("bad", "artifact", "blocked", "drift"),),
+        concurrency=1,
+    )
+    results: list[dict[str, int]] = []
+    loop = QEventLoop()
+    controller.flow_finished.connect(
+        lambda result: (results.append(result), loop.quit())
+    )
+    QTimer.singleShot(3_000, loop.quit)
+    controller.run(flow)
+    loop.exec()
+    app.processEvents()
+
+    assert results
+    assert controller.states["bad"].status == "failed"
+    assert controller.states["blocked"].status == "blocked"
+    assert controller.states["independent"].status == "succeeded"
+    assert all(lane.active_task_ids == () for lane in controller._lanes)
+    controller.shutdown()
+
+
+def test_retry_reuses_composer_snapshot_arguments(tmp_path: Path) -> None:
+    controller = TaskQueueController(_layout(tmp_path))
+    arguments = ("--project", "original.fic.json", "--project-sha256", "original-hash")
+    original = controller.enqueue_python_module(
+        title="composer",
+        module_id="image-composer",
+        python_module="solar_apps.frontends.app_v1.composer_worker",
+        arguments=arguments,
+    )
+    controller.cancel(original.task_id)
+    retried = controller.retry(original.task_id)
+    assert retried.arguments == arguments
+    assert retried.retry_of == original.task_id
     controller.shutdown()
 
 
