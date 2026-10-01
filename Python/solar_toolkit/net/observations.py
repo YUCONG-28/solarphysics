@@ -352,7 +352,9 @@ class ObservationCollectionV1:
 
     collection_id: str
     items: tuple[ObservationDownloadItemV1, ...]
-    created_at_utc: dt.datetime = field(default_factory=lambda: dt.datetime.now(dt.timezone.utc))
+    created_at_utc: dt.datetime = field(
+        default_factory=lambda: dt.datetime.now(dt.timezone.utc)
+    )
     schema_version: int = SCHEMA_VERSION
 
     def to_dict(self) -> dict[str, Any]:
@@ -825,7 +827,9 @@ def _parse_provider_time(value: str) -> dt.datetime:
         from astropy.time import Time
 
         return _utc(
-            Time(rendered, format="isot", scale="tai").utc.to_datetime(timezone=dt.timezone.utc),
+            Time(rendered, format="isot", scale="tai").utc.to_datetime(
+                timezone=dt.timezone.utc
+            ),
             label="provider time",
         )
     return _utc(rendered, label="provider time")
