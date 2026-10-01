@@ -4462,63 +4462,65 @@ def _legacy_check_gaussian_fit_synthetic_source():
 def run_overlay_workflow(user_config=None, *, argv=None):
     """Generate overlay products and return the saved frame paths."""
 
-    _configure_plotting()
-    del argv  # Reserved for a stable CLI-compatible workflow signature.
-    cfg = Config()
-    cfg = apply_aia_radio_hmi_user_config(cfg, user_config)
-    os.makedirs(cfg.output_dir, exist_ok=True)
-    color_cache = []
+    # Keep rendering style local to this run, including failed input selection.
+    with matplotlib.rc_context():
+        _configure_plotting()
+        del argv  # Reserved for a stable CLI-compatible workflow signature.
+        cfg = Config()
+        cfg = apply_aia_radio_hmi_user_config(cfg, user_config)
+        os.makedirs(cfg.output_dir, exist_ok=True)
+        color_cache = []
 
-    # 构建匹配对
-    matched = (
-        build_multi_wave_matched_pairs(cfg)
-        if _multi_wave_overlay_enabled(cfg)
-        else build_matched_pairs(cfg)
-    )
-    spectrogram_cache = _build_aia_spectrogram_cache(cfg, matched)
-    frame_paths: list[str] = []
-    batch_generated_at = datetime.now(timezone.utc)
-    next_sequence = 1
-    print(f"共构建 {len(matched)} 个 AIA 任务")
+        # 构建匹配对
+        matched = (
+            build_multi_wave_matched_pairs(cfg)
+            if _multi_wave_overlay_enabled(cfg)
+            else build_matched_pairs(cfg)
+        )
+        spectrogram_cache = _build_aia_spectrogram_cache(cfg, matched)
+        frame_paths: list[str] = []
+        batch_generated_at = datetime.now(timezone.utc)
+        next_sequence = 1
+        print(f"共构建 {len(matched)} 个 AIA 任务")
 
-    # 串行处理（或可用线程池，但可能导致 FITS 读取冲突）
-    if _multi_wave_overlay_enabled(cfg):
-        for i, (aia_files_by_wave, hmi_file, sub_tasks) in enumerate(matched):
-            frame_paths.extend(
-                process_multi_wave_aia_group(
-                    aia_files_by_wave,
-                    hmi_file,
-                    sub_tasks,
-                    i + 1,
-                    len(matched),
-                    cfg,
-                    color_cache,
-                    spectrogram_cache=spectrogram_cache,
-                    sequence_start=next_sequence,
-                    generated_at=batch_generated_at,
+        # 串行处理（或可用线程池，但可能导致 FITS 读取冲突）
+        if _multi_wave_overlay_enabled(cfg):
+            for i, (aia_files_by_wave, hmi_file, sub_tasks) in enumerate(matched):
+                frame_paths.extend(
+                    process_multi_wave_aia_group(
+                        aia_files_by_wave,
+                        hmi_file,
+                        sub_tasks,
+                        i + 1,
+                        len(matched),
+                        cfg,
+                        color_cache,
+                        spectrogram_cache=spectrogram_cache,
+                        sequence_start=next_sequence,
+                        generated_at=batch_generated_at,
+                    )
                 )
-            )
-            next_sequence += len(sub_tasks)
-    else:
-        for i, (aia_file, hmi_file, sub_tasks) in enumerate(matched):
-            frame_paths.extend(
-                process_aia_group(
-                    aia_file,
-                    hmi_file,
-                    sub_tasks,
-                    i + 1,
-                    len(matched),
-                    cfg,
-                    color_cache,
-                    spectrogram_cache=spectrogram_cache,
-                    sequence_start=next_sequence,
-                    generated_at=batch_generated_at,
+                next_sequence += len(sub_tasks)
+        else:
+            for i, (aia_file, hmi_file, sub_tasks) in enumerate(matched):
+                frame_paths.extend(
+                    process_aia_group(
+                        aia_file,
+                        hmi_file,
+                        sub_tasks,
+                        i + 1,
+                        len(matched),
+                        cfg,
+                        color_cache,
+                        spectrogram_cache=spectrogram_cache,
+                        sequence_start=next_sequence,
+                        generated_at=batch_generated_at,
+                    )
                 )
-            )
-            next_sequence += len(sub_tasks)
+                next_sequence += len(sub_tasks)
 
-    _write_animation_from_frames(frame_paths, cfg)
-    return frame_paths
+        _write_animation_from_frames(frame_paths, cfg)
+        return frame_paths
 
 
 _run_overlay_workflow = run_overlay_workflow
