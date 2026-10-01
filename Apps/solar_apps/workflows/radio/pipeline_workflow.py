@@ -116,7 +116,7 @@ def _run_pipeline(argv=None, *, config_name: str | None = None):
         cfg["enable_spectrogram_panel"] = True
         cfg["enable_drift_rate_overlay"] = True
 
-    source_map_workflow._run_source_map_config(cfg, argv=[])
+    source_map_workflow._run_source_map_config(cfg, argv=argv)
 
     # Downstream stages consume the Gaussian diagnostics table rather than
     # re-fitting radio images, preserving the legacy scientific decision path.

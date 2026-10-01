@@ -78,9 +78,23 @@ def test_pipeline_tables_and_provenance_survive_a_later_plot_failure(
     monkeypatch.setattr(
         pipeline, "load_radio_diagnostic_presentation_config", lambda name: {}
     )
+    requested_argv = [
+        "--config",
+        "synthetic-event",
+        "--analysis-subdir",
+        "products",
+        "--gaussian-csv",
+        "gaussian.csv",
+        "--valid-centers-csv",
+        "valid.csv",
+        "--newkirk-csv",
+        "newkirk.csv",
+        "--drift-speed-csv",
+        "drift.csv",
+    ]
 
     def source(config, *, argv):
-        assert argv == []
+        assert argv == requested_argv
         assert config["enable_gaussian_overlay"] is True
         assert config["save_gaussian_diagnostics"] is True
         output = pipeline.resolve_analysis_dir(config)
@@ -109,22 +123,7 @@ def test_pipeline_tables_and_provenance_survive_a_later_plot_failure(
 
     monkeypatch.setattr(pipeline, "_plot_gaussian_center_trajectory", fail_after_tables)
     with pytest.raises(RuntimeError, match="diagnostic figure failed"):
-        pipeline.run_pipeline(
-            [
-                "--config",
-                "synthetic-event",
-                "--analysis-subdir",
-                "products",
-                "--gaussian-csv",
-                "gaussian.csv",
-                "--valid-centers-csv",
-                "valid.csv",
-                "--newkirk-csv",
-                "newkirk.csv",
-                "--drift-speed-csv",
-                "drift.csv",
-            ]
-        )
+        pipeline.run_pipeline(requested_argv)
     valid = pd.read_csv(tmp_path / "products" / "valid.csv")
     assert valid["freq"].tolist() == [149.0]
     provenance = json.loads(
