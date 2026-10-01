@@ -1486,16 +1486,19 @@ def _pixel_coordinates_hpc_arcsec(
         pc12 = float(header.get("PC1_2", 0.0))
         pc21 = float(header.get("PC2_1", 0.0))
         pc22 = float(header.get("PC2_2", 1.0))
-        if not any(
-            key_name in header for key_name in ("PC1_1", "PC1_2", "PC2_1", "PC2_2")
-        ):
+        if any(key_name in header for key_name in ("PC1_1", "PC1_2", "PC2_1", "PC2_2")):
+            # FITS PC mixes pixel offsets before each world axis is scaled.
+            wx = cdelt1 * (pc11 * dx + pc12 * dy)
+            wy = cdelt2 * (pc21 * dx + pc22 * dy)
+        else:
+            # Retain the historical CROTA rotation of already scaled offsets.
             theta = math.radians(float(header.get("CROTA2", 0.0)))
             pc11, pc12 = math.cos(theta), -math.sin(theta)
             pc21, pc22 = math.sin(theta), math.cos(theta)
-        x_int = cdelt1 * dx
-        y_int = cdelt2 * dy
-        wx = pc11 * x_int + pc12 * y_int
-        wy = pc21 * x_int + pc22 * y_int
+            x_int = cdelt1 * dx
+            y_int = cdelt2 * dy
+            wx = pc11 * x_int + pc12 * y_int
+            wy = pc21 * x_int + pc22 * y_int
 
     x_arcsec = _to_arcsec_array(crval1 + wx, str(header.get("CUNIT1", "arcsec")))
     y_arcsec = _to_arcsec_array(crval2 + wy, str(header.get("CUNIT2", "arcsec")))
