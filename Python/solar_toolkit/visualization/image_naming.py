@@ -125,7 +125,7 @@ def _coerce_utc_datetime(value: Any) -> dt.datetime:
         result = value.to_pydatetime()
     elif hasattr(value, "to_datetime"):
         try:
-            result = value.to_datetime(timezone=dt.UTC)
+            result = value.to_datetime(timezone=dt.timezone.utc)
         except TypeError:
             result = value.to_datetime()
     else:
@@ -133,8 +133,8 @@ def _coerce_utc_datetime(value: Any) -> dt.datetime:
     if not isinstance(result, dt.datetime):
         raise TypeError(f"Image filename time did not resolve to datetime: {value!r}")
     if result.tzinfo is None:
-        return result.replace(tzinfo=dt.UTC)
-    return result.astimezone(dt.UTC)
+        return result.replace(tzinfo=dt.timezone.utc)
+    return result.astimezone(dt.timezone.utc)
 
 
 def _parse_datetime_text(value: str) -> dt.datetime:
@@ -142,6 +142,14 @@ def _parse_datetime_text(value: str) -> dt.datetime:
     if not text:
         raise ValueError("Image filename time is required.")
     iso_text = text[:-1] + "+00:00" if text.endswith(("Z", "z")) else text
+    # Older fromisoformat implementations accept only millisecond/microsecond
+    # precision. Filenames deliberately discard subseconds, so normalize the
+    # fraction without rounding across a second or changing timezone offsets.
+    iso_text = re.sub(
+        r"(\d{2}:\d{2}:\d{2})\.(\d+)",
+        lambda match: f"{match[1]}.{match[2][:6].ljust(6, '0')}",
+        iso_text,
+    )
     try:
         return dt.datetime.fromisoformat(iso_text)
     except ValueError:

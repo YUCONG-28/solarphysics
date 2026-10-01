@@ -262,6 +262,9 @@ from ._source_map_workflow_core import (  # noqa: F401
     run_self_tests,
     _run_select_drift_workflow,
     _run_source_map_workflow,
+    _parse_source_map_args,
+    _apply_source_map_cli_args,
+    _run_source_map_config,
     run_source_map,
     main,
 )

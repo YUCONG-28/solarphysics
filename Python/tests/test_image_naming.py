@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import datetime as dt
+import re
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
 
+from solar_toolkit.visualization import image_naming
 from solar_toolkit.visualization.image_naming import (
     ImageFilenameSpec,
     build_image_filename,
@@ -32,6 +35,58 @@ def test_format_utc_time_converts_timezone_and_truncates_subseconds() -> None:
 def test_format_utc_time_accepts_numpy_datetime64() -> None:
     value = np.datetime64("2025-01-24T04:48:30.999999999")
     assert format_utc_filename_time(value) == "20250124T044830Z"
+
+
+@pytest.mark.parametrize(
+    "fraction", ["9", "99", "999", "9999", "99999", "999999", "999999999"]
+)
+@pytest.mark.parametrize("zone,hour", [("Z", "04"), ("+08:00", "12")])
+def test_fractional_iso_times_use_python310_parser_surface(
+    monkeypatch, fraction: str, zone: str, hour: str
+) -> None:
+    class Python310Datetime(dt.datetime):
+        @classmethod
+        def fromisoformat(cls, text):
+            for digits in re.findall(r":\d{2}\.(\d+)", text):
+                if len(digits) not in (3, 6):
+                    raise ValueError(
+                        "Python 3.10 accepts three or six fractional digits"
+                    )
+            return super().fromisoformat(text)
+
+    monkeypatch.setattr(
+        image_naming,
+        "dt",
+        SimpleNamespace(
+            datetime=Python310Datetime, date=dt.date, time=dt.time, timezone=dt.timezone
+        ),
+    )
+    assert (
+        format_utc_filename_time(f"2025-01-24T{hour}:48:30.{fraction}{zone}")
+        == "20250124T044830Z"
+    )
+
+
+def test_numpy_nanoseconds_use_python310_parser_surface(monkeypatch) -> None:
+    class Python310Datetime(dt.datetime):
+        @classmethod
+        def fromisoformat(cls, text):
+            digits = text.split(".")[-1]
+            if "." in text and len(digits) not in (3, 6):
+                raise ValueError("Python 3.10 rejects nanosecond ISO text")
+            return super().fromisoformat(text)
+
+    monkeypatch.setattr(
+        image_naming,
+        "dt",
+        SimpleNamespace(
+            datetime=Python310Datetime, date=dt.date, time=dt.time, timezone=dt.timezone
+        ),
+    )
+    assert (
+        format_utc_filename_time(np.datetime64("2025-01-24T04:48:30.999999999"))
+        == "20250124T044830Z"
+    )
 
 
 def test_format_utc_time_range_uses_start_and_end() -> None:
@@ -82,7 +137,7 @@ def test_build_filename_supports_composite_stokes_token() -> None:
 
 
 def test_generated_time_source_is_explicit_and_deterministic() -> None:
-    batch_time = dt.datetime(2026, 7, 17, 10, 11, 12, tzinfo=dt.UTC)
+    batch_time = dt.datetime(2026, 7, 17, 10, 11, 12, tzinfo=dt.timezone.utc)
     spec = ImageFilenameSpec(
         sequence=1,
         start_time=batch_time,

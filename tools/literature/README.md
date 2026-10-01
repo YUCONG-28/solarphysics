@@ -40,9 +40,10 @@ renders Markdown in memory, and compares it with the stored view.
 Cross-platform equivalents are available without PowerShell:
 
 ```bash
-python3 tools/literature/catalog_cli.py check
-python3 tools/literature/catalog_cli.py render          # preview
-python3 tools/literature/catalog_cli.py render --apply  # write
+MINIFORGE_CONDA="<miniforge-root>/bin/conda"
+"$MINIFORGE_CONDA" run -n solarphysics_env_latest python tools/literature/catalog_cli.py check
+"$MINIFORGE_CONDA" run -n solarphysics_env_latest python tools/literature/catalog_cli.py render          # preview
+"$MINIFORGE_CONDA" run -n solarphysics_env_latest python tools/literature/catalog_cli.py render --apply  # write
 ```
 
 Non-empty `local_pdf_path` values must use `data://literature-catalog/` and
@@ -61,6 +62,17 @@ The publisher uses explicit pathspecs; it does not use `git add -A` and does
 not stage PDFs, documents, reports, logs, or tool files.
 
 ## Tests
+
+Run the Python implementation's isolated tests from the repository root:
+
+```bash
+MINIFORGE_CONDA="<miniforge-root>/bin/conda"
+"$MINIFORGE_CONDA" run -n solarphysics_env_latest python -m unittest discover -s tools/literature/tests -p "test_*.py"
+"$MINIFORGE_CONDA" run -n solarphysics_env_latest python tools/literature/catalog_cli.py check
+```
+
+The library CI runs these checks for each supported compatibility version.
+The Windows literature job also checks the PowerShell implementation:
 
 ```powershell
 powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Invoke-Pester -Script .\tools\literature\tests\LiteratureCatalog.Tests.ps1 -EnableExit"

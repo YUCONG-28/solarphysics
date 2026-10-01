@@ -11,7 +11,7 @@ import logging
 import math
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import numpy as np
@@ -28,6 +28,7 @@ __all__ = [
 ]
 
 _LOGGER = logging.getLogger(__name__)
+UTC = timezone.utc
 _DEFAULT_CHUNK_MEMORY_MB = 64
 _FILE_SUFFIXES = {
     "stokes_i_db": "specdataidb.fits",

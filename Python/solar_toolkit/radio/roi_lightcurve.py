@@ -27,6 +27,8 @@ from .centers import (
     POL_SUM,
     POL_UNKNOWN,
     RadioImage,
+    _spatial_wcs_signature,
+    _sum_pair_incompatibility,
     filter_radio_images,
     infer_pol_from_stokes_axis,
     infer_polarization,
@@ -88,26 +90,6 @@ _ANGULAR_UNITS = {
     "radians",
 }
 _SPATIAL_CTYPE_MARKERS = (("HPLN", "SOLX"), ("HPLT", "SOLY"))
-_WCS_KEYS = (
-    "CTYPE1",
-    "CTYPE2",
-    "CUNIT1",
-    "CUNIT2",
-    "CRPIX1",
-    "CRPIX2",
-    "CRVAL1",
-    "CRVAL2",
-    "CDELT1",
-    "CDELT2",
-    "PC1_1",
-    "PC1_2",
-    "PC2_1",
-    "PC2_2",
-    "CD1_1",
-    "CD1_2",
-    "CD2_1",
-    "CD2_2",
-)
 _GRID_CACHE: dict[tuple[Any, ...], tuple[np.ndarray, np.ndarray]] = {}
 _GRID_CACHE_MAX_ITEMS = 32
 _ROI_CROP_CACHE_MAX_BYTES = 64 * 1024 * 1024
@@ -1486,16 +1468,19 @@ def _pixel_coordinates_hpc_arcsec(
         pc12 = float(header.get("PC1_2", 0.0))
         pc21 = float(header.get("PC2_1", 0.0))
         pc22 = float(header.get("PC2_2", 1.0))
-        if not any(
-            key_name in header for key_name in ("PC1_1", "PC1_2", "PC2_1", "PC2_2")
-        ):
+        if any(key_name in header for key_name in ("PC1_1", "PC1_2", "PC2_1", "PC2_2")):
+            # FITS PC mixes pixel offsets before each world axis is scaled.
+            wx = cdelt1 * (pc11 * dx + pc12 * dy)
+            wy = cdelt2 * (pc21 * dx + pc22 * dy)
+        else:
+            # Retain the historical CROTA rotation of already scaled offsets.
             theta = math.radians(float(header.get("CROTA2", 0.0)))
             pc11, pc12 = math.cos(theta), -math.sin(theta)
             pc21, pc22 = math.sin(theta), math.cos(theta)
-        x_int = cdelt1 * dx
-        y_int = cdelt2 * dy
-        wx = pc11 * x_int + pc12 * y_int
-        wy = pc21 * x_int + pc22 * y_int
+            x_int = cdelt1 * dx
+            y_int = cdelt2 * dy
+            wx = pc11 * x_int + pc12 * y_int
+            wy = pc21 * x_int + pc22 * y_int
 
     x_arcsec = _to_arcsec_array(crval1 + wx, str(header.get("CUNIT1", "arcsec")))
     y_arcsec = _to_arcsec_array(crval2 + wy, str(header.get("CUNIT2", "arcsec")))
@@ -1954,27 +1939,11 @@ def _metadata_compatibility_key(
 
 
 def _pair_incompatibility(left: RadioImage, right: RadioImage) -> str:
-    if left.image.shape != right.image.shape:
-        return f"shape mismatch: {left.image.shape} vs {right.image.shape}"
-    left_bunit = str(left.header.get("BUNIT", "")).strip().casefold()
-    right_bunit = str(right.header.get("BUNIT", "")).strip().casefold()
-    if left_bunit != right_bunit:
-        return f"BUNIT mismatch: {left.header.get('BUNIT', '')!r} vs {right.header.get('BUNIT', '')!r}"
-    if _wcs_signature(left.header, left.image.shape) != _wcs_signature(
-        right.header, right.image.shape
-    ):
-        return "spatial WCS mismatch"
-    return ""
+    return _sum_pair_incompatibility(left, right)
 
 
 def _wcs_signature(header: fits.Header, shape: tuple[int, int]) -> tuple[Any, ...]:
-    values: list[Any] = [tuple(shape)]
-    for key in _WCS_KEYS:
-        value = header.get(key, None)
-        if isinstance(value, float):
-            value = round(float(value), 12)
-        values.append((key, value))
-    return tuple(values)
+    return _spatial_wcs_signature(header, shape)
 
 
 def _same_frequency(left_mhz: float, right_mhz: float) -> bool:

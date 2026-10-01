@@ -98,7 +98,7 @@ def run_magnetogram_workflow(
     destination.mkdir(parents=True, exist_ok=True)
     output_paths: list[Path] = []
     limit = min(frame_count, len(aligned_sequence), len(file_paths))
-    batch_generated_at = dt.datetime.now(dt.UTC)
+    batch_generated_at = dt.datetime.now(dt.timezone.utc)
     for index in range(limit):
         figure = plt.figure()
         axes = figure.add_subplot(projection=aligned_sequence[index])

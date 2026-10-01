@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
+import cv2
 from PIL import Image
 
 from solar_apps.frontends.image_composer.catalog import scan_folder
@@ -77,6 +78,48 @@ def test_slot_fit_modes_and_z_order(tmp_path: Path) -> None:
     assert frame.getpixel((20, 20)) == (0, 0, 255)
 
 
+def test_static_worker_uses_each_slot_ordinal_within_one_folder(
+    tmp_path: Path,
+) -> None:
+    from solar_apps.frontends.app_v1.composer_worker import _static
+
+    folder = _folder("camera", tmp_path / "camera", [(255, 0, 0), (0, 0, 255)])
+    slots = [
+        LayoutSlot.create("camera", 1, x=0, y=0, width=20, height=20),
+        LayoutSlot.create("camera", 2, x=20, y=0, width=20, height=20),
+    ]
+    project = ComposerProject(
+        canvas=CanvasSettings(width=40, height=20), folders=[folder], slots=slots
+    )
+    output = tmp_path / "composition.png"
+    _static(project, output)
+
+    with Image.open(output) as image:
+        assert image.getpixel((10, 10)) == (255, 0, 0)
+        assert image.getpixel((30, 10)) == (0, 0, 255)
+
+
+def test_slot_records_override_folder_match_without_changing_folder_default(
+    tmp_path: Path,
+) -> None:
+    folder = _folder("camera", tmp_path / "camera", [(255, 0, 0), (0, 0, 255)])
+    slots = [
+        LayoutSlot.create("camera", 1, x=0, y=0, width=20, height=20),
+        LayoutSlot.create("camera", 2, x=20, y=0, width=20, height=20),
+    ]
+    project = ComposerProject(
+        canvas=CanvasSettings(width=40, height=20), folders=[folder], slots=slots
+    )
+    frame = compose_frame(
+        project,
+        {"camera": folder.records[0]},
+        slot_records={slots[1].id: folder.records[1]},
+    )
+
+    assert frame.getpixel((10, 10)) == (255, 0, 0)
+    assert frame.getpixel((30, 10)) == (0, 0, 255)
+
+
 def test_exif_orientation_rotation_and_opacity_match_export_geometry(
     tmp_path: Path,
 ) -> None:
@@ -135,11 +178,52 @@ def test_end_to_end_video_csv_and_png_export(
     assert result.status == "saved"
     assert result.emitted_frames == 3
     assert output.stat().st_size > 0
+    reader = cv2.VideoCapture(str(output))
+    decoded = []
+    try:
+        while True:
+            available, frame = reader.read()
+            if not available:
+                break
+            assert frame.shape[:2] == (48, 64)
+            decoded.append(tuple(int(channel) for channel in frame[24, 32][::-1]))
+    finally:
+        reader.release()
+    assert len(decoded) == 3
+    for actual, expected in zip(
+        decoded, [(255, 0, 0), (0, 255, 0), (0, 0, 255)], strict=True
+    ):
+        assert all(abs(value - target) < 20 for value, target in zip(actual, expected))
     assert len(list(result.frames_path.glob("frame_*.png"))) == 3
     with result.csv_path.open("r", encoding="utf-8-sig", newline="") as stream:
         rows = list(csv.DictReader(stream))
     assert len(rows) == 3
     assert [row["output_frame_index"] for row in rows] == ["1", "2", "3"]
+
+
+def test_sequence_same_folder_slots_keep_shared_time_matching(tmp_path: Path) -> None:
+    folder = _folder("camera", tmp_path / "camera", [(255, 0, 0), (0, 0, 255)])
+    project = ComposerProject(
+        canvas=CanvasSettings(width=40, height=20),
+        folders=[folder],
+        slots=[
+            LayoutSlot.create("camera", 1, x=0, y=0, width=20, height=20),
+            LayoutSlot.create("camera", 2, x=20, y=0, width=20, height=20),
+        ],
+        matching=MatchSettings(master_folder_id="camera"),
+        export=ExportSettings(
+            output_path=str(tmp_path / "movie.mp4"), save_png_frames=True
+        ),
+    )
+    result = export_project(project)
+    for frame_path, color in zip(
+        sorted(result.frames_path.glob("frame_*.png")),
+        [(255, 0, 0), (0, 0, 255)],
+        strict=True,
+    ):
+        with Image.open(frame_path) as image:
+            assert image.getpixel((10, 10)) == color
+            assert image.getpixel((30, 10)) == color
 
 
 def test_all_strict_frames_skipped_publishes_csv_only(tmp_path: Path) -> None:

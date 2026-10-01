@@ -40,6 +40,7 @@ from solar_toolkit.radio.centers import (
 )
 from solar_toolkit.radio.coordinates import normalize_roi_bounds_arcsec
 from solar_toolkit.radio._image_naming import build_radio_image_filename
+from solar_toolkit.radio import roi_lightcurve as scientific_roi
 
 __all__ = [
     "DEFAULT_PAIR_TOLERANCE_SEC",
@@ -1709,41 +1710,9 @@ def _pixel_coordinates_hpc_arcsec(
     x_pix: np.ndarray,
     y_pix: np.ndarray,
 ) -> tuple[np.ndarray, np.ndarray]:
-    x_values = np.asarray(x_pix, dtype=float)
-    y_values = np.asarray(y_pix, dtype=float)
-    if x_values.shape != y_values.shape:
-        raise ValueError("x/y pixel coordinate arrays must have identical shapes")
-    crpix1 = float(header.get("CRPIX1", 1.0))
-    crpix2 = float(header.get("CRPIX2", 1.0))
-    crval1 = float(header.get("CRVAL1", 0.0))
-    crval2 = float(header.get("CRVAL2", 0.0))
-    cdelt1 = float(header.get("CDELT1", 1.0))
-    cdelt2 = float(header.get("CDELT2", 1.0))
-    dx = x_values + 1.0 - crpix1
-    dy = y_values + 1.0 - crpix2
+    """Use the scientific coordinate implementation for the compatibility path."""
 
-    if all(key_name in header for key_name in ("CD1_1", "CD1_2", "CD2_1", "CD2_2")):
-        wx = float(header["CD1_1"]) * dx + float(header["CD1_2"]) * dy
-        wy = float(header["CD2_1"]) * dx + float(header["CD2_2"]) * dy
-    else:
-        pc11 = float(header.get("PC1_1", 1.0))
-        pc12 = float(header.get("PC1_2", 0.0))
-        pc21 = float(header.get("PC2_1", 0.0))
-        pc22 = float(header.get("PC2_2", 1.0))
-        if not any(
-            key_name in header for key_name in ("PC1_1", "PC1_2", "PC2_1", "PC2_2")
-        ):
-            theta = math.radians(float(header.get("CROTA2", 0.0)))
-            pc11, pc12 = math.cos(theta), -math.sin(theta)
-            pc21, pc22 = math.sin(theta), math.cos(theta)
-        x_int = cdelt1 * dx
-        y_int = cdelt2 * dy
-        wx = pc11 * x_int + pc12 * y_int
-        wy = pc21 * x_int + pc22 * y_int
-
-    x_arcsec = _to_arcsec_array(crval1 + wx, str(header.get("CUNIT1", "arcsec")))
-    y_arcsec = _to_arcsec_array(crval2 + wy, str(header.get("CUNIT2", "arcsec")))
-    return x_arcsec, y_arcsec
+    return scientific_roi._pixel_coordinates_hpc_arcsec(header, x_pix, y_pix)
 
 
 def _to_arcsec_array(values: np.ndarray, unit: str) -> np.ndarray:

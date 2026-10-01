@@ -14,7 +14,7 @@
 
 ## 安装
 
-要求 Python 3.10 以上、Miniforge，以及仓库支持的
+要求 Python 3.14 以上、Miniforge，以及仓库支持的
 `solarphysics_env_latest` 环境。在仓库根目录执行：
 
 ```powershell

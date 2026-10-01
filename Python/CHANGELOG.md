@@ -2,8 +2,9 @@
 
 ## 0.3.0
 
-- Moved all CLI, Web/GUI, browser, event configuration and orchestration code
-  to the ignored local `solar_apps` application repository.
+- Moved CLI, Web/GUI, browser, event configuration and orchestration code out
+  of the reusable library into `solar_apps`. The application now lives in the
+  public, versioned `Apps/` partition; only its `Local/` runtime is ignored.
 - Removed public console scripts and implicit workstation path/event discovery.
 - Added pure radio computation modules for reprojection, CSO processing and
   physical diagnostics.

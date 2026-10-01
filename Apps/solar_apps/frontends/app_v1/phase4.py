@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import os
+import hashlib
 import uuid
 from pathlib import Path
 
@@ -48,6 +49,7 @@ class Phase4ComposerAdapter:
                 )
             )
         )
+        self._prepared_projects: set[Path] = set()
 
     def validate_project_inputs(self, project: ComposerProject) -> None:
         if not project.folders:
@@ -81,12 +83,12 @@ class Phase4ComposerAdapter:
     ) -> TaskLaunch:
         if scale < 1 or scale > 8:
             raise ValueError("Export scale must be between 1 and 8")
-        project_path = self.save_workspace_project(project)
         output_dir, output = self._resolve_output(
             output_path,
             default_relative=Path("images/composition.png"),
             expected_suffix=".png",
         )
+        project_path = self._save_export_snapshot(project)
         return self._launch(
             title="Image Composer PNG",
             project=project,
@@ -109,7 +111,8 @@ class Phase4ComposerAdapter:
     ) -> TaskLaunch:
         if fps <= 0 or fps > 60:
             raise ValueError("FPS must be greater than 0 and no more than 60")
-        project_path = self.save_workspace_project(project)
+        if scale < 1 or scale > 8:
+            raise ValueError("Export scale must be between 1 and 8")
         expected_suffix = f".{project.export.output_format.casefold()}"
         if expected_suffix not in {".mp4", ".avi"}:
             raise ValueError("Sequence output format must be MP4 or AVI")
@@ -118,6 +121,7 @@ class Phase4ComposerAdapter:
             default_relative=Path(f"media/composition{expected_suffix}"),
             expected_suffix=expected_suffix,
         )
+        project_path = self._save_export_snapshot(project)
         launch = self._launch(
             title="Image Composer Sequence",
             project=project,
@@ -138,6 +142,28 @@ class Phase4ComposerAdapter:
                 launch.summary,
             )
         return launch
+
+    def _save_export_snapshot(self, project: ComposerProject) -> Path:
+        path = self.save_workspace_project(
+            project, name=f"composer-exports/{uuid.uuid4().hex}/composition"
+        )
+        self._prepared_projects.add(path)
+        return path
+
+    def discard_prepared_export(self, launch: TaskLaunch) -> None:
+        """Discard only this adapter's unconfirmed export snapshot."""
+        index = launch.arguments.index("--project") + 1
+        path = Path(launch.arguments[index])
+        if path not in self._prepared_projects:
+            return
+        self._prepared_projects.remove(path)
+        path.unlink(missing_ok=True)
+        path.parent.rmdir()
+
+    def confirm_prepared_export(self, launch: TaskLaunch) -> None:
+        """Transfer the snapshot to the queue, retaining it for execution/retry."""
+        index = launch.arguments.index("--project") + 1
+        self._prepared_projects.discard(Path(launch.arguments[index]))
 
     def _launch(
         self,
@@ -160,6 +186,8 @@ class Phase4ComposerAdapter:
             (
                 "--project",
                 str(project_path),
+                "--project-sha256",
+                hashlib.sha256(project_path.read_bytes()).hexdigest(),
                 "--mode",
                 mode,
                 "--output",

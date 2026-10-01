@@ -72,7 +72,7 @@ def plot_lasco_images(
     output_root.mkdir(parents=True, exist_ok=True)
     files = _scan_jp2(root, recursive=False)
     outputs: list[Path] = []
-    batch_generated_at = dt.datetime.now(dt.UTC)
+    batch_generated_at = dt.datetime.now(dt.timezone.utc)
     for sequence, file_path in enumerate(files, start=1):
         lasco_map = Map(file_path)
         figure = plt.figure()
@@ -135,7 +135,7 @@ def render_lasco_running_differences(
 
     norm = colors.Normalize(vmin=vmin, vmax=vmax)
     outputs: list[Path] = []
-    batch_generated_at = dt.datetime.now(dt.UTC)
+    batch_generated_at = dt.datetime.now(dt.timezone.utc)
     for index, (previous_path, current_path) in enumerate(
         zip(files, files[1:], strict=False), start=1
     ):

@@ -32,7 +32,7 @@ def test_radio_filename_derives_sorted_range_frequency_and_polarization() -> Non
         _radio_rows(),
         sequence=2,
         product="source_map",
-        generated_at=dt.datetime(2026, 1, 1, tzinfo=dt.UTC),
+        generated_at=dt.datetime(2026, 1, 1, tzinfo=dt.timezone.utc),
     )
     assert name == (
         "0002_20250124T044830Z-20250124T044831Z_"
@@ -44,7 +44,7 @@ def test_roi_product_filenames_sequence_only_selected_images() -> None:
     names = build_radio_roi_product_filenames(
         _radio_rows(),
         selected_products=("csv", "lightcurve_png", "lightcurve_detail_png"),
-        generated_at=dt.datetime(2026, 1, 1, tzinfo=dt.UTC),
+        generated_at=dt.datetime(2026, 1, 1, tzinfo=dt.timezone.utc),
     )
     assert names["csv"] == "radio_roi_statistics.csv"
     assert names["lightcurve_png"].startswith("0001_20250124T044830Z-")

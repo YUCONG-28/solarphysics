@@ -6,6 +6,14 @@ public entry point while the monolith shrinks. No behavior change.
 
 from __future__ import annotations
 
+from ._source_map_layout import (
+    _get_radio_display_range,
+    _apply_fixed_single_band_artifact_layout,
+    _apply_compact_radio_axis_style,
+    _prune_edge_ticklabels,
+    _add_global_radio_axis_labels,
+)
+
 
 def _deep_update_dict(base, override):
     result = dict(base)
@@ -361,193 +369,6 @@ def _candidate_slot_index(item: dict) -> int:
         ) from exc
 
 
-def _get_radio_display_range(cfg, all_extents):
-    if cfg.get("use_custom_lim", False):
-        xlim = cfg.get("custom_xlim")
-        ylim = cfg.get("custom_ylim")
-        if xlim is not None and ylim is not None:
-            return abs(xlim[1] - xlim[0]), abs(ylim[1] - ylim[0])
-    if all_extents:
-        extent = all_extents[0]
-        return abs(extent[1] - extent[0]), abs(extent[2] - extent[3])
-    return 1.0, 1.0
-
-
-def _apply_fixed_single_band_artifact_layout(
-    fig,
-    ax,
-    cbar,
-    *,
-    intensity_unit: str | None,
-    cfg,
-) -> None:
-    """Freeze sequence geometry and keep colorbar text legible on white."""
-
-    figure_width, figure_height = (float(value) for value in fig.get_size_inches())
-    if figure_width <= 0 or figure_height <= 0:
-        raise ValueError("Source Map figure dimensions must be positive")
-    x0, x1 = (float(value) for value in ax.get_xlim())
-    y0, y1 = (float(value) for value in ax.get_ylim())
-    x_span = abs(x1 - x0)
-    y_span = abs(y1 - y0)
-    if x_span <= 0 or y_span <= 0:
-        raise ValueError("Source Map world-coordinate ranges must be positive")
-
-    slot_left = 0.085
-    slot_bottom = 0.04
-    slot_width = 0.78
-    slot_height = 0.90
-    figure_aspect = figure_width / figure_height
-    data_aspect = x_span / y_span
-    panel_width = min(slot_width, slot_height * data_aspect / figure_aspect)
-    panel_height = panel_width * figure_aspect / data_aspect
-    panel_left = slot_left + 0.5 * (slot_width - panel_width)
-    panel_bottom = slot_bottom + 0.5 * (slot_height - panel_height)
-    ax.set_position([panel_left, panel_bottom, panel_width, panel_height])
-
-    colorbar_left = 0.895
-    colorbar_width = 0.022
-    cbar.ax.set_position([colorbar_left, panel_bottom, colorbar_width, panel_height])
-    unit = str(intensity_unit or "").strip()
-    label = f"Intensity [{unit}]" if unit else "Intensity"
-    tick_fontsize = max(12, int(cfg.get("tick_fontsize", 16)) - 2)
-    label_fontsize = max(14, int(cfg.get("label_fontsize", 18)) - 4)
-    cbar.set_label(
-        label,
-        fontsize=label_fontsize,
-        color="black",
-        labelpad=12,
-    )
-    cbar.ax.tick_params(
-        axis="y",
-        which="both",
-        labelsize=tick_fontsize,
-        colors="black",
-        length=6,
-        width=1.2,
-    )
-    cbar.ax.yaxis.get_offset_text().set_color("black")
-    cbar.ax.yaxis.get_offset_text().set_fontsize(tick_fontsize)
-    cbar.outline.set_edgecolor("black")
-
-
-def _apply_compact_radio_axis_style(ax, row, col, nrow, ncol, cfg):
-    hide_inner = cfg.get(
-        "radio_hide_inner_ticklabels", cfg.get("hide_inner_ticks", True)
-    )
-    if hide_inner:
-        if row < nrow - 1:
-            ax.tick_params(axis="x", which="both", bottom=False, labelbottom=False)
-        if col > 0:
-            ax.tick_params(axis="y", which="both", left=False, labelleft=False)
-    if cfg.get("radio_use_global_axis_labels", True):
-        ax.set_xlabel("")
-        ax.set_ylabel("")
-    else:
-        if row == nrow - 1:
-            ax.set_xlabel(
-                cfg.get("radio_global_xlabel", "x (arcsec)"),
-                fontsize=cfg["label_fontsize"] - 6,
-            )
-        else:
-            ax.set_xlabel("")
-        if col == 0:
-            ax.set_ylabel(
-                cfg.get("radio_global_ylabel", "y (arcsec)"),
-                fontsize=cfg["label_fontsize"] - 6,
-            )
-        else:
-            ax.set_ylabel("")
-    if not cfg.get("radio_show_internal_spines", True):
-        if col < ncol - 1:
-            ax.spines["right"].set_visible(False)
-        if row < nrow - 1:
-            ax.spines["bottom"].set_visible(False)
-
-
-def _prune_edge_ticklabels(ax, row, col, nrow, ncol, cfg):
-    if not cfg.get("radio_hide_overlapping_edge_ticklabels", True):
-        return
-    tol = float(cfg.get("radio_tick_prune_tolerance", 1e-6))
-    xlim = ax.get_xlim()
-    ylim = ax.get_ylim()
-    xmin, xmax = min(xlim), max(xlim)
-    ymin, ymax = min(ylim), max(ylim)
-    if row == nrow - 1:
-        for tick, label in zip(ax.get_xticks(), ax.get_xticklabels(), strict=False):
-            if col > 0 and abs(tick - xmin) <= max(tol, 1e-6 * max(abs(xmin), 1.0)):
-                label.set_visible(False)
-            if col < ncol - 1 and abs(tick - xmax) <= max(
-                tol, 1e-6 * max(abs(xmax), 1.0)
-            ):
-                label.set_visible(False)
-    if col == 0:
-        for tick, label in zip(ax.get_yticks(), ax.get_yticklabels(), strict=False):
-            if row > 0 and abs(tick - ymax) <= max(tol, 1e-6 * max(abs(ymax), 1.0)):
-                label.set_visible(False)
-            if row < nrow - 1 and abs(tick - ymin) <= max(
-                tol, 1e-6 * max(abs(ymin), 1.0)
-            ):
-                label.set_visible(False)
-
-
-def _add_global_radio_axis_labels(fig, axes, cfg, spectrogram_ax=None):
-    if not cfg.get("radio_use_global_axis_labels", True):
-        return
-    xlabel_mode = str(cfg.get("radio_global_xlabel_mode", "auto") or "auto").lower()
-    if xlabel_mode == "off":
-        return
-    fig.canvas.draw_idle()
-    boxes = [
-        ax.get_position() for row_axes in axes for ax in row_axes if ax.get_visible()
-    ]
-    if not boxes:
-        return
-    left = min(b.x0 for b in boxes)
-    right = max(b.x1 for b in boxes)
-    bottom = min(b.y0 for b in boxes)
-    top = max(b.y1 for b in boxes)
-    show_xlabel = not (
-        spectrogram_ax is not None and xlabel_mode == "hidden_when_spectrogram"
-    )
-    if show_xlabel:
-        if spectrogram_ax is not None and xlabel_mode == "auto":
-            spec_box = spectrogram_ax.get_position()
-            spec_top = spec_box.y1
-            gap_fraction = float(cfg.get("radio_spectrogram_label_gap_fraction", 0.55))
-            min_gap = float(cfg.get("radio_global_xlabel_min_y_gap", 0.018))
-            if bottom - spec_top < 2.0 * min_gap:
-                show_xlabel = False
-            else:
-                label_y = spec_top + (bottom - spec_top) * gap_fraction
-                label_y = max(label_y, spec_top + min_gap)
-                label_y = min(label_y, bottom - min_gap)
-                va = "center"
-        else:
-            label_y = bottom - float(cfg.get("radio_global_xlabel_offset", 0.015))
-            va = "top"
-    if show_xlabel:
-        fig.text(
-            0.5 * (left + right),
-            label_y,
-            cfg.get("radio_global_xlabel", "x (arcsec)"),
-            ha="center",
-            va=va,
-            fontsize=cfg.get("label_fontsize", 28) - 6,
-            color=cfg.get("tick_color", "black"),
-        )
-    fig.text(
-        left - float(cfg.get("radio_global_ylabel_offset", 0.035)),
-        0.5 * (bottom + top),
-        cfg.get("radio_global_ylabel", "y (arcsec)"),
-        ha="right",
-        va="center",
-        rotation=90,
-        fontsize=cfg.get("label_fontsize", 28) - 6,
-        color=cfg.get("tick_color", "black"),
-    )
-
-
 def _multi_band_output_subdir(cfg: dict) -> str:
     polarization = cfg.get("polarization", "RR")
     subdir_template = cfg.get("multi_band_output_subdir", "multi_band_{polar}")
@@ -621,3 +442,15 @@ __all__ = [
     "_combine_polarization_data",
     "_migrate_config",
 ]
+
+
+def background_enabled_for_display(cfg: dict) -> bool:
+    return resolve_background_workflow(cfg) in {"display_only", "display_and_fit"}
+
+
+def background_enabled_for_fit(cfg: dict) -> bool:
+    return resolve_background_workflow(cfg) in {"fit_only", "display_and_fit"}
+
+
+def background_workflow_enabled(cfg: dict) -> bool:
+    return resolve_background_workflow(cfg) != "off"
