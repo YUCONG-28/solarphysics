@@ -8,18 +8,35 @@ differences.
 
 from __future__ import annotations
 
+import operator
+
 import numpy as np
 
 
 def smooth_series(values, *, window_length: int = 5) -> np.ndarray:
-    """Smooth values with a centered moving average and zero-padded edges."""
+    """Return an equally long centered average with zero-padded edges.
 
-    window = max(1, int(window_length))
+    ``window_length`` must be a positive integer. Even windows retain the
+    historical adjustment to the next odd size; NaNs propagate through every
+    neighborhood containing them.
+    """
+
+    try:
+        window = operator.index(window_length)
+    except TypeError as exc:
+        raise ValueError("window_length must be a positive integer") from exc
+    if isinstance(window_length, (bool, np.bool_)) or window <= 0:
+        raise ValueError("window_length must be a positive integer")
     if window % 2 == 0:
         window += 1
     array = np.asarray(values, dtype=float)
+    if array.ndim != 1:
+        raise ValueError("values must be a one-dimensional series")
+    if array.size == 0:
+        return np.asarray([], dtype=float)
     kernel = np.ones(window, dtype=float) / window
-    return np.convolve(array, kernel, mode="same")
+    start = window // 2
+    return np.convolve(array, kernel, mode="full")[start : start + array.size]
 
 
 def derivative_series(values, *, spacing_seconds: float = 1.0) -> np.ndarray:
