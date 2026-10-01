@@ -142,6 +142,14 @@ def _parse_datetime_text(value: str) -> dt.datetime:
     if not text:
         raise ValueError("Image filename time is required.")
     iso_text = text[:-1] + "+00:00" if text.endswith(("Z", "z")) else text
+    # Older fromisoformat implementations accept only millisecond/microsecond
+    # precision. Filenames deliberately discard subseconds, so normalize the
+    # fraction without rounding across a second or changing timezone offsets.
+    iso_text = re.sub(
+        r"(\d{2}:\d{2}:\d{2})\.(\d+)",
+        lambda match: f"{match[1]}.{match[2][:6].ljust(6, '0')}",
+        iso_text,
+    )
     try:
         return dt.datetime.fromisoformat(iso_text)
     except ValueError:
