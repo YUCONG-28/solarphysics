@@ -52,8 +52,6 @@ def test_pipeline_passes_event_config_without_rebinding_shared_config(
     assert core.CONFIG is original_core
 
 
-
-
 @pytest.mark.parametrize("explicit", [False, True])
 def test_request_options_leave_legacy_defaults_and_nested_values_unchanged(
     monkeypatch: pytest.MonkeyPatch, explicit: bool
