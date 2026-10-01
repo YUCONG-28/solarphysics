@@ -4403,12 +4403,8 @@ def _run_source_map_workflow(user_config=None, *, argv=None):
     return _run_source_map_config(cfg, argv=argv)
 
 
-def _run_source_map_config(config: dict, *, argv=None):
-    """Execute one already-resolved configuration with request-owned mutable state."""
-    if not isinstance(config, dict):
-        raise TypeError("config must be a dictionary")
-    cfg = copy.deepcopy(config)
-
+def _parse_source_map_args(argv=None):
+    """Parse the retained source-map options for one request."""
     parser = argparse.ArgumentParser(add_help=True)
     parser.add_argument("--self-test", action="store_true")
     parser.add_argument("--select-drift", action="store_true")
@@ -4422,7 +4418,11 @@ def _run_source_map_config(config: dict, *, argv=None):
     parser.add_argument("--disable-drift", action="store_true")
     parser.add_argument("--enable-drift", action="store_true")
     args, _unknown = parser.parse_known_args(argv)
-    cfg = _migrate_config(cfg)
+    return args
+
+
+def _apply_source_map_cli_args(cfg: dict, args: argparse.Namespace) -> dict:
+    """Apply source-map options to a request-owned configuration in place."""
     if args.disable_drift:
         cfg["enable_drift_rate_overlay"] = False
         cfg["drift_rate_mode"] = "off"
@@ -4442,6 +4442,18 @@ def _run_source_map_config(config: dict, *, argv=None):
         cfg.setdefault("drift_rate_interactive", {})[
             "launch_policy"
         ] = args.drift_launch_policy
+    return cfg
+
+
+def _run_source_map_config(config: dict, *, argv=None):
+    """Execute one already-resolved configuration with request-owned mutable state."""
+    if not isinstance(config, dict):
+        raise TypeError("config must be a dictionary")
+    cfg = copy.deepcopy(config)
+
+    args = _parse_source_map_args(argv)
+    cfg = _migrate_config(cfg)
+    cfg = _apply_source_map_cli_args(cfg, args)
     if args.self_test or cfg.get("run_self_test", False):
         matplotlib.use("Agg")
         run_self_tests()

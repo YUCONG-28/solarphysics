@@ -7,6 +7,7 @@ inside the helpers that actually need scientific arrays or figures.
 
 from __future__ import annotations
 
+import copy
 import re  # noqa: F401 - retained module namespace
 import sys
 from datetime import datetime, timezone
@@ -109,13 +110,15 @@ def _run_pipeline(argv=None, *, config_name: str | None = None):
         presentation_cfg,
         args,
     )
-    cfg = build_legacy_config(user_config, source_map_workflow)
+    cfg = copy.deepcopy(build_legacy_config(user_config, source_map_workflow))
     cfg["enable_gaussian_overlay"] = True
     cfg["save_gaussian_diagnostics"] = True
     if user_config.get("drift_rate", {}).get("enabled", False):
         cfg["enable_spectrogram_panel"] = True
         cfg["enable_drift_rate_overlay"] = True
 
+    source_args = source_map_workflow._parse_source_map_args(argv)
+    cfg = source_map_workflow._apply_source_map_cli_args(cfg, source_args)
     source_map_workflow._run_source_map_config(cfg, argv=argv)
 
     # Downstream stages consume the Gaussian diagnostics table rather than
