@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import importlib
+import subprocess
+import sys
 
 import pytest
 
@@ -104,6 +106,30 @@ def test_base_namespace_reexports_canonical_symbols(package_name, exports):
             assert getattr(package, name) is implementation
         else:
             assert getattr(package, name) is getattr(implementation, name)
+
+
+def test_optional_jet_map_functions_load_only_when_requested():
+    script = """
+import importlib
+import sys
+
+package = importlib.import_module('solar_toolkit.map')
+assert 'solar_toolkit.map.jet_axis' not in sys.modules
+assert 'solar_toolkit.map.jet_geometry_fit' not in sys.modules
+for name, module_name in (
+    ('fit_jet_axis', 'solar_toolkit.map.jet_axis'),
+    ('fit_jet_geometry', 'solar_toolkit.map.jet_geometry_fit'),
+    ('freeze_jet_documents', 'solar_toolkit.map.jet_geometry_fit'),
+):
+    function = getattr(package, name)
+    implementation = importlib.import_module(module_name)
+    assert function is getattr(implementation, name)
+    assert name not in package.__all__
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", script], text=True, capture_output=True, timeout=30
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
 
 
 @pytest.mark.parametrize(

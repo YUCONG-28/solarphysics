@@ -91,19 +91,20 @@ jobs:
         run: python -m pip check
 
       - name: Compile public Python sources
-        run: python -m compileall -q solar_toolkit tests examples/public_api
+        run: python -m compileall -q solar_toolkit tests examples/public_api examples/radio examples/sxr
 
       - name: Run Ruff
-        run: python -m ruff check solar_toolkit tests examples/public_api
+        run: python -m ruff check solar_toolkit tests examples/public_api examples/radio examples/sxr
 
       - name: Run public Python tests
         run: python -m pytest tests -ra --junitxml "$RUNNER_TEMP/python-tests.xml"
 
-      - name: Run Python literature tests and read-only catalog check
-        working-directory: .
+      - name: Run data-independent examples
         run: |
-          python -m unittest discover -s tools/literature/tests -p "test_*.py"
-          python tools/literature/catalog_cli.py check
+          python examples/public_api/time_matching_example.py
+          python examples/public_api/gaussian_model_example.py
+          python examples/radio/synthetic_radio.py --output-dir "$RUNNER_TEMP/radio-example"
+          python examples/sxr/sxr_example.py --output-dir "$RUNNER_TEMP/sxr-example"
 
       - name: Build wheel
         run: python -m build --wheel --outdir dist
@@ -419,71 +420,3 @@ jobs:
         run: |
           conda run --no-capture-output -n solarphysics_env_latest \
             python -m build --wheel --outdir Apps/dist Apps
-
-  literature-catalog:
-    name: Literature catalog
-    runs-on: windows-latest
-    defaults:
-      run:
-        shell: powershell
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
-
-      - name: Validate catalog is current
-        run: .\tools\literature\update_catalog.ps1 -Check
-
-      - name: Validate catalog records and repository boundary
-        run: |
-          $parsedCatalog = Get-Content -Raw .\Paper\catalog\papers.json | ConvertFrom-Json
-          $catalog = @($parsedCatalog)
-          if ($catalog.Count -eq 0) { throw "Literature catalog is empty" }
-
-          foreach ($field in @("title", "doi", "arxiv_id")) {
-              $values = @($catalog | ForEach-Object {
-                  ([string]$_.$field).Trim().ToLowerInvariant()
-              } | Where-Object { $_ })
-              if ($field -eq "title" -and $values.Count -ne $catalog.Count) {
-                  throw "A catalog record has no title"
-              }
-              if (@($values | Sort-Object -Unique).Count -ne $values.Count) {
-                  throw "Literature catalog contains duplicate $field values"
-              }
-          }
-
-          $trackedDocuments = @(git ls-files -- Paper | Where-Object {
-              $_ -match '(?i)\.(pdf|doc|docx)$'
-          })
-          if ($trackedDocuments.Count -ne 0) {
-              throw "Paper contains tracked PDF/DOC/DOCX files: $($trackedDocuments -join ', ')"
-          }
-
-          Write-Host "Literature catalog validation passed: records=$($catalog.Count)"
-
-      - name: Install pinned Pester
-        run: |
-          $version = "4.10.1"
-          $packagePath = Join-Path $env:RUNNER_TEMP "Pester.$version.nupkg"
-          $archivePath = Join-Path $env:RUNNER_TEMP "Pester.$version.zip"
-          $modulePath = Join-Path $env:RUNNER_TEMP "Pester-$version"
-          $expectedHash = "898210e1a30c52cd46ba317c2278a9324345214213aa2f7d6b7dfa7b98f37ac9"
-
-          Invoke-WebRequest -UseBasicParsing `
-            -Uri "https://www.powershellgallery.com/api/v2/package/Pester/$version" `
-            -OutFile $packagePath
-          $actualHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $packagePath).Hash.ToLowerInvariant()
-          if ($actualHash -ne $expectedHash) {
-              throw "Pester package checksum mismatch: $actualHash"
-          }
-
-          Copy-Item -LiteralPath $packagePath -Destination $archivePath
-          Expand-Archive -LiteralPath $archivePath -DestinationPath $modulePath
-          Get-ChildItem -LiteralPath $modulePath -File -Recurse | Unblock-File
-          $manifestPath = Join-Path $modulePath "Pester.psd1"
-          if (-not (Test-Path -LiteralPath $manifestPath)) {
-              throw "Pester manifest not found: $manifestPath"
-          }
-          "PESTER_MODULE_PATH=$manifestPath" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-
-      - name: Run Literature catalog Pester tests
-        run: powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Import-Module '$env:PESTER_MODULE_PATH' -Force; Invoke-Pester -Script .\tools\literature\tests\LiteratureCatalog.Tests.ps1 -EnableExit"

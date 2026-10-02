@@ -30,7 +30,7 @@ __all__ = [
 
 @lru_cache(maxsize=8192)
 def _parse_timestr_from_name(name: str) -> str:
-    """Extract a stable time string such as 2025-01-24T033001Z."""
+    """Extract a stable time string such as 2000-01-01T000000Z."""
     match = re.search(r"\d{4}-\d{2}-\d{2}T\d{6}Z", name)
     if match:
         return match.group(0)
@@ -43,7 +43,7 @@ def _parse_timestr_from_name(name: str) -> str:
 
 
 def parse_timestr(file_path: Path) -> str:
-    """Extract a stable time string such as 2025-01-24T033001Z."""
+    """Extract a stable time string such as 2000-01-01T000000Z."""
     return _parse_timestr_from_name(Path(file_path).name)
 
 

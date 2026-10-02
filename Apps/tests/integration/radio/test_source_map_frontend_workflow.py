@@ -24,7 +24,7 @@ def _write_map(
     y, x = np.mgrid[-1:1:48j, -1:1:48j]
     data = scale * (10.0 + 200.0 * np.exp(-((x - 0.2) ** 2 + (y + 0.1) ** 2) / 0.08))
     header = fits.Header()
-    header["DATE-OBS"] = "2025-01-24T04:48:30"
+    header["DATE-OBS"] = "2000-01-01T04:48:30"
     header["FREQ"] = frequency
     header["POLAR"] = "RR"
     header["BUNIT"] = bunit

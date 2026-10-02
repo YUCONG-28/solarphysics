@@ -18,7 +18,7 @@ from solar_apps.frontends.radio.source_map.service import (
 def _write_radio_fits(path: Path, *, polarization: str, bunit: str = "K") -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     header = fits.Header()
-    header["DATE-OBS"] = "2025-01-24T04:48:30"
+    header["DATE-OBS"] = "2000-01-01T04:48:30"
     header["FREQ"] = 149.0
     header["POLAR"] = polarization
     header["BUNIT"] = bunit
@@ -105,7 +105,9 @@ def test_seven_digit_calendar_date_ignores_dated_parent_directory(
     tmp_path: Path,
 ) -> None:
     path = (
-        tmp_path / "app-v1-realdata-20260728T051015Z" / "149MHz_2025124_044829_000.fits"
+        tmp_path
+        / "synthetic-parent-20000201T000000Z"
+        / "149MHz_2000101_044829_000.fits"
     )
 
     observed = workflow.radio_datetime_from_header_or_path(
@@ -115,7 +117,7 @@ def test_seven_digit_calendar_date_ignores_dated_parent_directory(
     )
 
     assert observed is not None
-    assert observed.isoformat() == "2025-01-24T04:48:29"
+    assert observed.isoformat() == "2000-01-01T04:48:29"
 
 
 def test_single_band_rr_ll_discovery_freezes_matched_pair(tmp_path: Path) -> None:

@@ -2,7 +2,7 @@
 # 主要输入: AIA_Flux_data.py 生成的表格数据。
 # 主要输出/运行说明: 输出科研绘图风格的光变曲线图。
 """
-Created on Fri Oct 10 21:41:08 2025
+Plot caller-supplied AIA light curves.
 
 """
 
@@ -272,8 +272,8 @@ def main(argv=None) -> int:
         "--times",
         type=str,
         nargs="*",
-        default=["2024-08-08 19:22:30", "2024-08-08 19:27:30"],
-        help='需要标记的时间点列表（格式：YYYY-MM-DD HH:MM:SS，例如："2023-10-01 19:22:30" "2023-10-01 20:00:00"）',
+        default=[],
+        help='需要标记的时间点列表（格式：YYYY-MM-DD HH:MM:SS，例如："2000-01-01 00:00:00" "2000-01-01 00:01:00"）',
     )
     args = parser.parse_args(argv)
 

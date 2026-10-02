@@ -20,7 +20,7 @@ def _curve_df() -> pd.DataFrame:
     return pd.DataFrame(
         {
             "obs_time": pd.date_range(
-                "2025-01-24T04:48:45", periods=4, freq="s", tz="UTC"
+                "2000-01-01T04:48:45", periods=4, freq="s", tz="UTC"
             ).astype(str),
             "freq_mhz": [149.0] * 4,
             "polarization": ["L+R"] * 4,

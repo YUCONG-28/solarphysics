@@ -149,8 +149,8 @@ def test_drift_selection_match_propagates_label_and_source_type():
                 {
                     "label": "drift_001",
                     "source_type": "typeIII",
-                    "t_start": "2025-01-24T04:48:38",
-                    "t_end": "2025-01-24T04:48:42",
+                    "t_start": "2000-01-01T04:48:38",
+                    "t_end": "2000-01-01T04:48:42",
                     "f_start_mhz": 180.0,
                     "f_end_mhz": 100.0,
                 }
@@ -164,7 +164,7 @@ def test_drift_selection_match_propagates_label_and_source_type():
 
 def _gaussian_row(freq=150.0, x=960.0, y=0.0):
     return {
-        "time": "2025-01-24T04:48:40",
+        "time": "2000-01-01T04:48:40",
         "freq": freq,
         "center_x_arcsec": x,
         "center_y_arcsec": y,

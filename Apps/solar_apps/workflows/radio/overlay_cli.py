@@ -18,6 +18,12 @@ from solar_toolkit.radio.provenance import (
     write_radio_provenance,
 )
 
+from .entrypoint_utils import (
+    add_config_arguments,
+    load_json_config,
+    resolve_config_source,
+)
+
 __all__ = ["build_parser", "main"]
 
 
@@ -29,19 +35,7 @@ def build_parser() -> argparse.ArgumentParser:
         description="Generate an AIA/radio/HMI overlay.",
         add_help=True,
     )
-    parser.add_argument(
-        "--config",
-        default=DEFAULT_CONFIG_NAME,
-        help="Event configuration module name.",
-    )
-    parser.add_argument(
-        "--config-file",
-        type=Path,
-        help=(
-            "Install-safe JSON configuration file. It may contain the selected "
-            "overlay section or the section mapping directly."
-        ),
-    )
+    add_config_arguments(parser, default_config=DEFAULT_CONFIG_NAME)
     parser.add_argument(
         "--overlay-section",
         default="aia_radio_hmi",
@@ -74,14 +68,7 @@ def build_parser() -> argparse.ArgumentParser:
 def _load_json_overlay_config(path: Path, section: str) -> dict:
     """Load an overlay section from an install-safe JSON configuration file."""
 
-    with path.expanduser().open(encoding="utf-8") as handle:
-        payload = json.load(handle)
-    if not isinstance(payload, dict):
-        raise TypeError("Overlay JSON configuration must contain an object.")
-    selected = payload.get(section, payload)
-    if not isinstance(selected, dict):
-        raise TypeError(f"Overlay configuration section {section!r} must be an object.")
-    return selected
+    return load_json_config(path, section=section)
 
 
 def _apply_cli_overrides(user_config: dict, args: argparse.Namespace) -> dict:
@@ -129,7 +116,7 @@ def main(
         config_source = str(args.config_file)
     else:
         user_config = load_aia_radio_overlay_user_config(
-            args.config,
+            resolve_config_source(args),
             section=args.overlay_section,
         )
         config_source = args.config

@@ -29,7 +29,7 @@ def _queue_candidate(index: int, decision: str) -> dict:
         "polarization": "RR" if index % 3 else "LL",
         "file_index": index,
         "slot_index": index,
-        "time": f"2025-05-03T07:20:{index:02d}Z",
+        "time": f"2000-05-03T07:20:{index:02d}Z",
         "automatic_decision": decision,
         "features": {
             "dynamic_range_z": 5.0 + index * 7.0,
@@ -91,7 +91,7 @@ def test_legacy_schemas_are_read_as_v3_and_automatic_skip_is_not_human(
         "polarization": "RR",
         "file_index": 0,
         "slot_index": 0,
-        "time": "2025-05-03T07:20:00Z",
+        "time": "2000-05-03T07:20:00Z",
         "algorithm_flag": "bad",
         "algorithm_reason": "legacy-rule",
         "metrics": {},
@@ -106,7 +106,7 @@ def test_legacy_schemas_are_read_as_v3_and_automatic_skip_is_not_human(
                 "kind": "radio-bad-frame-review",
                 "review_id": "legacy-completed",
                 "status": "completed",
-                "updated_at": "2025-05-03T08:00:00Z",
+                "updated_at": "2000-05-03T08:00:00Z",
                 "candidates": [{**base_candidate, "decision_source": "human"}],
                 "files": [],
                 "final_bad_files": [],
@@ -131,7 +131,7 @@ def test_legacy_schemas_are_read_as_v3_and_automatic_skip_is_not_human(
                 "kind": "radio-bad-frame-review",
                 "review_id": "legacy-skipped",
                 "status": "skipped",
-                "updated_at": "2025-05-03T08:00:00Z",
+                "updated_at": "2000-05-03T08:00:00Z",
                 "candidates": [
                     {**base_candidate, "decision_source": "automatic_on_skip"}
                 ],
@@ -186,7 +186,7 @@ def _draft_manifest(review_id: str, paths: list[Path]) -> dict:
                 "polarization": "RR",
                 "file_index": index,
                 "slot_index": index,
-                "time": f"2025-05-03T07:20:{index:02d}Z",
+                "time": f"2000-05-03T07:20:{index:02d}Z",
             }
         )
         candidates.append(
@@ -199,7 +199,7 @@ def _draft_manifest(review_id: str, paths: list[Path]) -> dict:
                 "polarization": "RR",
                 "file_index": index,
                 "slot_index": index,
-                "time": f"2025-05-03T07:20:{index:02d}Z",
+                "time": f"2000-05-03T07:20:{index:02d}Z",
                 "algorithm_flag": "bad",
                 "algorithm_reason": "scientific-test",
                 "metrics": {},
@@ -230,8 +230,8 @@ def _draft_manifest(review_id: str, paths: list[Path]) -> dict:
         "kind": "radio-bad-frame-review",
         "review_id": review_id,
         "status": "draft",
-        "created_at": "2025-05-03T08:00:00Z",
-        "updated_at": "2025-05-03T08:00:00Z",
+        "created_at": "2000-05-03T08:00:00Z",
+        "updated_at": "2000-05-03T08:00:00Z",
         "completed_at": None,
         "input": {"candidate_strategy": "labeling"},
         "input_fingerprint": "sha256:test",
@@ -306,7 +306,7 @@ def _write_science_fits(path: Path, second: int) -> None:
     yy, xx = np.indices((32, 32))
     image = 10.0 + 1000.0 * np.exp(-((xx - 16) ** 2 + (yy - 16) ** 2) / 18.0)
     hdu = fits.ImageHDU(data=image.astype(np.float32))
-    hdu.header["DATE-OBS"] = f"2025-05-03T07:20:{second:02d}Z"
+    hdu.header["DATE-OBS"] = f"2000-05-03T07:20:{second:02d}Z"
     hdu.header["CTYPE1"] = "HPLN-TAN"
     hdu.header["CTYPE2"] = "HPLT-TAN"
     hdu.header["CDELT1"] = 1.0
@@ -322,7 +322,7 @@ def test_labeling_review_writes_scientific_csv_and_sample_fingerprints(
     root = tmp_path / "radio"
     for index in range(4):
         _write_science_fits(
-            root / "149MHz" / "RR" / f"149MHz_20250503_0720{index:02d}.fits",
+            root / "149MHz" / "RR" / f"149MHz_20000503_0720{index:02d}.fits",
             index,
         )
     store = BadFrameReviewStore(tmp_path / "reviews", [tmp_path])

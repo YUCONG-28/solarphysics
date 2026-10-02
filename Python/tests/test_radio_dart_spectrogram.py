@@ -26,7 +26,7 @@ def _write_dataset(
     time_rows: np.ndarray,
     stokes_i_db: np.ndarray,
     stokes_v_over_i: np.ndarray | None = None,
-    prefix: str = "2025-01-24_",
+    prefix: str = "2000-01-01_",
 ) -> DartSpectrogramFiles:
     folder.mkdir(parents=True, exist_ok=True)
     vp = (
@@ -47,7 +47,7 @@ def _write_dataset(
 
 def _time_rows(*seconds: float) -> np.ndarray:
     return np.asarray(
-        [[25, 1, 24, 4, 45, second] for second in seconds],
+        [[0, 1, 1, 4, 45, second] for second in seconds],
         dtype=np.float64,
     )
 
@@ -100,8 +100,8 @@ def test_read_window_parses_utc_and_keeps_partial_downsampling_bins(
     expected_first_block = np.mean([101.0, 101.0, 102.0])
     assert result.stokes_i_db[0, 0] == pytest.approx(expected_first_block)
     assert result.stokes_i_db[-1, -1] == pytest.approx(106.5)
-    assert result.time_utc[0] == datetime(2025, 1, 24, 4, 45, 0, 750000, tzinfo=UTC)
-    assert result.time_utc[1] == datetime(2025, 1, 24, 4, 45, 2, 750000, tzinfo=UTC)
+    assert result.time_utc[0] == datetime(2000, 1, 1, 4, 45, 0, 750000, tzinfo=UTC)
+    assert result.time_utc[1] == datetime(2000, 1, 1, 4, 45, 2, 750000, tzinfo=UTC)
 
 
 def test_read_window_normalizes_descending_frequency_orientation(
@@ -216,8 +216,8 @@ def test_narrowband_time_selection_is_inclusive_and_utc_aware(
         [149.0],
         2.0,
         time_range_utc=(
-            "2025-01-24T04:45:01Z",
-            "2025-01-24T04:45:02+00:00",
+            "2000-01-01T04:45:01Z",
+            "2000-01-01T04:45:02+00:00",
         ),
     )
 

@@ -15,9 +15,9 @@ def test_height_time_plot_does_not_connect_raw_multifrequency_rows():
         result = plot_gaussian_vs_newkirk_height_time(
             pd.DataFrame(
                 [
-                    _height_row("2025-01-24T04:48:30", 238.0, 0.10, 0.20),
-                    _height_row("2025-01-24T04:48:30", 149.0, 0.12, 0.35),
-                    _height_row("2025-01-24T04:48:31", 205.0, 0.13, 0.25),
+                    _height_row("2000-01-01T04:48:30", 238.0, 0.10, 0.20),
+                    _height_row("2000-01-01T04:48:30", 149.0, 0.12, 0.35),
+                    _height_row("2000-01-01T04:48:31", 205.0, 0.13, 0.25),
                 ]
             ),
             path,

@@ -77,7 +77,6 @@ from solar_apps.ui.streamlit_paths import (
     resolve_streamlit_allowed_roots,
 )
 from solar_apps.ui.theme import apply_plotly_chrome, render_streamlit_theme
-from solar_apps.workflows.radio.configs import DEFAULT_CONFIG_NAME
 from solar_apps.workflows.radio.spatial_display import SpatialRadioDisplay
 from solar_toolkit.radio.dart_spectrogram import (
     DartNarrowbandCurve,
@@ -544,8 +543,8 @@ def _render_source_map_configuration(
         )
     with main_columns[3]:
         config_name = st.text_input(
-            "Event config",
-            value=DEFAULT_CONFIG_NAME,
+            "Configuration JSON (optional with explicit form inputs)",
+            value="",
             key="source_config",
         )
 
@@ -642,7 +641,7 @@ def _render_source_map_configuration(
             "mode": mode,
             "frequencies": list(selected_frequencies),
             "polarization": polarization,
-            "config": config_name,
+            "config_file": config_name,
             "transform": transform,
             "cmap": cmap,
             "bad_color": bad_color,
@@ -666,7 +665,7 @@ def _render_source_map_configuration(
             )
             policy = PathPolicy(path_policy.output_roots)
             base_request = {
-                "config": config_name,
+                "config_file": config_name,
                 "mode": mode,
                 "source_path": str(path_policy.input_directory(radio_dir_text)),
                 "output_dir": str(preview_dir),

@@ -30,7 +30,7 @@ def fixture_bundle(path):
             CDELT1=5,
             CDELT2=5,
             EXPTIME=2,
-            DATE_OBS="2025-01-24T04:48:30",
+            DATE_OBS="2000-01-01T04:48:30",
             DSUN_OBS=149597870700,
             HGLN_OBS=0,
             HGLT_OBS=0,
@@ -48,7 +48,7 @@ def fixture_bundle(path):
     }
     (path / "resolved_config.json").write_text(json.dumps(config))
     (path / "sources.csv").write_text(
-        "source_id,time_utc,frequency_mhz,center_x_arcsec,center_y_arcsec\ns,2025-01-24T04:48:30Z,150,900,-200\n"
+        "source_id,time_utc,frequency_mhz,center_x_arcsec,center_y_arcsec\ns,2000-01-01T04:48:30Z,150,900,-200\n"
     )
     (path / "newkirk_forward_ranking.csv").write_text(
         "fieldline_id,multiplier,harmonic,median,count,max\na,1,1,42,1,42\n"

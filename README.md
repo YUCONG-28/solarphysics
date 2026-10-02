@@ -1,112 +1,77 @@
-# Solar Physics App 1.0
+# Solar Physics Toolkit
 
 [![CI](https://github.com/YUCONG-28/solarphysics/actions/workflows/ci.yml/badge.svg)](https://github.com/YUCONG-28/solarphysics/actions/workflows/ci.yml)
 
-Solar Physics App 1.0 is the primary deliverable of this repository: a native
-PyQt6 desktop application that orchestrates reusable solar-observation
-workflows for AIA/HMI, radio, X-ray/DEM, and media processing. The repository
-also contains the supporting `solar_toolkit` Python library, literature
-evidence, and maintenance tooling.
+可按需组合的太阳物理基础代码库。主要内容是 `solar_toolkit` 中的数据读取、
+时间匹配、图像处理、几何计算、射电分析和绘图模块。使用者根据自己的输入、
+参数和科学问题选择模块，组合分析流程。
 
-## Quick start
+少量示例与应用用于展示模块的组合方式。真实任务的观测数据、事件配置、
+处理条件和结果验证由使用者自行准备。
 
-### macOS / Linux
+## 从基础模块开始
+
+科学库支持 Python 3.10 及以上；本仓库开发使用 Miniforge 的
+`solarphysics_env_latest` 环境。从仓库根目录安装：
+
+```bash
+<miniforge-root>/bin/conda run -n solarphysics_env_latest python -m pip install -e ./Python
+```
+
+Windows 使用 `<miniforge-root>\Scripts\conda.exe` 执行相同命令。
+不需要安装应用层即可使用科学库：
+
+```python
+from datetime import datetime, timedelta, timezone
+
+from solar_toolkit.radio.reprojection import nearest_time_index
+
+target = datetime(2000, 1, 1, tzinfo=timezone.utc)
+samples = [target - timedelta(seconds=1), target + timedelta(seconds=2)]
+index = nearest_time_index(target, samples)
+```
+
+| 需求 | 入口 |
+| --- | --- |
+| 查找模块、安装和验证科学库 | [Python 使用说明](Python/README.md) |
+| 查找公共接口及兼容入口 | [接口索引](Python/docs/FUNCTION_MAP.md) |
+| 从小型确定性示例开始 | [公共 API 示例](Python/examples/public_api/README.md) |
+| 组合频谱读取、时间匹配与显示 | [射电示例](Python/examples/radio/README.md) |
+| 读取用户提供的 EUVI 图像 | [STEREO 示例](Python/examples/stereo/README.md) |
+| 组合 SXR 数据读取与曲线绘制 | [SXR 示例](Python/examples/sxr/README.md) |
+
+示例生成的数据和输出保存在用户指定的私有目录。示例中的合成输入只用于
+说明接口和检查软件行为，不构成真实观测证据。
+
+## 应用展示
+
+`Apps` 提供科学模块的界面适配和工作流组合。应用层需要 Python 3.14，
+安装与运行方法见 [应用说明](Apps/README.md)。桌面展示入口：
 
 ```bash
 ./Apps/run.sh frontend app-v1
 ```
 
-### Windows
+## 仓库结构
 
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Apps\run.ps1 frontend app-v1
-```
-
-First-time setup initializes the private runtime and creates the fail-closed
-path configuration:
-
-```bash
-./Apps/run.sh admin init
-# then edit Local/configs/paths.local.yaml and add apps.allowed_roots
-```
-
-For a machine-local `solarphysics` command that works from any directory, see
-[Apps/README.md](Apps/README.md). This shortcut is not part of the repository.
-
-## App 1.0 at a glance
-
-The native application ships twelve PyQt6 modules:
-
-`Workbench`, `Data Download`, `Radio Workspace`, `Image Viewer`,
-`Image Composer`, `Bad Frame Review`, `Source Map`, `DART Spectrogram`,
-`ROI Light Curve`, `Radio Composite`, `Source Trajectory`, `Global PFSS`.
-
-Launch one module directly:
-
-```bash
-./Apps/run.sh frontend app-v1 --module image-composer
-```
-
-The public command hierarchy is `frontend`, `workflow`, `admin`, and `tools`.
-The complete application manual is [Apps/README.md](Apps/README.md).
-
-## Current capabilities
-
-- **STEREO EUVI:** Workbench produces single images, overviews and ROI movies.
-  Optional official SolarSoft/IDL `secchi-prep` calibration saves verified FITS
-  and provenance; the default `legacy` mode is not full SECCHI calibration.
-- **Global PFSS:** inspect verified result bundles, magnetic field lines and
-  conditional radio-source diagnostics in the native viewer. Computation uses
-  a global radial-field boundary and separately installed optional dependencies;
-  the viewer does not launch remote jobs or require the solver.
-- **Radio diagnostics:** preserve precise observation times and distinguish
-  projected heights from model-dependent three-dimensional constraints.
-  Conditional associations do not establish a unique source location.
-
-See the [application guide](Apps/README.md) and
-[PFSS scientific contract](Python/solar_toolkit/modeling/pfss/README.md).
-
-## Repository layout
-
-| Path | Purpose |
+| 目录 | 内容 |
 | --- | --- |
-| `Apps/` | App 1.0, legacy frontends, workflows, and tests — the main deliverable |
-| `Python/` | Reusable `solar_toolkit` scientific library; no GUI or application state |
-| `Paper/` | Static literature evidence and publication metadata |
-| `tools/` | Literature retrieval/validation and repository maintenance tools |
-| `environment/` | Sealed environment-lock and replay documentation |
-| `Local/` | Ignored private runtime: configuration, state, workspaces, outputs, logs |
+| `Python/` | 可独立安装的科学基础库、测试和小型示例 |
+| `Apps/` | 应用展示、界面适配、工作流与测试 |
+| `tools/` | 通用代码维护和数据集合清单工具 |
+| `environment/` | 按平台记录的依赖锁及重放工具说明 |
+| `docs/` | 接口、架构与开发说明 |
+| `Local/` | 忽略的私有配置、数据、状态和输出 |
 
-## Supporting code
+公开仓库只维护代码和必要技术说明。研究笔记、文献选择、科研进度、
+真实事件参数、观测数据与分析成果由使用者在仓库外管理。
 
-- [Documentation index](docs/README.md) — guides, examples, and maintenance boundaries.
-- [STEREO EUVI example](Python/examples/stereo/README.md) — local FITS input and reproducible ROI plots.
-- [`Python/README.md`](Python/README.md) — library boundary, install, and verification.
-- [`Paper/README.md`](Paper/README.md) — literature catalog and update rules.
-- [`tools/literature/README.md`](tools/literature/README.md) — catalog retrieval and validation.
-- [`environment/README.md`](environment/README.md) — environment lock and fresh-replay procedure.
-- [`ARCHITECTURE.md`](ARCHITECTURE.md) — source, dependency, data, and runtime boundaries.
-- [`WORKFLOW_README.md`](WORKFLOW_README.md) — save, branch, test, push, and release workflow.
+依赖方向为 `solar_apps -> solar_toolkit`。基础库导入时不启动界面、下载数据
+或执行分析。参见 [架构](ARCHITECTURE.md)、[开发流程](WORKFLOW_README.md)
+及 [文档索引](docs/README.md)。
 
-## Development
+## 许可
 
-Run all App tests with the primary Miniforge environment:
-
-```powershell
-$Conda = "<miniforge-root>\Scripts\conda.exe"
-& $Conda run -n solarphysics_env_latest python -m pytest Apps\tests -q
-```
-
-On macOS, use `Apps/run.sh` or the environment interpreter directly. Library
-checks live under `Python/tests`; see [`Python/README.md`](Python/README.md).
-
-Offline app health matrix:
-
-```bash
-./Apps/run.sh tools health --output Local/tmp/apps-health.json
-```
-
-## License and citation
-
-MIT License. Citation metadata for the reusable library is in
-[`Python/CITATION.cff`](Python/CITATION.cff).
+科学库遵循 [MIT 许可](Python/LICENSE)。应用代码及其资源的许可分别见
+[Apps/LICENSE](Apps/LICENSE)、相关子目录许可和第三方声明。
+科学库引用信息见 [CITATION.cff](Python/CITATION.cff)。

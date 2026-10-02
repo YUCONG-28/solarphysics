@@ -40,6 +40,10 @@ def _load_impl():
 
 def process_aia_fits(cfg: AIAConfig) -> None:
     """Run AIA processing without changing the legacy mode semantics."""
+    if cfg.data_path is None and cfg.test_file is None:
+        raise ValueError("Supply data_path, test_file, or an explicit year/date.")
+    if cfg.roi_bounds is None:
+        raise ValueError("Supply explicit roi_bounds for the selected observation.")
     actual_mode = _actual_mode(cfg)
     _configure_matplotlib_backend(actual_mode)
 

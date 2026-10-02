@@ -47,17 +47,17 @@ def test_drift_and_newkirk_launch_existing_diagnostics(tmp_path: Path) -> None:
     adapter, observations, layout = _adapter(tmp_path)
     gaussian = observations / "gaussian.csv"
     drift = observations / "drift.csv"
-    gaussian.write_text("time,freq\n2025-01-24T04:48:30Z,149\n", encoding="utf-8")
+    gaussian.write_text("time,freq\n2000-01-01T04:48:30Z,149\n", encoding="utf-8")
     drift.write_text(
         "label,t_start,f_start_mhz,t_end,f_end_mhz\n"
-        "d1,2025-01-24T04:48:30Z,300,2025-01-24T04:48:35Z,149\n",
+        "d1,2000-01-01T04:48:30Z,300,2000-01-01T04:48:35Z,149\n",
         encoding="utf-8",
     )
 
     drift_launch = adapter.build_drift_rate(
-        t_start="2025-01-24T04:48:30Z",
+        t_start="2000-01-01T04:48:30Z",
         f_start_mhz=300,
-        t_end="2025-01-24T04:48:35Z",
+        t_end="2000-01-01T04:48:35Z",
         f_end_mhz=149,
     )
     newkirk = adapter.build_newkirk_diagnostics(
@@ -83,7 +83,7 @@ def test_trajectory_and_dem_launchers_keep_science_in_existing_modules(
     centers = observations / "centers.csv"
     centers.write_text(
         "time,freq,polarization,center_x_arcsec,center_y_arcsec\n"
-        "2025-01-24T04:48:30Z,149,RR,1,2\n",
+        "2000-01-01T04:48:30Z,149,RR,1,2\n",
         encoding="utf-8",
     )
     aia_dir = observations / "aia"

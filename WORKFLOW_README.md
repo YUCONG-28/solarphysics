@@ -10,8 +10,7 @@
 
 - `Python/`：可复用的科学计算代码和测试；
 - `Apps/`：应用、CLI、前端和应用测试；
-- `Paper/`：文献证据和出版元数据；
-- `tools/literature/`：文献目录的检索、验证和发布工具；
+- `tools/`：通用代码维护工具；
 - `Local/`：私有运行时状态，只保存在本机。
 
 以下内容不得提交或推送：
@@ -21,7 +20,7 @@
 - `Apps/outputs/`、`Apps/logs/`、`Apps/tmp/`、构建产物和测试缓存；
 - `Apps/configs/paths.local.yaml` 等机器专用配置；
 - 私人绝对路径、访问令牌、密码、密钥、Cookie 和其他凭据；
-- 未经审核的原始观测、批量生成图像、个人资料和运行历史。
+- 原始观测、真实事件配置、科研进度、文献选择、分析成果、个人资料和运行历史。
 
 提交前即使文件已被 `.gitignore` 忽略，也应主动检查暂存区，不能只依赖忽略规则。
 
@@ -44,7 +43,7 @@ git switch -c docs/update-workflow
 git switch -c fix/aia-time-matching
 ```
 
-开始修改前阅读适用范围内的 `AGENTS.md`。修改 `Python/`、`Apps/` 或 `Paper/` 时，还应阅读对应子目录中的说明。
+开始修改前阅读适用范围内的 `AGENTS.md`。修改 `Python/` 或 `Apps/` 时，还应阅读对应子目录中的说明。
 
 ## 3. 保存和提交
 

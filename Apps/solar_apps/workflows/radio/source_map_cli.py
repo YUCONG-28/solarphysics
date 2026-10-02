@@ -10,7 +10,12 @@ from typing import Any
 
 from solar_toolkit.radio.config import load_radio_user_config
 from .configs import DEFAULT_CONFIG_NAME
-from .entrypoint_utils import apply_output_overrides, build_common_parser
+from .entrypoint_utils import (
+    apply_output_overrides,
+    build_common_parser,
+    resolve_config_source,
+    config_source_label,
+)
 from solar_toolkit.radio.provenance import (
     resolve_provenance_output_dir,
     write_radio_provenance,
@@ -38,7 +43,7 @@ def main(
 
     args, unknown = build_parser().parse_known_args(argv)
 
-    user_config, newkirk_config = load_radio_user_config(args.config)
+    user_config, newkirk_config = load_radio_user_config(resolve_config_source(args))
     resolved_config = apply_output_overrides(user_config, args)
     if runner is None:
         from .source_map_workflow import run_source_map
@@ -52,7 +57,7 @@ def main(
             output_dir,
             resolved_config,
             newkirk_config=newkirk_config,
-            config_source=args.config,
+            config_source=config_source_label(args),
             cli_overrides=vars(args),
         )
         if os.environ.get("APP_V1_RUN_ID"):

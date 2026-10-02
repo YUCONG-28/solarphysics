@@ -150,12 +150,7 @@ DEFAULT_RADIO_DIAGNOSTIC_PRESENTATION_CONFIG = {
     "enable_static_summary": True,
     "enable_html_dashboard": True,
     "comparison_frequency_mhz": None,
-    "drift_source_type_map": {
-        "drift_001": "typeIII",
-        "drift_002": "typeIII",
-        "drift_003": "spike",
-        "drift_004": "spike",
-    },
+    "drift_source_type_map": {},
     "drift_time_tolerance_s": 0.75,
     "drift_frequency_tolerance_mhz": "adaptive_half_band_spacing",
     "max_adaptive_frequency_tolerance_mhz": 15.0,
@@ -212,7 +207,7 @@ def load_radio_event_config(
     """Load and validate one explicit radio event configuration.
 
     ``source`` can be a validated object, a mapping of named sections, an
-    imported module, or a short/qualified module name.  Environment variables
+    imported module, or an explicitly qualified module name.  Environment variables
     are intentionally not consulted for scientific settings.
     """
 

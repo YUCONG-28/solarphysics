@@ -20,7 +20,7 @@ def test_normalizes_threshold_and_gaussian_center_tables(tmp_path):
     pd.DataFrame(
         [
             {
-                "obs_time": "2025-01-24T04:48:37.681",
+                "obs_time": "2000-01-01T04:48:37.681",
                 "freq_mhz": 149.0,
                 "polarization": "L+R",
                 "center_method": "threshold_weighted_bg_peak_0.95",
@@ -46,7 +46,7 @@ def test_normalizes_threshold_and_gaussian_center_tables(tmp_path):
     gaussian = pd.DataFrame(
         [
             {
-                "time": "20250124044837681",
+                "time": "20000101044837681",
                 "freq": 164.0,
                 "polarization": "RR+LL",
                 "center_x_arcsec": 30.0,
@@ -56,7 +56,7 @@ def test_normalizes_threshold_and_gaussian_center_tables(tmp_path):
                 "trajectory_valid": True,
             },
             {
-                "time": "20250124044838681",
+                "time": "20000101044838681",
                 "freq": 164.0,
                 "polarization": "RR+LL",
                 "center_x_arcsec": 300.0,
@@ -81,7 +81,7 @@ def test_selects_current_tail_and_lcp_rcp_comparison_rows():
         pd.DataFrame(
             [
                 {
-                    "obs_time": "2025-01-24T04:48:37",
+                    "obs_time": "2000-01-01T04:48:37",
                     "freq_mhz": 149.0,
                     "polarization": "LCP",
                     "center_method": "threshold",
@@ -89,7 +89,7 @@ def test_selects_current_tail_and_lcp_rcp_comparison_rows():
                     "center_y_arcsec": 20.0,
                 },
                 {
-                    "obs_time": "2025-01-24T04:48:38",
+                    "obs_time": "2000-01-01T04:48:38",
                     "freq_mhz": 149.0,
                     "polarization": "LCP",
                     "center_method": "threshold",
@@ -97,7 +97,7 @@ def test_selects_current_tail_and_lcp_rcp_comparison_rows():
                     "center_y_arcsec": 21.0,
                 },
                 {
-                    "obs_time": "2025-01-24T04:48:38.200",
+                    "obs_time": "2000-01-01T04:48:38.200",
                     "freq_mhz": 149.0,
                     "polarization": "RCP",
                     "center_method": "threshold",
@@ -105,7 +105,7 @@ def test_selects_current_tail_and_lcp_rcp_comparison_rows():
                     "center_y_arcsec": 25.0,
                 },
                 {
-                    "obs_time": "2025-01-24T04:48:39",
+                    "obs_time": "2000-01-01T04:48:39",
                     "freq_mhz": 164.0,
                     "polarization": "L+R",
                     "center_method": "gaussian",
@@ -118,12 +118,12 @@ def test_selects_current_tail_and_lcp_rcp_comparison_rows():
 
     current = select_visible_centers(
         df,
-        pd.Timestamp("2025-01-24T04:48:38.500"),
+        pd.Timestamp("2000-01-01T04:48:38.500"),
         mode=FRAME_MODE_CURRENT,
     )
     tail = select_visible_centers(
         df,
-        pd.Timestamp("2025-01-24T04:48:38.500"),
+        pd.Timestamp("2000-01-01T04:48:38.500"),
         mode=FRAME_MODE_TAIL,
         tail_n=2,
     )
@@ -142,28 +142,28 @@ def test_filters_time_range_with_closed_bounds_and_open_ends():
         pd.DataFrame(
             [
                 {
-                    "obs_time": "2025-01-24T04:46:44.999",
+                    "obs_time": "2000-01-01T04:46:44.999",
                     "freq_mhz": 149.0,
                     "polarization": "L+R",
                     "center_x_arcsec": 0.0,
                     "center_y_arcsec": 0.0,
                 },
                 {
-                    "obs_time": "2025-01-24T04:46:45",
+                    "obs_time": "2000-01-01T04:46:45",
                     "freq_mhz": 149.0,
                     "polarization": "L+R",
                     "center_x_arcsec": 1.0,
                     "center_y_arcsec": 1.0,
                 },
                 {
-                    "obs_time": "2025-01-24T04:50:45",
+                    "obs_time": "2000-01-01T04:50:45",
                     "freq_mhz": 149.0,
                     "polarization": "L+R",
                     "center_x_arcsec": 2.0,
                     "center_y_arcsec": 2.0,
                 },
                 {
-                    "obs_time": "2025-01-24T04:50:45.001",
+                    "obs_time": "2000-01-01T04:50:45.001",
                     "freq_mhz": 149.0,
                     "polarization": "L+R",
                     "center_x_arcsec": 3.0,
@@ -175,10 +175,10 @@ def test_filters_time_range_with_closed_bounds_and_open_ends():
 
     closed = filter_time_range(
         df,
-        start="2025-01-24T04:46:45",
-        end="2025-01-24T04:50:45",
+        start="2000-01-01T04:46:45",
+        end="2000-01-01T04:50:45",
     )
-    open_start = filter_time_range(df, end="2025-01-24T04:46:45")
+    open_start = filter_time_range(df, end="2000-01-01T04:46:45")
 
     assert closed["center_x_arcsec"].tolist() == [1.0, 2.0]
     assert open_start["center_x_arcsec"].tolist() == [0.0, 1.0]
@@ -189,7 +189,7 @@ def test_summarizes_motion_by_frequency_polarization_method_and_source():
         pd.DataFrame(
             [
                 {
-                    "obs_time": "2025-01-24T04:48:45",
+                    "obs_time": "2000-01-01T04:48:45",
                     "freq_mhz": 149.0,
                     "polarization": "L+R",
                     "center_method": "threshold",
@@ -198,7 +198,7 @@ def test_summarizes_motion_by_frequency_polarization_method_and_source():
                     "center_y_arcsec": 20.0,
                 },
                 {
-                    "obs_time": "2025-01-24T04:48:55",
+                    "obs_time": "2000-01-01T04:48:55",
                     "freq_mhz": 149.0,
                     "polarization": "L+R",
                     "center_method": "threshold",
@@ -207,7 +207,7 @@ def test_summarizes_motion_by_frequency_polarization_method_and_source():
                     "center_y_arcsec": 28.0,
                 },
                 {
-                    "obs_time": "2025-01-24T04:48:45",
+                    "obs_time": "2000-01-01T04:48:45",
                     "freq_mhz": 164.0,
                     "polarization": "L+R",
                     "center_method": "threshold",

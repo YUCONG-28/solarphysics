@@ -30,7 +30,7 @@ def test_sorted_fits_discovery_can_recurse_into_instrument_folders(
 ) -> None:
     from solar_toolkit.io.discovery import get_sorted_fits_files
 
-    nested = tmp_path / "171" / "aia_2025-01-24T044800Z.fits"
+    nested = tmp_path / "171" / "aia_2000-01-01T044800Z.fits"
     nested.parent.mkdir()
     nested.write_bytes(b"x" * 2048)
 

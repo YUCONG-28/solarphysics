@@ -2,7 +2,7 @@
 # 主要输入: CSO FITS 文件、偏振通道和降采样配置。
 # 主要输出/运行说明: 输出频率-时间谱图，包含内存友好的分块/降采样处理。
 """
-Created on Sun Nov 23 00:19:30 2025
+CSO FITS spectrum processing.
 
 
 """
@@ -101,12 +101,8 @@ class PlotConfig:
     #     ])
 
     # Time range (UTC)
-    t_start: datetime.datetime = field(
-        default_factory=lambda: datetime.datetime(2025, 1, 24, 4, 14, 10)
-    )
-    t_end: datetime.datetime = field(
-        default_factory=lambda: datetime.datetime(2025, 1, 24, 4, 15, 20)
-    )
+    t_start: datetime.datetime | None = None
+    t_end: datetime.datetime | None = None
 
     # Frequency range (MHz)
     f_start: float = 80

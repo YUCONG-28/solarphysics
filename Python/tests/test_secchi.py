@@ -48,7 +48,7 @@ def test_reject_already_processed_before_runtime(tmp_path):
     fits.PrimaryHDU(
         np.ones((8, 8)),
         fits.Header(
-            {"DETECTOR": "EUVI", "EXPTIME": 2, "FILENAME": "20250124_040000_14euA.fts"}
+            {"DETECTOR": "EUVI", "EXPTIME": 2, "FILENAME": "20000101_040000_14euA.fts"}
         ),
     ).writeto(path)
     with pytest.raises(ValueError, match="double calibration"):

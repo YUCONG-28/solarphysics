@@ -24,12 +24,12 @@ from solar_toolkit.radio.source_geometry import (
 @pytest.mark.parametrize(
     "text,expected",
     [
-        ("20250124044829509", dt.datetime(2025, 1, 24, 4, 48, 29, 509000)),
-        ("20250124044830 11", dt.datetime(2025, 1, 24, 4, 48, 30, 11000)),
-        ("20250124044842  2", dt.datetime(2025, 1, 24, 4, 48, 42, 2000)),
-        ("2025-01-24T12:48:30.011+08:00", dt.datetime(2025, 1, 24, 4, 48, 30, 11000)),
+        ("20000101044829509", dt.datetime(2000, 1, 1, 4, 48, 29, 509000)),
+        ("20000101044830 11", dt.datetime(2000, 1, 1, 4, 48, 30, 11000)),
+        ("20000101044842  2", dt.datetime(2000, 1, 1, 4, 48, 42, 2000)),
+        ("2000-01-01T12:48:30.011+08:00", dt.datetime(2000, 1, 1, 4, 48, 30, 11000)),
         ("20250199044829509", None),
-        ("20250124044829.0", None),
+        ("20000101044829.0", None),
     ],
 )
 def test_timestamp_formats(text, expected):
@@ -41,7 +41,7 @@ def sources():
         pd.DataFrame(
             [
                 dict(
-                    time=f"2025-01-24T04:48:{second:02d}Z",
+                    time=f"2000-01-01T04:48:{second:02d}Z",
                     freq=f,
                     center_x_arcsec=1200.0,
                     center_y_arcsec=-300.0,
@@ -69,8 +69,8 @@ def test_actual_crossing_no_endpoint_extension_and_offset():
         [
             dict(
                 label="a",
-                t_start="2025-01-24T04:48:30Z",
-                t_end="2025-01-24T04:48:32Z",
+                t_start="2000-01-01T04:48:30Z",
+                t_end="2000-01-01T04:48:32Z",
                 f_start_mhz=190,
                 f_end_mhz=140,
             )
@@ -94,8 +94,8 @@ def test_ambiguous_bursts_are_not_primary():
         [
             dict(
                 label=label,
-                t_start="2025-01-24T04:48:30Z",
-                t_end="2025-01-24T04:48:32Z",
+                t_start="2000-01-01T04:48:30Z",
+                t_end="2000-01-01T04:48:32Z",
                 f_start_mhz=200,
                 f_end_mhz=150,
             )

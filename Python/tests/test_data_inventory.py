@@ -12,7 +12,7 @@ def test_observation_file_inventory_rows():
                 path=Path("aia.fits"),
                 instrument="AIA",
                 wavelength="211",
-                obs_time="2025-01-24T04:48:37",
+                obs_time="2000-01-01T04:48:37",
             )
         ]
     )
@@ -22,6 +22,6 @@ def test_observation_file_inventory_rows():
             "path": "aia.fits",
             "instrument": "AIA",
             "wavelength": "211",
-            "obs_time": "2025-01-24T04:48:37",
+            "obs_time": "2000-01-01T04:48:37",
         }
     ]

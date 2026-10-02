@@ -28,7 +28,7 @@ def _request(tmp_path: Path) -> CompositeRequest:
     return CompositeRequest(
         aia_directory=tmp_path / "aia",
         aia_wave=171,
-        aia_time=datetime(2025, 1, 24, 4, 48, 32, tzinfo=UTC),
+        aia_time=datetime(2000, 1, 1, 4, 48, 32, tzinfo=UTC),
         radio_directory=tmp_path / "radio",
         radio_frequency=149.0,
         polarization="RR",
@@ -88,7 +88,7 @@ def _radio_artifact() -> TopPanelArtifact:
         header=header,
         pol=POL_RCP,
         freq_mhz=149.0,
-        obs_time=datetime(2025, 1, 24, 4, 48, 32),
+        obs_time=datetime(2000, 1, 1, 4, 48, 32),
     )
     return TopPanelArtifact(
         image_png=b"unused",

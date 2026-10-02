@@ -12,6 +12,7 @@ from typing import Any
 from solar_toolkit.radio import quicklook as _quicklook_impl
 
 from .configs import DEFAULT_CONFIG_NAME
+from .entrypoint_utils import add_config_arguments, resolve_config_source
 
 VALID_CENTERS_NAME = _quicklook_impl.VALID_CENTERS_NAME
 HEIGHT_ROWS_NAME = _quicklook_impl.HEIGHT_ROWS_NAME
@@ -43,7 +44,10 @@ def build_parser() -> argparse.ArgumentParser:
         description="Generate Gaussian center and Newkirk quicklook products.",
     )
     parser.add_argument("--gaussian-csv")
-    parser.add_argument("--config", default=DEFAULT_CONFIG_NAME)
+    add_config_arguments(parser, default_config=DEFAULT_CONFIG_NAME)
+    parser.add_argument(
+        "--workspace-config-json", help="Explicit structured radio settings as JSON."
+    )
     parser.add_argument("--output-dir", default="quicklook_outputs")
     return parser
 
@@ -54,7 +58,7 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     result = run_gaussian_newkirk_quicklook(
         gaussian_csv=args.gaussian_csv,
-        config_name=args.config,
+        config_name=resolve_config_source(args),
         output_dir=args.output_dir,
     )
     print(f"Quicklook input: {result['input_csv']}")

@@ -67,9 +67,8 @@ guideline conflicts with them.
 
 - Use Codex, not a Work deliverable, as the completion surface for code edits,
   tests, compatibility checks, and Git state in this repository.
-- When work spans the sibling `Paper` repository, treat Paper as the evidence
-  layer and this repository as the implementation layer. Keep proposed methods
-  separate from behavior that has actually been implemented and tested.
+- Keep research records and personal literature catalogs outside public source.
+  Describe methods through their implemented API contracts and general conditions.
 - Use `academic-paper-director` for manuscript or citation-sensitive text and
   `ppt-style-director` for research-deck style. Create or edit a real `.pptx`
   with `presentation-skill` or `Presentations`, followed by render-based QA.

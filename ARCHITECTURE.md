@@ -1,6 +1,6 @@
 # Repository architecture
 
-The repository has four public source partitions and one private runtime
+The repository has public code partitions and a private runtime
 partition. Observation-year directories and `overview/` are local data, not
 source partitions.
 
@@ -8,8 +8,7 @@ source partitions.
 solarphysics/
 |-- Python/             reusable solar_toolkit library
 |-- Apps/               application interfaces and workflow orchestration
-|-- Paper/              static literature evidence and publication metadata
-|-- tools/literature/   catalog retrieval and validation tooling
+|-- tools/              general maintenance utilities
 `-- Local/              ignored configuration, state, workspaces and outputs
 ```
 
@@ -68,3 +67,12 @@ Application execution is restricted to Miniforge. The primary environment is
 environment. The launcher rejects other environments and does not fall back to
 a virtual environment or system Python. Child processes inherit the resolved
 Miniforge interpreter.
+
+## Composable library and examples
+
+The scientific library is the primary reusable surface. Examples and application
+adapters compose its APIs with explicit inputs and parameters. They do not
+provide built-in research events. Public source contains no research records,
+real event configurations, observation data or generated scientific results.
+Private scientific configuration is supplied by the caller; machine path
+authorization is handled separately by the application platform.

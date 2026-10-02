@@ -11,10 +11,12 @@ from solar_toolkit.radio.raw_quality import (
     analyze_radio_raw_quality,
 )
 
+from .entrypoint_utils import add_config_arguments, resolve_config_source
+
 __all__ = ["DEFAULT_RAW_QUALITY_CONFIG", "build_parser", "main", "run_raw_quality"]
 
 
-DEFAULT_RAW_QUALITY_CONFIG = "radio_20250503_config"
+DEFAULT_RAW_QUALITY_CONFIG = None
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -22,7 +24,10 @@ def build_parser() -> argparse.ArgumentParser:
         prog="solar-apps workflow radio raw-quality",
         description="Scan radio FITS directories and report raw-data quality issues.",
     )
-    parser.add_argument("--config", default=DEFAULT_RAW_QUALITY_CONFIG)
+    add_config_arguments(parser, default_config=DEFAULT_RAW_QUALITY_CONFIG)
+    parser.add_argument(
+        "--workspace-config-json", help="Explicit structured radio settings as JSON."
+    )
     parser.add_argument("--root")
     parser.add_argument("--output-dir")
     parser.add_argument("--start-idx", type=int)
@@ -89,7 +94,7 @@ def main(argv: list[str] | None = None) -> int:
 
     args = build_parser().parse_args(argv)
     result = run_raw_quality(
-        config_name=args.config,
+        config_name=resolve_config_source(args),
         root=args.root,
         freqs=_parse_freqs(args.freqs),
         polarizations=_parse_polarizations(args.polarizations),

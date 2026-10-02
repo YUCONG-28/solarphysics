@@ -35,7 +35,7 @@ def _request(tmp_path: Path, *, polarization: str = "RR+LL") -> CompositeRequest
     return CompositeRequest(
         aia_directory=tmp_path / "aia",
         aia_wave=171,
-        aia_time=datetime(2025, 1, 24, 4, 48, 32, tzinfo=UTC),
+        aia_time=datetime(2000, 1, 1, 4, 48, 32, tzinfo=UTC),
         radio_directory=tmp_path / "radio",
         radio_frequency=149.0,
         polarization=polarization,
@@ -59,9 +59,9 @@ def _extractor_frame() -> pd.DataFrame:
     return pd.DataFrame(
         {
             "obs_time": [
-                "2025-01-24T04:48:30Z",
-                "2025-01-24T04:48:31Z",
-                "2025-01-24T04:48:32Z",
+                "2000-01-01T04:48:30Z",
+                "2000-01-01T04:48:31Z",
+                "2000-01-01T04:48:32Z",
             ],
             "freq_mhz": [149.0, 164.0, 164.0],
             "polarization": ["RR+LL", "RR+LL", "RR+LL"],
@@ -137,14 +137,14 @@ def test_adapter_accepts_custom_unique_frequencies_and_time_window(
         request,
         _roi(),
         frequencies_mhz=[205, 149, 205],
-        time_start="2025-01-24T04:48:00Z",
-        time_end="2025-01-24T04:49:00Z",
+        time_start="2000-01-01T04:48:00Z",
+        time_end="2000-01-01T04:49:00Z",
     )
 
     assert captured["freqs"] == [205.0, 149.0]
     assert captured["polarization"] == "LL"
-    assert captured["time_start"] == "2025-01-24T04:48:00Z"
-    assert captured["time_end"] == "2025-01-24T04:49:00Z"
+    assert captured["time_start"] == "2000-01-01T04:48:00Z"
+    assert captured["time_end"] == "2000-01-01T04:49:00Z"
 
 
 @pytest.mark.parametrize("frequencies", [[], [0.0], [np.nan], "149"])
@@ -260,8 +260,8 @@ def test_dual_flux_plot_keeps_original_times_and_assigns_secondary_axis() -> Non
     )
     spectrum_flux = SpectrumFluxCurve(
         time_utc=(
-            datetime(2025, 1, 24, 4, 48, 29, tzinfo=UTC),
-            datetime(2025, 1, 24, 4, 48, 35, tzinfo=UTC),
+            datetime(2000, 1, 1, 4, 48, 29, tzinfo=UTC),
+            datetime(2000, 1, 1, 4, 48, 35, tzinfo=UTC),
         ),
         values=np.asarray([100.0, np.nan]),
         source="CSO",
@@ -293,8 +293,8 @@ def test_dual_flux_plot_uses_requested_shared_range_and_reference_line() -> None
     )
     spectrum_flux = SpectrumFluxCurve(
         time_utc=(
-            datetime(2025, 1, 24, 4, 48, 31, tzinfo=UTC),
-            datetime(2025, 1, 24, 4, 48, 34, tzinfo=UTC),
+            datetime(2000, 1, 1, 4, 48, 31, tzinfo=UTC),
+            datetime(2000, 1, 1, 4, 48, 34, tzinfo=UTC),
         ),
         values=np.asarray([10.0, 20.0]),
         source="DART",
@@ -304,9 +304,9 @@ def test_dual_flux_plot_uses_requested_shared_range_and_reference_line() -> None
         sampled_frequency_range_mhz=(146.0, 154.0),
         channel_count=4,
     )
-    start = datetime(2025, 1, 24, 4, 48, 30, tzinfo=UTC)
-    end = datetime(2025, 1, 24, 4, 49, 0, tzinfo=UTC)
-    marker = datetime(2025, 1, 24, 4, 48, 32, tzinfo=UTC)
+    start = datetime(2000, 1, 1, 4, 48, 30, tzinfo=UTC)
+    end = datetime(2000, 1, 1, 4, 49, 0, tzinfo=UTC)
+    marker = datetime(2000, 1, 1, 4, 48, 32, tzinfo=UTC)
 
     figure = build_dual_flux_figure(
         curve,
@@ -331,8 +331,8 @@ def test_dual_flux_plot_applies_dart_display_offset_without_changing_values() ->
         frequency=lambda frame: frame["freq_mhz"],
     )
     original_times = (
-        datetime(2025, 1, 24, 4, 48, 30, 312134, tzinfo=UTC),
-        datetime(2025, 1, 24, 4, 48, 30, 713508, tzinfo=UTC),
+        datetime(2000, 1, 1, 4, 48, 30, 312134, tzinfo=UTC),
+        datetime(2000, 1, 1, 4, 48, 30, 713508, tzinfo=UTC),
     )
     spectrum_flux = SpectrumFluxCurve(
         time_utc=original_times,
@@ -344,7 +344,7 @@ def test_dual_flux_plot_applies_dart_display_offset_without_changing_values() ->
         sampled_frequency_range_mhz=(148.1, 149.9),
         channel_count=8,
     )
-    reference = datetime(2025, 1, 24, 4, 48, 30, 312000, tzinfo=UTC)
+    reference = datetime(2000, 1, 1, 4, 48, 30, 312000, tzinfo=UTC)
     alignment = SpectrumTimeAlignment(
         reference_radio_time_utc=reference,
         nearest_spectrum_time_utc=original_times[0],
@@ -380,7 +380,7 @@ def test_dual_flux_plot_adds_one_secondary_trace_per_matched_roi_frequency() -> 
         time=lambda frame: frame["obs_time"],
         frequency=lambda frame: frame["freq_mhz"],
     )
-    start = datetime(2025, 1, 24, 4, 48, 29, tzinfo=UTC)
+    start = datetime(2000, 1, 1, 4, 48, 29, tzinfo=UTC)
     fluxes = tuple(
         SpectrumFluxCurve(
             time_utc=(start, start + timedelta(seconds=6)),
@@ -411,7 +411,7 @@ def test_dual_flux_plot_applies_independent_frequency_time_offsets() -> None:
         time=lambda frame: frame["obs_time"],
         frequency=lambda frame: frame["freq_mhz"],
     )
-    dart_start = datetime(2025, 1, 24, 4, 48, 30, 312134, tzinfo=UTC)
+    dart_start = datetime(2000, 1, 1, 4, 48, 30, 312134, tzinfo=UTC)
     fluxes = tuple(
         SpectrumFluxCurve(
             time_utc=(dart_start, dart_start + timedelta(seconds=0.401374)),
@@ -462,7 +462,7 @@ def test_dual_flux_plots_can_separate_each_matched_frequency() -> None:
         time=lambda frame: frame["obs_time"],
         frequency=lambda frame: frame["freq_mhz"],
     )
-    start = datetime(2025, 1, 24, 4, 48, 29, tzinfo=UTC)
+    start = datetime(2000, 1, 1, 4, 48, 29, tzinfo=UTC)
     fluxes = tuple(
         SpectrumFluxCurve(
             time_utc=(start, start + timedelta(seconds=6)),
@@ -502,7 +502,7 @@ def test_dual_flux_plots_keep_existing_combined_layout_by_default() -> None:
         frequency=lambda frame: frame["freq_mhz"],
     )
     flux = SpectrumFluxCurve(
-        time_utc=(datetime(2025, 1, 24, 4, 48, 29, tzinfo=UTC),),
+        time_utc=(datetime(2000, 1, 1, 4, 48, 29, tzinfo=UTC),),
         values=np.asarray([149.0]),
         source="DART",
         polarization="Stokes I",

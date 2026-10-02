@@ -101,8 +101,8 @@ assert "matplotlib.pyplot" not in sys.modules
 
 
 def test_legacy_time_and_file_helpers_keep_defaults(compatibility_module, tmp_path):
-    first = tmp_path / "aia_2025-01-24T044800Z.fits"
-    second = tmp_path / "aia_2025-01-24T044900Z.fits"
+    first = tmp_path / "aia_2000-01-01T044800Z.fits"
+    second = tmp_path / "aia_2000-01-01T044900Z.fits"
     invalid = tmp_path / "invalid.fits"
     first.write_bytes(b"x" * 2048)
     second.write_bytes(b"x" * 2048)
@@ -114,14 +114,14 @@ def test_legacy_time_and_file_helpers_keep_defaults(compatibility_module, tmp_pa
     assert [path for path, _ in files] == [first, second]
     assert (
         compatibility_module.find_closest_file_by_time(
-            dt.datetime(2025, 1, 24, 4, 48, 40),
+            dt.datetime(2000, 1, 1, 4, 48, 40),
             files,
         )
         == files[1]
     )
     assert (
         compatibility_module.find_closest_file_by_time(
-            dt.datetime(2025, 1, 24, 5, 48, 40),
+            dt.datetime(2000, 1, 1, 5, 48, 40),
             files,
             max_diff_seconds=10,
         )
@@ -130,17 +130,17 @@ def test_legacy_time_and_file_helpers_keep_defaults(compatibility_module, tmp_pa
     assert (
         compatibility_module.filter_files_by_time_range(
             files,
-            dt.datetime(2025, 1, 24, 4, 48, 30),
-            dt.datetime(2025, 1, 24, 4, 50),
+            dt.datetime(2000, 1, 1, 4, 48, 30),
+            dt.datetime(2000, 1, 1, 4, 50),
         )
         == files[1:]
     )
     assert compatibility_module.extract_time_from_filename(
-        "context_2025-01-24.png"
-    ) == dt.datetime(2025, 1, 24)
-    parsed = compatibility_module.parse_isot_time("2025-01-24T04:48:00")
-    assert compatibility_module.format_time_for_display(parsed) == "2025-01-24 04:48:00"
-    assert compatibility_module.format_time_for_filename(parsed) == "20250124_044800"
+        "context_2000-01-01.png"
+    ) == dt.datetime(2000, 1, 1)
+    parsed = compatibility_module.parse_isot_time("2000-01-01T04:48:00")
+    assert compatibility_module.format_time_for_display(parsed) == "2000-01-01 04:48:00"
+    assert compatibility_module.format_time_for_filename(parsed) == "20000101_044800"
 
 
 def test_legacy_science_and_config_defaults_are_preserved(
@@ -182,8 +182,8 @@ def test_legacy_science_and_config_defaults_are_preserved(
         is None
     )
     assert compatibility_module.validate_time_range(
-        dt.datetime(2025, 1, 24),
-        dt.datetime(2025, 1, 25),
+        dt.datetime(2000, 1, 1),
+        dt.datetime(2000, 1, 2),
     )
     assert compatibility_module.validate_frequency_range(100.0, 200.0)
 

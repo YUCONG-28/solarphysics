@@ -47,7 +47,7 @@ def _request(
     return CompositeRequest(
         aia_directory=tmp_path / "aia",
         aia_wave=171,
-        aia_time=datetime(2025, 1, 24, 4, 48, 32, tzinfo=UTC),
+        aia_time=datetime(2000, 1, 1, 4, 48, 32, tzinfo=UTC),
         radio_directory=tmp_path / "radio",
         radio_frequency=149.0,
         polarization=polarization,
@@ -79,8 +79,8 @@ def test_dart_adapter_uses_discovery_and_window_reader(
         stokes_v_over_i=np.asarray([[0.1, 0.2], [0.3, 0.4]]),
         frequency_mhz=np.asarray([100.0, 200.0]),
         time_utc=(
-            datetime(2025, 1, 24, 4, 48, tzinfo=UTC),
-            datetime(2025, 1, 24, 4, 49, tzinfo=UTC),
+            datetime(2000, 1, 1, 4, 48, tzinfo=UTC),
+            datetime(2000, 1, 1, 4, 49, tzinfo=UTC),
         ),
     )
     calls: dict[str, object] = {}
@@ -126,7 +126,7 @@ def test_dart_adapter_uses_discovery_and_window_reader(
 
 
 def test_dart_display_alignment_uses_one_constant_offset() -> None:
-    start = datetime(2025, 1, 24, 4, 48, 30, 312134, tzinfo=UTC)
+    start = datetime(2000, 1, 1, 4, 48, 30, 312134, tzinfo=UTC)
     times = tuple(
         start + timedelta(seconds=offset) for offset in (0.0, 0.401374, 0.802748)
     )
@@ -138,7 +138,7 @@ def test_dart_display_alignment_uses_one_constant_offset() -> None:
         unit="dB",
         source="DART",
     )
-    reference = datetime(2025, 1, 24, 4, 48, 30, 312000, tzinfo=UTC)
+    reference = datetime(2000, 1, 1, 4, 48, 30, 312000, tzinfo=UTC)
 
     alignment = build_spectrum_time_alignment(window, reference)
 
@@ -155,7 +155,7 @@ def test_dart_display_alignment_uses_one_constant_offset() -> None:
 
 
 def test_dart_display_alignment_rejects_reference_outside_native_cadence() -> None:
-    start = datetime(2025, 1, 24, 4, 48, 30, tzinfo=UTC)
+    start = datetime(2000, 1, 1, 4, 48, 30, tzinfo=UTC)
     window = SpectrumWindow(
         data=np.ones((1, 3), dtype=float),
         frequency_mhz=np.asarray([149.0]),
@@ -173,7 +173,7 @@ def test_dart_display_alignment_rejects_reference_outside_native_cadence() -> No
 
 
 def test_cso_display_alignment_keeps_native_time_axis() -> None:
-    start = datetime(2025, 1, 24, 4, 48, 30, tzinfo=UTC)
+    start = datetime(2000, 1, 1, 4, 48, 30, tzinfo=UTC)
     window = SpectrumWindow(
         data=np.ones((1, 2), dtype=float),
         frequency_mhz=np.asarray([149.0]),
@@ -199,18 +199,18 @@ def test_cso_adapter_uses_reader_date_obs_axes_and_polarization(
         time=np.asarray([0.0, 2.0]),
         freq=np.asarray([200.0, 100.0]),
         polar="LL",
-        dateobs="2025-01-24",
+        dateobs="2000-01-01",
         unit="K",
-        dt_base=datetime(2025, 1, 24, 0, 0),
+        dt_base=datetime(2000, 1, 1, 0, 0),
     )
     rr = CSOSpectrogram(
         data=np.asarray([[5.0, 6.0], [7.0, 8.0]]),
         time=np.asarray([0.0, 2.0]),
         freq=np.asarray([200.0, 100.0]),
         polar="RCP",
-        dateobs="2025-01-24",
+        dateobs="2000-01-01",
         unit="sfu",
-        dt_base=datetime(2025, 1, 24, 0, 0),
+        dt_base=datetime(2000, 1, 1, 0, 0),
     )
     calls: list[Path] = []
 
@@ -232,10 +232,10 @@ def test_cso_adapter_uses_reader_date_obs_axes_and_polarization(
         np.asarray([[7.0, 8.0], [5.0, 6.0]]),
     )
     assert window.time_utc == (
-        datetime(2025, 1, 24, 0, 0, tzinfo=UTC),
-        datetime(2025, 1, 24, 0, 0, 2, tzinfo=UTC),
+        datetime(2000, 1, 1, 0, 0, tzinfo=UTC),
+        datetime(2000, 1, 1, 0, 0, 2, tzinfo=UTC),
     )
-    assert window.metadata["date_obs"] == "2025-01-24"
+    assert window.metadata["date_obs"] == "2000-01-01"
 
 
 def test_request_dispatches_cso_and_applies_ranges(
@@ -250,9 +250,9 @@ def test_request_dispatches_cso_and_applies_ranges(
         time=np.asarray([0.0, 1.0, 2.0, 3.0]),
         freq=np.asarray([100.0, 150.0, 200.0]),
         polar="LL",
-        dateobs="2025-01-24",
+        dateobs="2000-01-01",
         unit=None,
-        dt_base=datetime(2025, 1, 24),
+        dt_base=datetime(2000, 1, 1),
     )
     monkeypatch.setattr(
         spectrum_adapter,
@@ -264,8 +264,8 @@ def test_request_dispatches_cso_and_applies_ranges(
         _request(tmp_path, spectrum_type="cso", polarization="LL"),
         frequency_range_mhz=(125.0, 225.0),
         time_range_utc=(
-            "2025-01-24T00:00:01Z",
-            "2025-01-24T00:00:02Z",
+            "2000-01-01T00:00:01Z",
+            "2000-01-01T00:00:02Z",
         ),
     )
 
@@ -286,9 +286,9 @@ def test_cso_preview_downsamples_without_changing_flux_extraction_contract(
         time=np.arange(6, dtype=float),
         freq=np.linspace(100.0, 200.0, 5),
         polar="RR",
-        dateobs="2025-01-24",
+        dateobs="2000-01-01",
         unit="sfu",
-        dt_base=datetime(2025, 1, 24),
+        dt_base=datetime(2000, 1, 1),
     )
     monkeypatch.setattr(
         spectrum_adapter,
@@ -319,8 +319,8 @@ def test_cso_adapter_rejects_unavailable_polarization(
         time=np.asarray([0.0, 1.0]),
         freq=np.asarray([100.0, 200.0]),
         polar="LL",
-        dateobs="2025-01-24",
-        dt_base=datetime(2025, 1, 24),
+        dateobs="2000-01-01",
+        dt_base=datetime(2000, 1, 1),
     )
     monkeypatch.setattr(
         spectrum_adapter,
@@ -338,8 +338,8 @@ def test_dart_flux_uses_canonical_original_channel_extractor(
 ) -> None:
     captured: dict[str, object] = {}
     times = (
-        datetime(2025, 1, 24, 0, 0, tzinfo=UTC),
-        datetime(2025, 1, 24, 0, 0, 1, tzinfo=UTC),
+        datetime(2000, 1, 1, 0, 0, tzinfo=UTC),
+        datetime(2000, 1, 1, 0, 0, 1, tzinfo=UTC),
     )
 
     def fake_extract(*args: object, **kwargs: object) -> DartNarrowbandResult:
@@ -383,8 +383,8 @@ def test_dart_flux_extracts_all_matched_centers_in_one_reader_call(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     times = (
-        datetime(2025, 1, 24, 0, 0, tzinfo=UTC),
-        datetime(2025, 1, 24, 0, 0, 1, tzinfo=UTC),
+        datetime(2000, 1, 1, 0, 0, tzinfo=UTC),
+        datetime(2000, 1, 1, 0, 0, 1, tzinfo=UTC),
     )
     calls: list[tuple[object, ...]] = []
 
@@ -439,9 +439,9 @@ def test_cso_flux_uses_finite_original_channel_mean_and_native_unit(
         time=np.asarray([0.0, 1.0]),
         freq=np.asarray([100.0, 150.0, 200.0]),
         polar="RCP",
-        dateobs="2025-01-24",
+        dateobs="2000-01-01",
         unit="sfu",
-        dt_base=datetime(2025, 1, 24),
+        dt_base=datetime(2000, 1, 1),
     )
     monkeypatch.setattr(
         spectrum_adapter,
@@ -463,8 +463,8 @@ def test_cso_flux_uses_finite_original_channel_mean_and_native_unit(
 
 def test_spectrum_selection_figure_supports_cso_and_highlights_band() -> None:
     times = (
-        datetime(2025, 1, 24, 0, 0, tzinfo=UTC),
-        datetime(2025, 1, 24, 0, 0, 1, tzinfo=UTC),
+        datetime(2000, 1, 1, 0, 0, tzinfo=UTC),
+        datetime(2000, 1, 1, 0, 0, 1, tzinfo=UTC),
     )
     window = SpectrumWindow(
         data=np.asarray([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]]),
@@ -490,8 +490,8 @@ def test_spectrum_selection_figure_supports_cso_and_highlights_band() -> None:
 
 def test_spectrum_figure_applies_display_frequency_and_intensity_ranges() -> None:
     times = (
-        datetime(2025, 1, 24, 0, 0, tzinfo=UTC),
-        datetime(2025, 1, 24, 0, 0, 1, tzinfo=UTC),
+        datetime(2000, 1, 1, 0, 0, tzinfo=UTC),
+        datetime(2000, 1, 1, 0, 0, 1, tzinfo=UTC),
     )
     window = SpectrumWindow(
         data=np.asarray([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]]),
@@ -539,8 +539,8 @@ def test_spectrum_figure_rejects_invalid_display_ranges(
         data=np.ones((2, 2)),
         frequency_mhz=np.asarray([100.0, 200.0]),
         time_utc=(
-            datetime(2025, 1, 24, 0, 0, tzinfo=UTC),
-            datetime(2025, 1, 24, 0, 0, 1, tzinfo=UTC),
+            datetime(2000, 1, 1, 0, 0, tzinfo=UTC),
+            datetime(2000, 1, 1, 0, 0, 1, tzinfo=UTC),
         ),
         polarization="RR",
         unit="sfu",
@@ -553,8 +553,8 @@ def test_spectrum_figure_rejects_invalid_display_ranges(
 
 def test_spectrum_selection_figure_highlights_all_roi_matched_bands() -> None:
     times = (
-        datetime(2025, 1, 24, 0, 0, tzinfo=UTC),
-        datetime(2025, 1, 24, 0, 0, 1, tzinfo=UTC),
+        datetime(2000, 1, 1, 0, 0, tzinfo=UTC),
+        datetime(2000, 1, 1, 0, 0, 1, tzinfo=UTC),
     )
     window = SpectrumWindow(
         data=np.ones((4, 2)),
@@ -578,8 +578,8 @@ def test_spectrum_selection_figure_highlights_all_roi_matched_bands() -> None:
 
 def test_roi_frequencies_automatically_define_same_center_spectrum_bands() -> None:
     times = (
-        datetime(2025, 1, 24, 0, 0, tzinfo=UTC),
-        datetime(2025, 1, 24, 0, 0, 1, tzinfo=UTC),
+        datetime(2000, 1, 1, 0, 0, tzinfo=UTC),
+        datetime(2000, 1, 1, 0, 0, 1, tzinfo=UTC),
     )
     window = SpectrumWindow(
         data=np.ones((6, 2)),
@@ -601,9 +601,9 @@ def test_roi_frequencies_automatically_define_same_center_spectrum_bands() -> No
 
 
 def test_spectrum_selection_figure_aligns_range_and_reference_line() -> None:
-    start = datetime(2025, 1, 24, 4, 48, 30, tzinfo=UTC)
-    end = datetime(2025, 1, 24, 4, 49, 0, tzinfo=UTC)
-    marker = datetime(2025, 1, 24, 4, 48, 32, tzinfo=UTC)
+    start = datetime(2000, 1, 1, 4, 48, 30, tzinfo=UTC)
+    end = datetime(2000, 1, 1, 4, 49, 0, tzinfo=UTC)
+    marker = datetime(2000, 1, 1, 4, 48, 32, tzinfo=UTC)
     window = SpectrumWindow(
         data=np.asarray([[1.0, 2.0], [3.0, 4.0]]),
         frequency_mhz=np.asarray([100.0, 200.0]),
@@ -632,7 +632,7 @@ def test_spectrum_selection_figure_aligns_range_and_reference_line() -> None:
 def test_spectrum_selection_figure_applies_same_dart_offset_to_heatmap_and_grid() -> (
     None
 ):
-    first = datetime(2025, 1, 24, 4, 48, 30, 312134, tzinfo=UTC)
+    first = datetime(2000, 1, 1, 4, 48, 30, 312134, tzinfo=UTC)
     second = first + timedelta(seconds=0.401374)
     reference = first - timedelta(microseconds=134)
     window = SpectrumWindow(

@@ -260,7 +260,7 @@ def _run_streamlit_app(argv: list[str] | None = None) -> None:
         )
         aia_time = st.text_input(
             "Reference UTC",
-            value="2025-01-24T04:48:32Z",
+            value="",
             key="aia_time",
         )
         radio_frequencies = st.multiselect(
@@ -460,22 +460,22 @@ def _run_streamlit_app(argv: list[str] | None = None) -> None:
         with st.expander("UTC display windows", expanded=True):
             flux_time_start = st.text_input(
                 "Flux UTC start",
-                value="2025-01-24T04:48:30Z",
+                value="",
                 key="flux_time_start",
             )
             flux_time_end = st.text_input(
                 "Flux UTC end",
-                value="2025-01-24T04:49:00Z",
+                value="",
                 key="flux_time_end",
             )
             spectrum_time_start = st.text_input(
                 "Spectrum UTC start",
-                value="2025-01-24T04:48:30Z",
+                value="",
                 key="spectrum_time_start",
             )
             spectrum_time_end = st.text_input(
                 "Spectrum UTC end",
-                value="2025-01-24T04:49:00Z",
+                value="",
                 key="spectrum_time_end",
             )
         with st.expander("Video export", expanded=False):

@@ -35,7 +35,7 @@ def _top_png() -> bytes:
 
 
 def _result() -> tuple[CompositeResult, datetime]:
-    start = datetime(2025, 1, 24, 4, 48, 30, tzinfo=UTC)
+    start = datetime(2000, 1, 1, 4, 48, 30, tzinfo=UTC)
     curve = pd.DataFrame(
         {
             "time": [

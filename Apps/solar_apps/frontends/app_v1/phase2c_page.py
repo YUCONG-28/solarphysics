@@ -102,8 +102,8 @@ class Phase2CPanel(NativeModulePanel):
 
     def _drift_tab(self) -> QWidget:
         page, form, buttons = self._page()
-        self.t_start = QLineEdit("2025-01-24T04:48:30Z")
-        self.t_end = QLineEdit("2025-01-24T04:48:35Z")
+        self.t_start = QLineEdit("")
+        self.t_end = QLineEdit("")
         self.f_start = QDoubleSpinBox()
         self.f_start.setRange(0.001, 100000.0)
         self.f_start.setValue(300.0)

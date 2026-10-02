@@ -2,7 +2,9 @@
 
 `Apps` is the public application and workflow layer for the reusable
 `solar_toolkit` library in `../Python`. It contains browser, Streamlit, and Qt
-frontends, shared UI/platform services, and reproducible workflow orchestration.
+frontends, shared UI/platform services, and example workflow orchestration.
+These adapters demonstrate composition of library APIs; scientific inputs and
+configuration must be supplied by the user.
 Machine configuration, remembered fields, recent paths, logs, outputs, and
 scientific data belong in the ignored `../Local` runtime tree.
 
@@ -202,7 +204,7 @@ repository launcher from any terminal directory. It is **not part of this
 repository** and is therefore not committed or pushed with the code; a fresh
 machine must reinstall it locally.
 
-On the current machine the install lives in two local files:
+An optional local shortcut can use two files:
 
 - `~/bin/solarphysics` — a sourced zsh function that resolves the workspace
   and calls `<workspace>/Apps/run.sh "$@"`.

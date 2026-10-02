@@ -1,9 +1,4 @@
-"""Render RR+LL percentile-comparison source-map previews for 2025-01-24.
-
-This is a focused batch runner for the 2025-01-24 nine-band RR+LL source maps:
-it computes one fixed per-band log10 color range per percentile pair over the
-full event window, then renders only the first, middle, and last slots.
-"""
+"""Compare fixed percentile display ranges on explicit radio observations."""
 
 from __future__ import annotations
 
@@ -20,6 +15,7 @@ from . import source_map_workflow as workflow
 from solar_toolkit.radio.config import load_radio_user_config
 from solar_toolkit.radio.io import write_json_file
 from solar_toolkit.radio.provenance import write_radio_provenance
+from .entrypoint_utils import add_config_arguments, resolve_config_source
 
 __all__ = [
     "build_parser",
@@ -29,12 +25,9 @@ __all__ = [
     "run_percentile_preview_comparison",
 ]
 
-CONFIG_NAME = (
-    "solar_apps.workflows.radio.configs."
-    "radio_20250124_center_pm2min_9band_raw_rrll_full_config"
-)
-DEFAULT_OUTPUT_DIR = Path("outputs/radio/2025-01-24")
-DEFAULT_RUN_STEM = "rrll_spec_percentile_compare_20260712"
+CONFIG_NAME = None
+DEFAULT_OUTPUT_DIR = Path("outputs/radio")
+DEFAULT_RUN_STEM = "rrll_spec_percentile_compare"
 PERCENTILE_GROUPS: tuple[tuple[float, float], ...] = (
     (99.0, 99.99),
     (95.0, 99.99),
@@ -43,12 +36,12 @@ PERCENTILE_GROUPS: tuple[tuple[float, float], ...] = (
 )
 PREVIEW_SLOTS: tuple[tuple[str, int], ...] = (
     ("first", 0),
-    ("middle", 294),
-    ("last", 587),
+    ("middle", -1),
+    ("last", -1),
 )
-SPECTROGRAM_FILE = "data/radio/2025-01-24/spectrogram.fits"
-SPECTROGRAM_START = "2025-01-24T04:47:43"
-SPECTROGRAM_END = "2025-01-24T04:50:35"
+SPECTROGRAM_FILE = None
+SPECTROGRAM_START = None
+SPECTROGRAM_END = None
 
 
 def _percentile_token(value: float) -> str:
@@ -61,7 +54,7 @@ def _analysis_subdir(
 ) -> str:
     low, high = percentiles
     return (
-        "radio_source_maps_9band_"
+        "radio_source_maps_"
         f"{run_tag}_p{_percentile_token(low)}_{_percentile_token(high)}"
         f"_preview_{position}"
     )
@@ -91,10 +84,11 @@ def resolve_available_run_tag(
 
 def _base_user_config(
     *,
+    config_source=None,
     radio_root: str | Path | None = None,
     spectrogram_file: str | Path | None = None,
 ) -> tuple[dict, dict]:
-    user_config, newkirk_config = load_radio_user_config(CONFIG_NAME)
+    user_config, newkirk_config = load_radio_user_config(config_source)
     user_config = copy.deepcopy(user_config)
     if radio_root is not None:
         user_config.setdefault("data", {})["multi_band_root"] = str(radio_root)
@@ -114,22 +108,8 @@ def _base_user_config(
             "per_band_range_method": "fixed_percentile",
         }
     )
-    user_config.setdefault("spectrogram", {}).update(
-        {
-            "file_path": str(spectrogram_file or SPECTROGRAM_FILE),
-            "time_display_mode": "user",
-            "time_start": SPECTROGRAM_START,
-            "time_end": SPECTROGRAM_END,
-            "f_start": 80.0,
-            "f_end": 340.0,
-            "polarization": "sum",
-            "vmin": 2.5,
-            "vmax": 4.5,
-            "use_log10": True,
-            "cmap": "jet",
-            "colorbar_label": r"log$_{10}$ intensity",
-        }
-    )
+    if spectrogram_file is not None:
+        user_config.setdefault("spectrogram", {})["file_path"] = str(spectrogram_file)
     user_config.setdefault("drift_rate", {}).update({"enabled": False, "mode": "off"})
     user_config.setdefault("output", {}).update(
         {
@@ -324,8 +304,8 @@ def _render_one_preview(
             "spectrogram_file": str(
                 base_cfg.get("spectrogram_file_path", SPECTROGRAM_FILE)
             ),
-            "spectrogram_time_start": SPECTROGRAM_START,
-            "spectrogram_time_end": SPECTROGRAM_END,
+            "spectrogram_time_start": base_cfg.get("spectrogram_time_start"),
+            "spectrogram_time_end": base_cfg.get("spectrogram_time_end"),
             "first_slot_spectrogram_note": (
                 "The first preview time is outside the displayed spectrogram range; "
                 "the figure should show the out-of-range note instead of a vertical line."
@@ -339,6 +319,7 @@ def _render_one_preview(
 
 def run_percentile_preview_comparison(
     *,
+    config_source=None,
     output_dir: Path = DEFAULT_OUTPUT_DIR,
     run_stem: str = DEFAULT_RUN_STEM,
     run_tag: str | None = None,
@@ -357,14 +338,20 @@ def run_percentile_preview_comparison(
         )
 
     user_config, newkirk_config = _base_user_config(
+        config_source=config_source,
         radio_root=radio_root,
         spectrogram_file=spectrogram_file,
     )
     user_config["output"]["output_dir"] = str(output_dir)
     base_cfg = _flat_config(user_config)
     slots = workflow._build_multi_band_slots(base_cfg)
-    if len(slots) <= max(slot_idx for _position, slot_idx in PREVIEW_SLOTS):
-        raise RuntimeError(f"Expected at least 588 slots, got {len(slots)}")
+    if not slots:
+        raise RuntimeError("No synchronized radio slots were selected")
+    preview_slots = (
+        ("first", 0),
+        ("middle", (len(slots) - 1) // 2),
+        ("last", len(slots) - 1),
+    )
 
     print("Computing full-window fixed per-band color ranges...")
     range_map = compute_fixed_band_ranges(base_cfg, PERCENTILE_GROUPS)
@@ -377,7 +364,7 @@ def run_percentile_preview_comparison(
     matplotlib.use("Agg")
     outputs = []
     for percentiles in PERCENTILE_GROUPS:
-        for position, slot_idx in PREVIEW_SLOTS:
+        for position, slot_idx in preview_slots:
             output_path = _render_one_preview(
                 output_dir=output_dir,
                 user_config=user_config,
@@ -407,7 +394,7 @@ def run_percentile_preview_comparison(
         "percentile_groups": [list(item) for item in PERCENTILE_GROUPS],
         "preview_slots": [
             {"position": position, "slot_index": slot_idx}
-            for position, slot_idx in PREVIEW_SLOTS
+            for position, slot_idx in preview_slots
         ],
         "frequencies_mhz": list(base_cfg["multi_band_freqs"]),
         "radio_root": str(base_cfg["multi_band_root"]),
@@ -419,7 +406,7 @@ def run_percentile_preview_comparison(
         "outputs": outputs,
     }
     write_json_file(
-        output_dir / f"radio_source_maps_9band_{resolved_tag}_summary.json", summary
+        output_dir / f"radio_source_maps_{resolved_tag}_summary.json", summary
     )
     return summary
 
@@ -428,21 +415,22 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Render RR+LL percentile comparison preview source maps."
     )
-    parser.add_argument("--output-dir", default=str(DEFAULT_OUTPUT_DIR))
+    add_config_arguments(parser)
+    parser.add_argument("--output-dir", required=True)
     parser.add_argument("--run-stem", default=DEFAULT_RUN_STEM)
     parser.add_argument("--run-tag")
     parser.add_argument(
         "--radio-root",
         help=(
             "Explicit multi-band radio root. Radio Workspace requires this "
-            "allowed-root-validated override; the legacy CLI keeps its event default."
+            "allowed-root-validated override."
         ),
     )
     parser.add_argument(
         "--spectrogram-file",
         help=(
             "Explicit spectrogram FITS file. Radio Workspace requires this "
-            "allowed-root-validated override; the legacy CLI keeps its event default."
+            "allowed-root-validated override."
         ),
     )
     return parser
@@ -451,6 +439,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     summary = run_percentile_preview_comparison(
+        config_source=resolve_config_source(args),
         output_dir=Path(args.output_dir),
         run_stem=args.run_stem,
         run_tag=args.run_tag,

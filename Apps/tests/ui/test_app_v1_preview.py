@@ -183,11 +183,11 @@ def test_offscreen_preview_broadcasts_restored_utc_selection(
         samples=[
             TimelineSample(
                 locator="radio#1",
-                observed_at_utc="2025-01-24T23:59:59Z",
+                observed_at_utc="2000-01-01T23:59:59Z",
             ),
             TimelineSample(
                 locator="radio#2",
-                observed_at_utc="2025-01-25T00:00:01Z",
+                observed_at_utc="2000-01-02T00:00:01Z",
             ),
         ],
     )
@@ -198,7 +198,7 @@ def test_offscreen_preview_broadcasts_restored_utc_selection(
         samples=[
             TimelineSample(
                 locator="aia#1",
-                observed_at_utc="2025-01-24T23:59:58.5Z",
+                observed_at_utc="2000-01-01T23:59:58.5Z",
             )
         ],
     )
@@ -217,7 +217,7 @@ def test_offscreen_preview_broadcasts_restored_utc_selection(
     assert result["source_count"] == 2
     assert result["matched_count"] == 2
     assert result["synced_page_count"] == 10
-    assert result["current_time_utc"] == "2025-01-24T23:59:59Z"
+    assert result["current_time_utc"] == "2000-01-01T23:59:59Z"
 
 
 def test_offscreen_preview_shows_complete_confirmation_summary(

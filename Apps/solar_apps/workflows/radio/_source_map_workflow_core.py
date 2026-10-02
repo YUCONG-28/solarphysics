@@ -279,9 +279,10 @@ DEFAULT_CONFIG = {
     "hide_inner_ticks": True,  # 是否隐藏内部子图的刻度标签（只显示边缘子图）
     # ---------- 时间解析配置 ----------
     # 支持的日期格式:
-    #   "6digit": YYDDD (6位，如202553表示2025年第53天)
-    #   "7digit": YYYYDDD (7位，如2025124表示2025年第124天)
-    #   "8digit": YYYYDDDD (8位，不常见)
+    #   "6digit": YYDDDD (两位年份+四位年内日，如000001表示2000年第1日)
+    #   "7digit": YYYYDDD (四位年份+三位年内日，如2000001表示2000年第1日)
+    #   "8digit": YYYYDDDD (旧式选择器：年份+四位年内日，如20000001表示2000年第1日)
+    #   标准 YYYYMMDD 由观测时间解析器处理；保留各解析器的既有语义。
     #   "auto": 自动检测（默认）
     "date_format": "auto",  # "auto", "yyyyddd", "yyyymdd", "yymmdd_or_yyddd"
     # 文件名时间解析模式（正则表达式）
@@ -525,8 +526,8 @@ DEFAULT_CONFIG = {
     "spectrogram_file_paths": [],
     "spectrogram_file_path": "data/radio/spectrogram.fits",
     "spectrogram_time_display_mode": "user",
-    "spectrogram_time_start": "2025-01-24T04:48:30",  # 例如 "2025-05-03T07:16:00"；None 表示自动从射电图像时间范围推断
-    "spectrogram_time_end": "2025-01-24T04:49:00",
+    "spectrogram_time_start": None,  # 例如 "2000-01-01T00:00:00"；None 表示自动从射电图像时间范围推断
+    "spectrogram_time_end": None,
     "spectrogram_time_margin_seconds": 30.0,
     "spectrogram_f_start": 80.0,
     "spectrogram_f_end": 340.0,
@@ -4040,9 +4041,9 @@ def _legacy_check_diagnostic_csv_schema():
 def _legacy_check_drift_manual_endpoint_calculation():
     line = {
         "label": "drift_001",
-        "t_start": "2025-01-24T04:48:50",
+        "t_start": "2000-01-01T00:00:00",
         "f_start_mhz": 230.0,
-        "t_end": "2025-01-24T04:48:56",
+        "t_end": "2000-01-01T00:00:06",
         "f_end_mhz": 170.0,
         "color": "white",
     }
@@ -4059,8 +4060,8 @@ def _legacy_check_drift_selection_json_roundtrip():
         data=np.zeros((2, 2), dtype=np.float32),
         time_nums=np.array([0.0, 1.0]),
         display_time_nums=(
-            mdates.date2num(datetime.datetime(2025, 1, 24, 4, 48, 50)),
-            mdates.date2num(datetime.datetime(2025, 1, 24, 4, 49, 0)),
+            mdates.date2num(datetime.datetime(2000, 1, 1, 0, 0, 0)),
+            mdates.date2num(datetime.datetime(2000, 1, 1, 0, 0, 10)),
         ),
         time_datetimes=[],
         freq=np.array([100.0, 300.0]),
@@ -4074,18 +4075,18 @@ def _legacy_check_drift_selection_json_roundtrip():
     lines = [
         {
             "label": "drift_001",
-            "t_start": "2025-01-24T04:48:50",
+            "t_start": "2000-01-01T00:00:00",
             "f_start_mhz": 230.0,
-            "t_end": "2025-01-24T04:48:56",
+            "t_end": "2000-01-01T00:00:06",
             "f_end_mhz": 170.0,
             "color": "white",
             "note": "",
         },
         {
             "label": "drift_002",
-            "t_start": "2025-01-24T04:48:52",
+            "t_start": "2000-01-01T00:00:02",
             "f_start_mhz": 210.0,
-            "t_end": "2025-01-24T04:48:58",
+            "t_end": "2000-01-01T00:00:08",
             "f_end_mhz": 160.0,
             "color": "cyan",
             "note": "",
@@ -4105,7 +4106,7 @@ def _legacy_check_drift_selection_json_roundtrip():
 
 
 def _legacy_check_pixel_to_spectrogram_coord_mapping():
-    t0 = datetime.datetime(2025, 1, 24, 4, 48, 50)
+    t0 = datetime.datetime(2000, 1, 1, 0, 0, 0)
     t1 = t0 + datetime.timedelta(seconds=10)
     metadata = {
         "axes_bbox_px": {"left": 100, "right": 900, "top": 100, "bottom": 500},
@@ -4178,8 +4179,8 @@ def _legacy_check_radio_wcs_orientation_negative_cdelt2():
 def _legacy_check_spectrogram_mapping_not_flipped():
     metadata = {
         "axes_bbox_px": {"left": 100, "right": 900, "top": 100, "bottom": 500},
-        "x_start_num": mdates.date2num(datetime.datetime(2025, 1, 24, 4, 48, 50)),
-        "x_end_num": mdates.date2num(datetime.datetime(2025, 1, 24, 4, 49, 0)),
+        "x_start_num": mdates.date2num(datetime.datetime(2000, 1, 1, 0, 0, 0)),
+        "x_end_num": mdates.date2num(datetime.datetime(2000, 1, 1, 0, 0, 10)),
         "f_min_mhz": 100.0,
         "f_max_mhz": 300.0,
     }
@@ -4218,8 +4219,8 @@ def _legacy_check_drift_launch_policy_logic():
         data=np.zeros((2, 2), dtype=np.float32),
         time_nums=np.array([0.0, 1.0]),
         display_time_nums=(
-            mdates.date2num(datetime.datetime(2025, 1, 24, 4, 48, 50)),
-            mdates.date2num(datetime.datetime(2025, 1, 24, 4, 49, 0)),
+            mdates.date2num(datetime.datetime(2000, 1, 1, 0, 0, 0)),
+            mdates.date2num(datetime.datetime(2000, 1, 1, 0, 0, 10)),
         ),
         time_datetimes=[],
         freq=np.array([100.0, 300.0]),
@@ -4236,9 +4237,9 @@ def _legacy_check_drift_launch_policy_logic():
         return [
             {
                 "label": "drift_001",
-                "t_start": "2025-01-24T04:48:50",
+                "t_start": "2000-01-01T00:00:00",
                 "f_start_mhz": 230.0,
-                "t_end": "2025-01-24T04:48:56",
+                "t_end": "2000-01-01T00:00:06",
                 "f_end_mhz": 170.0,
                 "color": "white",
             }
@@ -4288,7 +4289,7 @@ def _legacy_check_drift_launch_policy_logic():
 
 
 def _legacy_check_frontend_time_mapping_metadata():
-    t0 = datetime.datetime(2025, 1, 24, 4, 48, 50)
+    t0 = datetime.datetime(2000, 1, 1, 0, 0, 0)
     t1 = t0 + datetime.timedelta(seconds=10)
     metadata = {
         "axes_bbox_px": {"left": 100, "right": 900, "top": 100, "bottom": 500},
@@ -4327,8 +4328,8 @@ def _legacy_check_selection_preview_png_size_matches_metadata():
             data=np.zeros((16, 16), dtype=np.float32),
             time_nums=np.linspace(0, 1, 16),
             display_time_nums=(
-                mdates.date2num(datetime.datetime(2025, 1, 24, 4, 48, 50)),
-                mdates.date2num(datetime.datetime(2025, 1, 24, 4, 49, 0)),
+                mdates.date2num(datetime.datetime(2000, 1, 1, 0, 0, 0)),
+                mdates.date2num(datetime.datetime(2000, 1, 1, 0, 0, 10)),
             ),
             time_datetimes=[],
             freq=np.linspace(100, 300, 16),

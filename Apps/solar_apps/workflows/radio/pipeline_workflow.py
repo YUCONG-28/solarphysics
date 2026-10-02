@@ -31,6 +31,7 @@ from solar_apps.workflows.radio.entrypoint_utils import (
     apply_pipeline_output_overrides,
     build_legacy_config,
     load_workspace_config_overrides,
+    resolve_config_source,
     parse_known_common_args,
     resolve_analysis_dir,
 )
@@ -84,7 +85,9 @@ def _run_pipeline(argv=None, *, config_name: str | None = None):
     args = _parse_args(argv)
     # Load the event config in layers: legacy source-map settings, output naming,
     # Newkirk diagnostics, drift-selection products, and presentation toggles.
-    selected_config = config_name or args.config
+    selected_config = (
+        config_name if config_name is not None else resolve_config_source(args)
+    )
     user_config, newkirk_cfg = load_radio_user_config(selected_config)
     output_cfg = load_radio_output_config(selected_config)
     newkirk_height_cfg = load_newkirk_height_comparison_config(selected_config)

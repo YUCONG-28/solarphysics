@@ -1,8 +1,4 @@
-"""Download selected SDO/AIA level-1 EUV FITS files from JSOC.
-
-This event-specific helper fetches 211 A and 304 A records for
-2025-01-24 04:00-05:00 UTC and writes a URL manifest beside the downloads.
-"""
+"""Download caller-selected AIA records and write their URL manifest."""
 
 from __future__ import annotations
 
@@ -12,10 +8,10 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from urllib.request import Request, urlopen
 
-OUT = Path.home() / "data" / "aia" / "20250124_2"
+OUT = None
 BASE = "https://jsoc1.stanford.edu"
 SERIES = "aia.lev1_euv_12s"
-TIMERANGE = "2025.01.24_04:00:00_UTC/1h"
+TIMERANGE = None
 WAVES = [211, 304]
 MAX_WORKERS = 2
 
@@ -43,6 +39,8 @@ def collect_records(
 ) -> list[tuple[str, Path]]:
     import drms
 
+    if output_dir is None or not timerange:
+        raise ValueError("Supply output_dir and an explicit JSOC timerange.")
     output_dir = Path(output_dir)
     client = drms.Client()
     records = []
@@ -99,10 +97,10 @@ def build_parser() -> argparse.ArgumentParser:
         prog="solar-apps workflow net jsoc",
         description="Download selected SDO/AIA level-1 EUV FITS records.",
     )
-    parser.add_argument("--output-dir", default=str(OUT))
+    parser.add_argument("--output-dir", required=True)
     parser.add_argument("--base-url", default=BASE)
     parser.add_argument("--series", default=SERIES)
-    parser.add_argument("--timerange", default=TIMERANGE)
+    parser.add_argument("--timerange", required=True)
     parser.add_argument("--waves", type=int, nargs="+", default=list(WAVES))
     parser.add_argument("--max-workers", type=int, default=MAX_WORKERS)
     return parser

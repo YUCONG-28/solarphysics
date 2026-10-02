@@ -194,7 +194,7 @@ def test_nested_secrets_history_results_data_and_unknown_workflows_are_dropped(
                         "operation_history": ["do-not-copy"],
                         "unknown": "do-not-copy",
                     },
-                    "radio_20250503_config": {
+                    "radio_20000503_config": {
                         "output": {
                             "output_dir": str(allowed / "radio"),
                             "auth_token": "do-not-copy",
@@ -231,10 +231,6 @@ def test_nested_secrets_history_results_data_and_unknown_workflows_are_dropped(
         "runtime_layout_version": RUNTIME_LAYOUT_VERSION,
     }
     assert imported["scripts"] == {
-        "radio_20250503_config": {
-            "output": {"output_dir": str(allowed / "radio")},
-            "user": {"output": {"output_dir": str(allowed / "user")}},
-        },
         "sdo_aia_euv_processor": {
             "data_path": str(allowed),
             "output_dir": str(allowed / "output"),

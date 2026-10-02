@@ -24,7 +24,7 @@ def _write_synthetic_cso(
     n_freq: int = 40,
     n_time: int = 40,
     n_pol: int = 2,
-    base: str = "2025-01-24T00:00:00",
+    base: str = "2000-01-01T00:00:00",
 ) -> str:
     """Write a synthetic CSO FITS and return its path."""
     time_arr = np.arange(n_time, dtype=np.float64)  # seconds since DATE-OBS
@@ -79,7 +79,7 @@ def test_lazy_rebin_matches_manual_block_mean(tmp_path) -> None:
     results, hdu = read_cso_fits(path)
     try:
         spec = results[0]
-        base = dt.datetime(2025, 1, 24, 0, 0, 0)
+        base = dt.datetime(2000, 1, 1, 0, 0, 0)
         f_bin, t_bin = 2, 4
 
         z_out, time_out, freq_out = spec.read_slice_rebinned(

@@ -1,20 +1,13 @@
 # STEREO EUVI example
 
-[`euvi_plot.ipynb`](euvi_plot.ipynb) crops local EUVI FITS maps in helioprojective
-coordinates and saves PNG figures. It uses SunPy without downloading observations.
+`euvi_plot.ipynb` reads caller-selected FITS maps and optionally crops a supplied
+helioprojective ROI. It does not download observations or select an event.
 
-1. Use the Miniforge `solarphysics_env_latest` environment.
-2. Open the notebook from within this repository. Set `EUVI_DATA_DIR` before
-   starting Jupyter, or edit `euvi_dir` in the input cell. The default is
-   `Local/observations/stereo-a/euvi/20250124/171` relative to the repository root.
-3. Review the ROI bounds and intensity limits for your observation, then run all
-   cells in order. Missing directories and empty FITS selections fail explicitly.
-4. Inspect the figures in `Local/outputs/examples/stereo/euvi-roi`. Rerunning
-   replaces PNG files with the same input stem; source FITS files are untouched.
+Set `EUVI_DATA_DIR` to the input directory and `EUVI_OUTPUT_DIR` to a private
+output directory before starting Jupyter in the supported Miniforge environment.
+`EUVI_ROI_ARCSEC` optionally accepts `[left, bottom, right, top]` in arcseconds;
+when omitted the complete input map is plotted. Intensity settings come from the
+input map. Review your ROI and calibration conditions for your own data.
 
-For a reproducibility check, restart the kernel and run all cells. Confirm that
-one figure is produced per FITS file and that the crop covers the intended region.
-The original parameters target the 2025-01-24 example and need review for other
-events. Clear outputs and execution counts before committing the notebook.
-
-Return to the [library guide](../../README.md) or [maintenance index](../../../docs/README.md).
+Restart the kernel and run every cell to check reproducibility. Missing inputs
+fail explicitly. Clear all outputs and execution counts before committing.

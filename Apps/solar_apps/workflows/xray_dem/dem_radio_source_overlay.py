@@ -2,8 +2,7 @@
 # 主要输入: DEM 分析结果、AIA 图像和射电源数据。
 # 主要输出/运行说明: 输出热等离子体结构与射电辐射位置的对比图。
 """
-Created: 2026-01-26
-Modified: 添加射电源强度梯度叠加、时间匹配筛选、叠加开关
+DEM/radio source overlay calculations.
 """
 
 import argparse
@@ -171,7 +170,7 @@ class SolarMap:
     nx, ny     : 图像像素数
     rsun       : 太阳视半径（arcsec）
     sun_center : (cx, cy) 日面中心坐标（arcsec）
-    obs_time   : 格式化时间字符串，如 '2025-01-24 04:47:47 UT'
+    obs_time   : 格式化时间字符串，如 '2000-01-01 04:47:47 UT'
     obs_dt     : datetime 对象，用于与射电文件做时间匹配
     """
 
@@ -276,7 +275,7 @@ def get_radio_time(path: str) -> str:
         pass
 
     fname = os.path.basename(path)
-    # CSRH/MUSER 格式：149MHz_2025124_043740_886.fits（月份无前导零）
+    # CSRH/MUSER 合成示例：149MHz_2000101_000000_000.fits（月份无前导零）
     m = re.search(r"(\d{4})(\d{1,2})(\d{2})_(\d{2})(\d{2})(\d{2})_(\d{3})", fname)
     if m:
         year = m.group(1)

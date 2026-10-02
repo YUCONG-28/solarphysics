@@ -6,7 +6,7 @@ from collections.abc import Callable, Sequence
 from typing import Any
 
 from .configs import DEFAULT_CONFIG_NAME
-from .entrypoint_utils import build_common_parser
+from .entrypoint_utils import build_common_parser, resolve_config_source
 
 __all__ = ["build_parser", "main"]
 
@@ -30,7 +30,8 @@ def main(
     """Run the package pipeline or an explicitly supplied compatibility hook."""
 
     forwarded = None if argv is None else list(argv)
-    build_parser().parse_known_args(forwarded)
+    args, _unknown = build_parser().parse_known_args(forwarded)
+    resolve_config_source(args)
     if runner is None:
         from .pipeline_workflow import run_pipeline
 

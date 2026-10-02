@@ -112,11 +112,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--time-start",
-        help="Inclusive observation-time start, e.g. 2025-01-24T04:46:45.",
+        help="Inclusive observation-time start, e.g. 2000-01-01T00:00:00.",
     )
     parser.add_argument(
         "--time-end",
-        help="Inclusive observation-time end, e.g. 2025-01-24T04:50:45.",
+        help="Inclusive observation-time end, e.g. 2000-01-01T00:04:00.",
     )
     parser.add_argument(
         "--threshold", type=float, default=0.95, help="Threshold fraction, e.g. 0.95."

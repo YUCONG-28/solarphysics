@@ -16,3 +16,19 @@ __all__ = [
     "get_map_obs_time",
     "normalize_image",
 ]
+
+
+def __getattr__(name):
+    """Load optional jet geometry only when the public function is requested."""
+    if name == "fit_jet_axis":
+        from .jet_axis import fit_jet_axis
+
+        globals()[name] = fit_jet_axis
+        return fit_jet_axis
+    if name in {"fit_jet_geometry", "freeze_jet_documents"}:
+        from . import jet_geometry_fit
+
+        function = getattr(jet_geometry_fit, name)
+        globals()[name] = function
+        return function
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

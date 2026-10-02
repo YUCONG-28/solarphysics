@@ -33,7 +33,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--roi", default=None)
     parser.add_argument("--fps", type=int, default=4)
     parser.add_argument(
-        "--calibration", choices=("legacy", "secchi-prep"), default="legacy"
+        "--calibration",
+        choices=("python-preprocess", "legacy", "secchi-prep"),
+        default="python-preprocess",
     )
     parser.add_argument("--ssw-root", default=None)
     parser.add_argument("--idl-executable", default="idl")
@@ -91,6 +93,32 @@ def main(argv: list[str] | None = None) -> int:
                 )
                 _event("progress", {"percent": int(50 * index / len(files))})
             input_dir = calibrated
+        else:
+            _event(
+                "log",
+                {
+                    "level": "info",
+                    "message": "Python 预处理：保留头部指向，未执行完整仪器校准；不调用 IDL",
+                },
+            )
+            from solar_toolkit.map.euvi_preprocessing import prepare_euvi_map
+            from solar_toolkit.map.jet_annotations import file_sha256
+            from solar_apps.workflows.visualization.stereo_euvi_plot import (
+                build_manifest,
+                load_map,
+            )
+
+            audits = []
+            # The plotting function also uses this common preparation path.
+            for record in build_manifest(input_dir, wavelengths):
+                source = Path(record["path"])
+                audit = prepare_euvi_map(load_map(source)).audit
+                audits.append(
+                    dict(audit, source=str(source), source_sha256=file_sha256(source))
+                )
+            (output_dir / "preprocessing_audit.json").write_text(
+                json.dumps(audits, ensure_ascii=False, indent=2)
+            )
         target_time = None
         if args.target_time:
             target_time = datetime.fromisoformat(

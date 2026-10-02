@@ -101,16 +101,26 @@ def parse_request_config(
 ) -> dict[str, Any]:
     """Build one frozen source-map config from validated frontend controls."""
 
-    from solar_apps.workflows.radio.configs import DEFAULT_CONFIG_NAME
+    from solar_apps.workflows.radio.entrypoint_utils import load_json_config
     from solar_apps.workflows.radio import source_map_workflow as workflow
     from solar_toolkit.radio.config import load_radio_user_config
 
-    config_name = str(payload.get("config") or DEFAULT_CONFIG_NAME).strip()
-    if not CONFIG_PATTERN.fullmatch(config_name):
-        raise ValueError(
-            "Config must name a module under solar_apps.workflows.radio.configs"
+    config_file = payload.get("config_file")
+    config_name = str(payload.get("config") or "").strip()
+    if not config_file and config_name.lower().endswith(".json"):
+        config_file = config_name
+    if config_file:
+        source = load_json_config(
+            policy.resolve(config_file, must_exist=True, kind="file")
         )
-    user_config, _newkirk = load_radio_user_config(config_name)
+    elif CONFIG_PATTERN.fullmatch(config_name):
+        source = config_name
+    elif not config_name and payload.get("source_path") and payload.get("mode"):
+        # Explicit form inputs are a data-only configuration mapping.
+        source = {"user": {}}
+    else:
+        raise ValueError("Supply an explicit configuration JSON file or module")
+    user_config, _newkirk = load_radio_user_config(source)
     cfg = workflow.build_config(user_config, workflow.DEFAULT_CONFIG)
     cfg = workflow._migrate_config(cfg)
     cfg.update(
@@ -176,7 +186,11 @@ def parse_request_config(
     frequencies = _float_list(payload.get("frequencies"))
     if frequencies:
         cfg["multi_band_freqs"] = frequencies
-    if mode == "multi_band" and not cfg.get("multi_band_freqs"):
+    if (
+        mode == "multi_band"
+        and not frequencies
+        and not user_config.get("data", {}).get("multi_band_freqs")
+    ):
         raise ValueError("At least one multi-band frequency is required")
 
     for request_key, config_key in (

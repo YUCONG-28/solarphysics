@@ -140,9 +140,9 @@ def test_sequence_api_freezes_requested_discovery_range(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     source = tmp_path / "149MHz" / "RR"
-    _write_map(source / "001.fits", "2025-01-24T04:48:30")
-    _write_map(source / "002.fits", "2025-01-24T04:48:31")
-    _write_map(source / "003.fits", "2025-01-24T04:48:32")
+    _write_map(source / "001.fits", "2000-01-01T04:48:30")
+    _write_map(source / "002.fits", "2000-01-01T04:48:31")
+    _write_map(source / "003.fits", "2000-01-01T04:48:32")
     output = tmp_path / "output"
     app = create_app([tmp_path], stop_on_client_close=False)
     client = app.test_client()

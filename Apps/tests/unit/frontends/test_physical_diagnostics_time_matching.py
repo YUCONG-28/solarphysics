@@ -28,7 +28,7 @@ def test_cli_uses_supplied_drift_table(tmp_path, monkeypatch):
     pd.DataFrame(
         [
             dict(
-                time="20250124044831 11",
+                time="20000101044831 11",
                 freq=150.0,
                 center_x_arcsec=1200.0,
                 center_y_arcsec=-300.0,
@@ -41,8 +41,8 @@ def test_cli_uses_supplied_drift_table(tmp_path, monkeypatch):
         [
             dict(
                 label="known_burst",
-                t_start="2025-01-24T04:48:30.011",
-                t_end="2025-01-24T04:48:32.011",
+                t_start="2000-01-01T04:48:30.011",
+                t_end="2000-01-01T04:48:32.011",
                 f_start_mhz=160.0,
                 f_end_mhz=140.0,
                 drift_rate_mhz_s=-10.0,
@@ -53,5 +53,5 @@ def test_cli_uses_supplied_drift_table(tmp_path, monkeypatch):
         gaussian_csv=gaussian, drift_csv=drift, output_dir=tmp_path / "out"
     )
     rows = pd.read_csv(result["artifacts"]["height_rows_csv"], dtype={"time": str})
-    assert rows["time"].eq("20250124044831 11").all()
+    assert rows["time"].eq("20000101044831 11").all()
     assert rows.drift_label.eq("known_burst").all()

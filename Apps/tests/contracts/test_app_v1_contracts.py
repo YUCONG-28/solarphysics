@@ -132,7 +132,7 @@ def test_runtime_paths_extend_only_the_existing_local_layout(tmp_path: Path) -> 
 
 
 def test_versioned_contracts_are_utc_and_json_compatible() -> None:
-    observed = datetime(2025, 1, 24, 4, 48, tzinfo=timezone.utc)
+    observed = datetime(2000, 1, 1, 4, 48, tzinfo=timezone.utc)
     source = InputReference(
         "radio-one",
         "radio-fits",
@@ -182,12 +182,12 @@ def test_versioned_contracts_are_utc_and_json_compatible() -> None:
 
     assert request.to_dict()["requested_at_utc"].endswith("Z")
     assert manifest.to_dict()["products"][0]["relative_path"] == "images/map.png"
-    assert selection.to_dict()["current_time_utc"] == "2025-01-24T04:48:00Z"
+    assert selection.to_dict()["current_time_utc"] == "2000-01-01T04:48:00Z"
     assert project.to_dict()["schema_version"] == 1
 
 
 def test_contracts_reject_unsafe_or_ambiguous_values() -> None:
-    observed = datetime(2025, 1, 24, 4, 48, tzinfo=timezone.utc)
+    observed = datetime(2000, 1, 1, 4, 48, tzinfo=timezone.utc)
     with pytest.raises(ValueError, match="run-relative"):
         ArtifactProduct("image", "../map.png", "image/png")
     with pytest.raises(ValueError, match="terminal"):
@@ -206,7 +206,7 @@ def test_contracts_reject_unsafe_or_ambiguous_values() -> None:
         TimelineSource(
             "radio-source",
             "source-map",
-            (datetime(2025, 1, 24, 4, 48),),
+            (datetime(2000, 1, 1, 4, 48),),
         )
 
 

@@ -21,7 +21,7 @@ _TRAJECTORY_EXPORT = "solar_apps.workflows.radio.trajectory_cli"
 _TRAJECTORY_MEDIA = "solar_apps.workflows.radio.trajectory_media_cli"
 _TRAJECTORY_PREVIEW = "solar_apps.frontends.app_v1.trajectory_preview_worker"
 _DEM_RADIO = "solar_apps.workflows.xray_dem.dem_radio_cli"
-_RADIO_CONFIG = "solar_apps.workflows.radio.configs.radio_20250124_config"
+_RADIO_CONFIG = None
 
 
 class Phase2CAdapter:
@@ -165,8 +165,8 @@ class Phase2CAdapter:
             raise ValueError("Select a Gaussian CSV, a drift CSV, or both")
         output = self._new_output_dir("newkirk")
         arguments: list[str] = [
-            "--config",
-            _RADIO_CONFIG,
+            "--workspace-config-json",
+            json.dumps({"user": {}}),
             "--output-dir",
             str(output),
         ]
@@ -185,7 +185,7 @@ class Phase2CAdapter:
                 (
                     "Module: Newkirk Diagnostics",
                     f"Input: {inputs}",
-                    "Parameters: configured 2025-01-24 Newkirk assumptions",
+                    "Parameters: explicit table inputs and standard Newkirk assumptions",
                     f"Output: {output}",
                     "Workload: persisted diagnostic table(s); no upstream rerun",
                 )

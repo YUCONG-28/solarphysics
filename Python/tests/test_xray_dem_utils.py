@@ -15,15 +15,15 @@ def test_load_sxr_data_smooth_and_derivative(tmp_path):
     pd.DataFrame(
         {
             "time": [
-                "2025-01-24T04:48:00Z",
-                "2025-01-24T04:49:00Z",
-                "2025-01-24T04:50:00Z",
+                "2000-01-01T04:48:00Z",
+                "2000-01-01T04:49:00Z",
+                "2000-01-01T04:50:00Z",
             ],
             "xrsa": [1.0, 3.0, 5.0],
         }
     ).to_csv(csv_path, index=False)
 
-    loaded = load_sxr_data(csv_path, "2025-01-24T04:48:30Z", "2025-01-24T04:50:30Z")
+    loaded = load_sxr_data(csv_path, "2000-01-01T04:48:30Z", "2000-01-01T04:50:30Z")
     smoothed = smooth_flux_data(pd.Series([1.0, 3.0, 5.0]), window_length=3)
     derivative = calculate_derivative(pd.Series([1.0, 3.0, 5.0]), spacing_seconds=60)
 

@@ -1,10 +1,7 @@
 # 模块用途: 绘制 RHESSI/HESSI 风格硬 X 射线光变曲线。
 # 主要输入: 硬 X 射线事件或光变数据。
 # 主要输出/运行说明: 输出 HXR 时间序列图。
-"""
-Created on Sun Mar  9 20:39:21 2025
-
-"""
+""" """
 
 import argparse
 from collections.abc import Sequence

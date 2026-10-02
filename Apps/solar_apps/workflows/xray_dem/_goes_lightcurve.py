@@ -12,8 +12,8 @@ from solar_apps.platform.config import load_script_config
 from solar_toolkit.xray_dem.sxr import load_goes_sxr_dataset
 
 DEFAULT_INPUT = "data/xray/goes-sxr.nc"
-DEFAULT_START = "2024-08-08T19:00:00"
-DEFAULT_END = "2024-08-08T20:00:00"
+DEFAULT_START = None
+DEFAULT_END = None
 DEFAULT_OUTPUT = "SXR.png"
 
 
@@ -23,8 +23,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser = argparse.ArgumentParser(description="Plot a GOES soft X-ray light curve")
     parser.add_argument("--input", default=config["file_path"], help="GOES NetCDF file")
-    parser.add_argument("--start-time", default=DEFAULT_START)
-    parser.add_argument("--end-time", default=DEFAULT_END)
+    parser.add_argument("--start-time", default=DEFAULT_START, required=True)
+    parser.add_argument("--end-time", default=DEFAULT_END, required=True)
     parser.add_argument(
         "--output",
         default=None,
@@ -52,7 +52,7 @@ def plot_goes_lightcurve(dataset):
     axis.set_xlabel("Time (UTC)", fontsize=12, labelpad=10)
     axis.set_ylabel("Flux (W/m²)", fontsize=12, labelpad=10)
     axis.set_title(
-        "GOES-16 Solar Soft X-ray Flux (0.5-4 Å)   2024-08-08",
+        "GOES Solar Soft X-ray Flux (0.5-4 Å)",
         fontsize=14,
         fontweight="bold",
     )

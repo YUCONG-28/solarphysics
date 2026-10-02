@@ -48,10 +48,10 @@ def _write_dataset(folder: Path) -> Path:
     frequency = np.asarray([147.0, 148.0, 149.0, 150.0, 151.0])
     time_rows = np.asarray(
         [
-            [25, 1, 24, 4, 45, 0.0],
-            [25, 1, 24, 4, 45, 1.0],
-            [25, 1, 24, 4, 45, 2.0],
-            [25, 1, 24, 4, 45, 3.0],
+            [0, 1, 1, 4, 45, 0.0],
+            [0, 1, 1, 4, 45, 1.0],
+            [0, 1, 1, 4, 45, 2.0],
+            [0, 1, 1, 4, 45, 3.0],
         ]
     )
     stokes_i = np.asarray(
@@ -73,10 +73,10 @@ def _write_dataset(folder: Path) -> Path:
         ]
     )
     payloads = {
-        "2025-01-24_SpecDataIdB.fits": stokes_i,
-        "2025-01-24_SpecDataVP.fits": stokes_vp,
-        "2025-01-24_SpecFrequency.fits": frequency[None, :],
-        "2025-01-24_SpecTime.fits": time_rows,
+        "2000-01-01_SpecDataIdB.fits": stokes_i,
+        "2000-01-01_SpecDataVP.fits": stokes_vp,
+        "2000-01-01_SpecFrequency.fits": frequency[None, :],
+        "2000-01-01_SpecTime.fits": time_rows,
     }
     for name, payload in payloads.items():
         fits.PrimaryHDU(data=np.asarray(payload, dtype=np.float64)).writeto(
@@ -103,22 +103,22 @@ def test_parse_center_frequencies_enforces_limit_and_uniqueness() -> None:
 
 def test_parse_marked_times_normalizes_deduplicates_and_validates_range() -> None:
     observation_range = (
-        datetime(2025, 1, 24, 4, 45, tzinfo=UTC),
-        datetime(2025, 1, 24, 4, 45, 3, tzinfo=UTC),
+        datetime(2000, 1, 1, 4, 45, tzinfo=UTC),
+        datetime(2000, 1, 1, 4, 45, 3, tzinfo=UTC),
     )
 
     assert parse_marked_times(
-        "04:45:01.5, 2025-01-24T05:45:02+01:00, 04:45:01.500",
+        "04:45:01.5, 2000-01-01T05:45:02+01:00, 04:45:01.500",
         observation_range,
     ) == (
-        datetime(2025, 1, 24, 4, 45, 1, 500000, tzinfo=UTC),
-        datetime(2025, 1, 24, 4, 45, 2, tzinfo=UTC),
+        datetime(2000, 1, 1, 4, 45, 1, 500000, tzinfo=UTC),
+        datetime(2000, 1, 1, 4, 45, 2, tzinfo=UTC),
     )
     assert parse_marked_times("", observation_range) == ()
     assert parse_marked_times(
-        "2025-01-24T04:45:03",
+        "2000-01-01T04:45:03",
         observation_range,
-    ) == (datetime(2025, 1, 24, 4, 45, 3, tzinfo=UTC),)
+    ) == (datetime(2000, 1, 1, 4, 45, 3, tzinfo=UTC),)
 
     with pytest.raises(ValueError, match="outside the observation range"):
         parse_marked_times("04:46:00", observation_range)
@@ -128,8 +128,8 @@ def test_parse_marked_times_normalizes_deduplicates_and_validates_range() -> Non
         parse_marked_times(
             "04:45:01",
             (
-                datetime(2025, 1, 24, tzinfo=UTC),
-                datetime(2025, 1, 25, 23, 59, 59, tzinfo=UTC),
+                datetime(2000, 1, 1, tzinfo=UTC),
+                datetime(2000, 1, 2, 23, 59, 59, tzinfo=UTC),
             ),
         )
 
@@ -495,15 +495,15 @@ def test_dynamic_names_match_download_zip_and_local_save(tmp_path: Path) -> None
         LIGHTCURVE_PRODUCT_KEY,
     ]
     assert filenames[DYNAMIC_SPECTRUM_PRODUCT_KEY] == (
-        "0001_20250124T044500Z-20250124T044503Z_"
+        "0001_20000101T044500Z-20000101T044503Z_"
         "dart_stokes_i_v_over_i_dynamic_spectrum.png"
     )
     assert filenames[SELECTED_SPECTRUM_PRODUCT_KEY] == (
-        "0002_20250124T044500Z-20250124T044503Z_"
+        "0002_20000101T044500Z-20000101T044503Z_"
         "dart_stokes_i_v_over_i_selected_spectrum.png"
     )
     assert filenames[LIGHTCURVE_PRODUCT_KEY].startswith(
-        "0003_20250124T044500Z-20250124T044503Z_dart_stokes_i_"
+        "0003_20000101T044500Z-20000101T044503Z_dart_stokes_i_"
     )
     assert full_only_filenames == {
         DYNAMIC_SPECTRUM_PRODUCT_KEY: filenames[DYNAMIC_SPECTRUM_PRODUCT_KEY]
@@ -558,7 +558,7 @@ def test_streamlit_app_load_validation_generation_and_downloads(
     app.radio(key="x_tick_mode").set_value("Custom").run()
     app.number_input(key="x_tick_interval_seconds").set_value(1.5).run()
     app.text_input(key="marked_times").set_value(
-        "04:45:01.5, 2025-01-24T04:45:02Z"
+        "04:45:01.5, 2000-01-01T04:45:02Z"
     ).run()
 
     app.button(key="generate_figures").click().run(timeout=40)
@@ -596,8 +596,8 @@ def test_streamlit_app_load_validation_generation_and_downloads(
     assert any("Parameters changed" in warning.value for warning in app.warning)
     assert app.text_input(key="center_frequencies") is not None
     app.checkbox(key="limit_time").check().run()
-    app.text_input(key="time_start").set_value("2025-01-24T04:45:01+00:00").run()
-    app.text_input(key="time_end").set_value("2025-01-24T04:45:03+00:00").run()
+    app.text_input(key="time_start").set_value("2000-01-01T04:45:01+00:00").run()
+    app.text_input(key="time_end").set_value("2000-01-01T04:45:03+00:00").run()
     app.text_input(key="marked_times").set_value("04:45:00, 04:45:02").run()
 
     app.text_input(key="center_frequencies").set_value("149,149").run()

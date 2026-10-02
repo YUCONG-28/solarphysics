@@ -153,7 +153,7 @@ def test_single_band_source_resolves_event_band_and_polarization_levels(
 
 
 def test_candidate_grouping_common_intersection_and_stride_use_real_times() -> None:
-    start = datetime(2025, 1, 24, 4, 48, 30, tzinfo=UTC)
+    start = datetime(2000, 1, 1, 4, 48, 30, tzinfo=UTC)
     candidates = [
         *[
             _candidate(149.0, start + timedelta(seconds=index), index)
@@ -191,7 +191,7 @@ def test_world_roi_intersection_is_independent_of_png_pixels() -> None:
 
 
 def test_sequence_source_map_disables_dynamic_tight_cropping(tmp_path: Path) -> None:
-    candidate = _candidate(149.0, datetime(2025, 1, 24, 4, 48, 30, tzinfo=UTC), 0)
+    candidate = _candidate(149.0, datetime(2000, 1, 1, 4, 48, 30, tzinfo=UTC), 0)
 
     normal, _ = prepare_single_panel_render(
         {},
@@ -275,7 +275,7 @@ def test_source_map_rendering_is_serialized_across_threads(
 def test_sequence_export_writes_one_validated_video_and_png_set_per_frequency(
     tmp_path: Path,
 ) -> None:
-    start = datetime(2025, 1, 24, 4, 48, 30, tzinfo=UTC)
+    start = datetime(2000, 1, 1, 4, 48, 30, tzinfo=UTC)
     frequencies = (149.0, 164.0)
     grouped = {
         frequency: [
@@ -405,7 +405,7 @@ def test_sequence_uses_matching_dart_curve_and_csv_for_each_frequency(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    start = datetime(2025, 1, 24, 4, 48, 30, tzinfo=UTC)
+    start = datetime(2000, 1, 1, 4, 48, 30, tzinfo=UTC)
     frequencies = (149.0, 164.0)
     dart_results = {
         149.0: _dart(start, 149.0, bandwidth=2.0, offset=10.0),
@@ -479,7 +479,7 @@ def test_sequence_uses_matching_dart_curve_and_csv_for_each_frequency(
 def test_sequence_rejects_incomplete_per_frequency_dart_mapping(
     tmp_path: Path,
 ) -> None:
-    start = datetime(2025, 1, 24, 4, 48, 30, tzinfo=UTC)
+    start = datetime(2000, 1, 1, 4, 48, 30, tzinfo=UTC)
     with pytest.raises(ValueError, match="Missing sequence input for 164 MHz"):
         export_composite_sequences(
             tmp_path,
@@ -522,7 +522,7 @@ def test_sequence_output_modes_are_independent_and_compatible(
     expected_videos: int,
     expected_pngs: int,
 ) -> None:
-    start = datetime(2025, 1, 24, 4, 48, 30, tzinfo=UTC)
+    start = datetime(2000, 1, 1, 4, 48, 30, tzinfo=UTC)
     candidates = [
         _candidate(149.0, start + timedelta(seconds=index), index) for index in range(2)
     ]
@@ -644,7 +644,7 @@ def test_sequence_reuses_matching_curve_template_across_exports(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    start = datetime(2025, 1, 24, 4, 48, 30, tzinfo=UTC)
+    start = datetime(2000, 1, 1, 4, 48, 30, tzinfo=UTC)
     candidates = [
         _candidate(149.0, start + timedelta(seconds=index), index) for index in range(2)
     ]
@@ -701,7 +701,7 @@ def test_sequence_reuses_matching_curve_template_across_exports(
 def test_sequence_normalizes_a_same_aspect_source_map_resolution_change(
     tmp_path: Path,
 ) -> None:
-    start = datetime(2025, 1, 24, 4, 48, 30, tzinfo=UTC)
+    start = datetime(2000, 1, 1, 4, 48, 30, tzinfo=UTC)
     candidates = [
         _candidate(149.0, start + timedelta(seconds=index), index) for index in range(2)
     ]
@@ -770,7 +770,7 @@ def test_sequence_normalizes_a_same_aspect_source_map_resolution_change(
 
 
 def test_sequence_rejects_a_source_map_aspect_ratio_change(tmp_path: Path) -> None:
-    start = datetime(2025, 1, 24, 4, 48, 30, tzinfo=UTC)
+    start = datetime(2000, 1, 1, 4, 48, 30, tzinfo=UTC)
     candidates = [
         _candidate(149.0, start + timedelta(seconds=index), index) for index in range(2)
     ]
@@ -836,7 +836,7 @@ def test_sequence_source_map_pixel_validation_rejects_blank_or_wrong_size(
 def test_sequence_rejects_source_map_panel_geometry_drift(
     tmp_path: Path,
 ) -> None:
-    start = datetime(2025, 1, 24, 4, 48, 30, tzinfo=UTC)
+    start = datetime(2000, 1, 1, 4, 48, 30, tzinfo=UTC)
     candidates = [
         _candidate(149.0, start + timedelta(seconds=index), index) for index in range(2)
     ]
@@ -869,7 +869,7 @@ def test_sequence_rejects_source_map_panel_geometry_drift(
 
 
 def test_canceled_export_does_not_publish_partial_package(tmp_path: Path) -> None:
-    start = datetime(2025, 1, 24, 4, 48, 30, tzinfo=UTC)
+    start = datetime(2000, 1, 1, 4, 48, 30, tzinfo=UTC)
     candidate = _candidate(149.0, start, 0)
 
     with pytest.raises(CompositeSequenceCancelled):
@@ -898,7 +898,7 @@ def test_canceled_export_does_not_publish_partial_package(tmp_path: Path) -> Non
 def test_sequence_export_produces_ffprobe_valid_mp4(tmp_path: Path) -> None:
     if media.resolve_ffmpeg() is None or media.resolve_ffprobe() is None:
         pytest.skip("FFmpeg and FFprobe are required for the real media smoke")
-    start = datetime(2025, 1, 24, 4, 48, 30, tzinfo=UTC)
+    start = datetime(2000, 1, 1, 4, 48, 30, tzinfo=UTC)
     candidates = [
         _candidate(149.0, start + timedelta(seconds=index), index) for index in range(2)
     ]

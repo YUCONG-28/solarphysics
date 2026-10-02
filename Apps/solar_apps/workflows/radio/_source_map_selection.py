@@ -340,10 +340,10 @@ class TimeParser:
         """从文件名解析时间信息（精确到毫秒），支持多种格式。
 
         支持的格式:
-        1. 6位日期+毫秒: 149MHz_202553_071600_353.fits
-        2. 7位日期+毫秒: 149MHz_2025124_043739_681.fits
-        3. 6位日期无毫秒: 149MHz_202553_071600.fits
-        4. 7位日期无毫秒: 149MHz_2025124_043739.fits
+        1. 6位日期+毫秒: 149MHz_000001_000000_000.fits
+        2. 7位日期+毫秒: 149MHz_2000001_000000_000.fits
+        3. 6位日期无毫秒: 149MHz_000001_000000.fits
+        4. 7位日期无毫秒: 149MHz_2000001_000000.fits
 
         返回: (date_key, total_ms) 或 None
           - date_key : 用于跨天比较的日期键
@@ -359,9 +359,9 @@ class TimeParser:
         # 尝试带毫秒的模式
         match = re.search(pattern_with_ms, filename)
         if match:
-            date_part = match.group(1)  # 如 "202553" 或 "2025124"
-            time_part = match.group(2)  # 如 "071600"
-            ms_str = match.group(3)  # 如 "353"
+            date_part = match.group(1)  # 如 "000001" 或 "2000001"
+            time_part = match.group(2)  # 如 "000000"
+            ms_str = match.group(3)  # 如 "000"
 
             # 解析时间部分
             hh = int(time_part[0:2])
@@ -439,8 +439,8 @@ def _parse_time_from_filename(filename):
     这是向后兼容的包装函数，使用新的TimeParser类。
 
     文件名格式:
-      - 新格式6位日期: 149MHz_202553_071600_353.fits
-      - 原格式7位日期: 149MHz_2025124_043739_681.fits
+      - 合成6位日期示例: 149MHz_000001_000000_000.fits
+      - 合成7位日期示例: 149MHz_2000001_000000_000.fits
 
     返回: (date_str, total_ms) 或 None
       - date_str  : 日期字符串，用于跨天判断
