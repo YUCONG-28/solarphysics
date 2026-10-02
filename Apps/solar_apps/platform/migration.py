@@ -170,41 +170,6 @@ _SCRIPT_SCHEMAS: dict[str, frozenset[str] | dict[str, Any]] = {
     ),
 }
 
-_EVENT_WORKFLOW_SCHEMA: dict[str, Any] = {
-    "output": {"output_dir": None},
-    "paths": {
-        "aia_base_dir": None,
-        "aia_panel_base_dir_template": None,
-        "hmi_base_dir": None,
-        "output_dir": None,
-        "radio_base_dir": None,
-    },
-    "spectrogram": {"file_path": None, "file_paths": None},
-}
-_SCRIPT_SCHEMAS.update(
-    {
-        "radio_20250124_config": {
-            "aia_multi_wave_gaussian_spectrogram": _EVENT_WORKFLOW_SCHEMA,
-            "aia_radio_hmi": _EVENT_WORKFLOW_SCHEMA,
-            "output": {"output_dir": None},
-            "user": {
-                "output": {"output_dir": None},
-                "spectrogram": {"file_path": None, "file_paths": None},
-            },
-        },
-        "radio_20250503_config": {
-            "aia_multi_wave_raw_radio_spectrogram": _EVENT_WORKFLOW_SCHEMA,
-            "aia_radio_hmi": _EVENT_WORKFLOW_SCHEMA,
-            "aia_raw_radio_spectrogram": _EVENT_WORKFLOW_SCHEMA,
-            "output": {"output_dir": None},
-            "user": {
-                "output": {"output_dir": None},
-                "spectrogram": {"file_path": None, "file_paths": None},
-            },
-        },
-    }
-)
-
 
 def _dangerous_key(value: str) -> bool:
     normalized = value.strip().casefold().replace("-", "_")

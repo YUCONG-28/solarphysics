@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 import csv
-import os
 import warnings
 from pathlib import Path
 
@@ -18,21 +17,13 @@ from matplotlib.colors import Normalize
 from sunpy.map import Map
 from sunpy.util.exceptions import SunpyMetadataWarning, SunpyUserWarning
 
-DATA_DIR = Path(os.getenv("STEREO_EUVI_DATA_DIR", "data/raw/stereo/euvi/20250124"))
-MANIFEST = DATA_DIR / "manifest_by_wavelength.csv"
-OUT_ROOT = Path(
-    os.getenv(
-        "STEREO_EUVI_ROI_PRODUCT_DIR",
-        "data/products/stereo_euvi/roi_x0000_0800_y-1000_0200_log_fixed",
-    )
-)
-MP4_DIR = OUT_ROOT / "mp4"
+DATA_DIR = None
+MANIFEST = None
+OUT_ROOT = None
+MP4_DIR = None
 WAVELENGTHS = ("171", "195", "284", "304")
 
-X_MIN = 0 * u.arcsec
-X_MAX = 800 * u.arcsec
-Y_MIN = -1000 * u.arcsec
-Y_MAX = 200 * u.arcsec
+X_MIN = X_MAX = Y_MIN = Y_MAX = None
 
 FPS = 4
 DPI = 160
@@ -55,9 +46,19 @@ __all__ = [
 
 def build_parser() -> argparse.ArgumentParser:
     """Build the event-recipe parser without loading FITS data."""
-    return argparse.ArgumentParser(
+    parser = argparse.ArgumentParser(
         description="Generate fixed-canvas STEREO/EUVI ROI movies."
     )
+    parser.add_argument("--input-dir", type=Path, required=True)
+    parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument(
+        "--roi",
+        nargs=4,
+        type=float,
+        required=True,
+        metavar=("XMIN", "XMAX", "YMIN", "YMAX"),
+    )
+    return parser
 
 
 def load_manifest() -> list[dict[str, str]]:
@@ -161,7 +162,15 @@ def make_movie_like_opencv_mp4(frame_paths: list[Path], video_path: Path) -> Non
 
 
 def main(argv: list[str] | None = None) -> int:
-    build_parser().parse_args(argv)
+    global DATA_DIR, MANIFEST, OUT_ROOT, MP4_DIR, X_MIN, X_MAX, Y_MIN, Y_MAX
+    args = build_parser().parse_args(argv)
+    DATA_DIR = args.input_dir.expanduser()
+    MANIFEST = DATA_DIR / "manifest_by_wavelength.csv"
+    OUT_ROOT = args.output_dir.expanduser()
+    MP4_DIR = OUT_ROOT / "mp4"
+    X_MIN, X_MAX, Y_MIN, Y_MAX = (value * u.arcsec for value in args.roi)
+    if X_MIN >= X_MAX or Y_MIN >= Y_MAX:
+        raise ValueError("ROI bounds must increase.")
     plt.switch_backend("Agg")
     warnings.filterwarnings("ignore", category=SunpyUserWarning)
     warnings.filterwarnings("ignore", category=SunpyMetadataWarning)

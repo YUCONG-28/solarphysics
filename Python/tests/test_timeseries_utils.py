@@ -10,13 +10,13 @@ def test_normalize_time_column_and_crop_range():
 
     frame = pd.DataFrame(
         {
-            "time_tag": ["2025-01-24T04:48:00Z", "2025-01-24T04:49:00Z"],
+            "time_tag": ["2000-01-01T04:48:00Z", "2000-01-01T04:49:00Z"],
             "flux": [1.0, 3.0],
         }
     )
     normalized = normalize_time_column(frame, source_column="time_tag")
     cropped = crop_time_range(
-        normalized, "2025-01-24T04:48:30Z", "2025-01-24T04:49:30Z"
+        normalized, "2000-01-01T04:48:30Z", "2000-01-01T04:49:30Z"
     )
 
     assert "obs_time" in normalized.columns

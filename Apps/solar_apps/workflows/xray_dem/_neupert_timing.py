@@ -13,8 +13,8 @@ from solar_toolkit.xray_dem.processing import calculate_derivative, smooth_flux_
 from solar_toolkit.xray_dem.sxr import load_goes_sxr_dataset
 
 DEFAULT_INPUT = "data/xray/goes-sxr.nc"
-DEFAULT_START = "2024-08-08T19:00:00"
-DEFAULT_END = "2024-08-08T20:00:00"
+DEFAULT_START = None
+DEFAULT_END = None
 DEFAULT_WINDOW = 22
 DEFAULT_POLYORDER = 3
 
@@ -27,8 +27,8 @@ def build_parser() -> argparse.ArgumentParser:
         description="Compare raw and smoothed GOES SXR channels for Neupert timing"
     )
     parser.add_argument("--input", default=config["file_path"], help="GOES NetCDF file")
-    parser.add_argument("--start-time", default=DEFAULT_START)
-    parser.add_argument("--end-time", default=DEFAULT_END)
+    parser.add_argument("--start-time", default=DEFAULT_START, required=True)
+    parser.add_argument("--end-time", default=DEFAULT_END, required=True)
     parser.add_argument("--window-length", type=int, default=DEFAULT_WINDOW)
     parser.add_argument("--polyorder", type=int, default=DEFAULT_POLYORDER)
     parser.add_argument("--output", help="Optional figure path; disabled by default")

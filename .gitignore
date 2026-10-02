@@ -52,3 +52,13 @@ __pycache__/
 
 # Simulation sources and outputs remain local and are not published.
 /simulation/
+
+# Research records, event presets and generated library build products.
+/Paper/
+/tools/literature/
+/Python/build/
+/Python/dist/
+/Python/*.egg-info/
+/Python/.pytest_cache/
+/Python/.ruff_cache/
+/preview.png

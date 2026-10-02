@@ -24,7 +24,7 @@ def test_flow_worker_uses_native_source_map_request_schema(
     result = source_map_flow_worker.main(
         [
             "--config",
-            "solar_apps.workflows.radio.configs.radio_20250124_config",
+            "solar_apps.workflows.radio.configs.synthetic_radio_config",
             "--source-path",
             str(source),
             "--start-idx",
@@ -42,7 +42,7 @@ def test_flow_worker_uses_native_source_map_request_schema(
     assert len(calls) == 2
     request = json.loads((output / "flow-source-map-request.json").read_text())
     config = request["config"]
-    assert config["config"].endswith("radio_20250124_config")
+    assert config["config"].endswith("synthetic_radio_config")
     assert config["start_idx"] == 2
     assert config["end_idx"] == 5
     assert config["cmap"] == "hot"

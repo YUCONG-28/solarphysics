@@ -16,7 +16,7 @@ def _record(
     path: Path,
     root: Path,
     *,
-    observed_utc: str = "2025-01-24T04:48:30.000Z",
+    observed_utc: str = "2000-01-01T04:48:30.000Z",
 ) -> dict[str, object]:
     relative_path = path.relative_to(root).as_posix()
     identity = f"{observed_utc}\0{relative_path}"
@@ -34,8 +34,8 @@ def _manifest(root: Path, paths: list[Path]) -> dict[str, object]:
     return {
         "schema": "solar-radio-frozen-collection-v1",
         "selection": {
-            "start_utc": "2025-01-24T04:48:00.000Z",
-            "end_utc": "2025-01-24T04:49:00.000Z",
+            "start_utc": "2000-01-01T04:48:00.000Z",
+            "end_utc": "2000-01-01T04:49:00.000Z",
         },
         "record_count": len(records),
         "records": records,
@@ -86,8 +86,8 @@ def test_naive_utc_is_rejected_by_freezer_and_manifest_reader(
     with pytest.raises(ValueError, match="timezone-aware UTC"):
         build(
             tmp_path,
-            datetime(2025, 1, 24, 4, 48),
-            datetime(2025, 1, 24, 4, 49),
+            datetime(2000, 1, 1, 4, 48),
+            datetime(2000, 1, 1, 4, 49),
         )
 
     band = tmp_path / "149MHz" / "RR"
@@ -97,7 +97,7 @@ def test_naive_utc_is_rejected_by_freezer_and_manifest_reader(
     payload = _manifest(tmp_path, [selected])
     selection = payload["selection"]
     assert isinstance(selection, dict)
-    selection["start_utc"] = "2025-01-24T04:48:00"
+    selection["start_utc"] = "2000-01-01T04:48:00"
     _write_manifest(tmp_path, payload)
 
     with pytest.raises(ValueError, match="Z suffix"):
@@ -105,7 +105,7 @@ def test_naive_utc_is_rejected_by_freezer_and_manifest_reader(
 
 
 def test_end_not_after_start_is_rejected(tmp_path: Path) -> None:
-    aware = datetime(2025, 1, 24, 4, 48, tzinfo=timezone.utc)
+    aware = datetime(2000, 1, 1, 4, 48, tzinfo=timezone.utc)
     with pytest.raises(ValueError, match="later than start_utc"):
         build(tmp_path, aware, aware)
 
@@ -167,21 +167,21 @@ def test_record_id_is_bound_to_utc_and_path(tmp_path: Path) -> None:
 def test_freezer_emits_canonical_utc_z_and_bound_record_ids(tmp_path: Path) -> None:
     band = tmp_path / "149MHz" / "RR"
     band.mkdir(parents=True)
-    selected = band / "149MHz_2025124_044830_000.fits"
+    selected = band / "149MHz_2000101_044830_000.fits"
     selected.write_bytes(b"fits")
 
     payload = build(
         tmp_path,
-        datetime(2025, 1, 24, 4, 48, tzinfo=timezone.utc),
-        datetime(2025, 1, 24, 4, 49, tzinfo=timezone.utc),
+        datetime(2000, 1, 1, 4, 48, tzinfo=timezone.utc),
+        datetime(2000, 1, 1, 4, 49, tzinfo=timezone.utc),
     )
 
     assert payload["selection"] == {
-        "start_utc": "2025-01-24T04:48:00.000Z",
-        "end_utc": "2025-01-24T04:49:00.000Z",
+        "start_utc": "2000-01-01T04:48:00.000Z",
+        "end_utc": "2000-01-01T04:49:00.000Z",
     }
     record = payload["records"][0]
-    assert record["observed_utc"] == "2025-01-24T04:48:30.000Z"
+    assert record["observed_utc"] == "2000-01-01T04:48:30.000Z"
     identity = f"{record['observed_utc']}\0{record['relative_path']}"
     assert record["record_id"] == (
         "radio-" + hashlib.sha256(identity.encode()).hexdigest()[:24]

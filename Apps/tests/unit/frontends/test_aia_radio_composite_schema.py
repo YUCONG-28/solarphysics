@@ -27,7 +27,7 @@ def _request(tmp_path: Path, **overrides: object) -> CompositeRequest:
     values: dict[str, object] = {
         "aia_directory": tmp_path / "aia",
         "aia_wave": 171,
-        "aia_time": "2025-01-24T04:48:32Z",
+        "aia_time": "2000-01-01T04:48:32Z",
         "radio_directory": tmp_path / "radio",
         "radio_frequency": 149,
         "polarization": "rr+ll",
@@ -46,7 +46,7 @@ def _request(tmp_path: Path, **overrides: object) -> CompositeRequest:
 
 
 def _spectrum(**overrides: object) -> SpectrumWindow:
-    start = datetime(2025, 1, 24, 4, 48, 30, tzinfo=UTC)
+    start = datetime(2000, 1, 1, 4, 48, 30, tzinfo=UTC)
     values: dict[str, object] = {
         "data": np.arange(6, dtype=np.float32).reshape(2, 3),
         "frequency_mhz": np.asarray([149.0, 150.0]),
@@ -64,8 +64,8 @@ def _curve() -> pd.DataFrame:
     return pd.DataFrame(
         {
             "time": [
-                "2025-01-24T04:48:30Z",
-                "2025-01-24T04:48:31Z",
+                "2000-01-01T04:48:30Z",
+                "2000-01-01T04:48:31Z",
             ],
             "frequency": [149.0, 164.0],
             "raw_sum": [10.0, 20.0],
@@ -149,13 +149,13 @@ def test_spectrum_window_preserves_samples_and_normalizes_metadata() -> None:
     window = _spectrum(
         data=source,
         time_utc=(
-            "2025-01-24T04:48:30",
-            "2025-01-24T04:48:31Z",
-            "2025-01-24T12:48:32+08:00",
+            "2000-01-01T04:48:30",
+            "2000-01-01T04:48:31Z",
+            "2000-01-01T12:48:32+08:00",
         ),
         metadata={
             "path": Path("/data/dart"),
-            "generated": datetime(2025, 1, 24, tzinfo=UTC),
+            "generated": datetime(2000, 1, 1, tzinfo=UTC),
             "bins": np.int64(2),
         },
     )
@@ -178,9 +178,9 @@ def test_spectrum_window_preserves_samples_and_normalizes_metadata() -> None:
         (
             {
                 "time_utc": (
-                    "2025-01-24T04:48:30Z",
-                    "2025-01-24T04:48:30Z",
-                    "2025-01-24T04:48:31Z",
+                    "2000-01-01T04:48:30Z",
+                    "2000-01-01T04:48:30Z",
+                    "2000-01-01T04:48:31Z",
                 )
             },
             "strictly increasing",
@@ -279,7 +279,7 @@ def test_spectrum_band_validates_bounds_and_original_channels() -> None:
 
 
 def test_spectrum_flux_curve_preserves_nan_gaps_and_exports_metadata() -> None:
-    start = datetime(2025, 1, 24, tzinfo=UTC)
+    start = datetime(2000, 1, 1, tzinfo=UTC)
     flux = SpectrumFluxCurve(
         time_utc=(start, start + timedelta(seconds=1)),
         values=np.asarray([2.5, np.nan]),
@@ -299,7 +299,7 @@ def test_spectrum_flux_curve_preserves_nan_gaps_and_exports_metadata() -> None:
 def test_composite_result_supports_multiple_spectrum_flux_curves_and_legacy_first() -> (
     None
 ):
-    start = datetime(2025, 1, 24, tzinfo=UTC)
+    start = datetime(2000, 1, 1, tzinfo=UTC)
     fluxes = tuple(
         SpectrumFluxCurve(
             time_utc=(start, start + timedelta(seconds=1)),

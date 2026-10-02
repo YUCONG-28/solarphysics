@@ -63,7 +63,7 @@ def test_explicit_complete_output_path_remains_unchanged(tmp_path: Path) -> None
     resolved = configured_scientific_image_path(
         explicit,
         sequence=1,
-        start_time="2025-01-24T04:48:30Z",
+        start_time="2000-01-01T04:48:30Z",
         instrument="AIA",
         channel=171,
         product="Intensity",
@@ -80,41 +80,41 @@ def test_dart_declared_product_order_drives_sequence(tmp_path: Path) -> None:
         frequency_range_mhz=(100.0, 200.0),
         frequency_samples=2,
         time_range_utc=(
-            dt.datetime(2025, 1, 24, 4, 48, tzinfo=dt.UTC),
-            dt.datetime(2025, 1, 24, 4, 50, tzinfo=dt.UTC),
+            dt.datetime(2000, 1, 1, 4, 48, tzinfo=dt.UTC),
+            dt.datetime(2000, 1, 1, 4, 50, tzinfo=dt.UTC),
         ),
         time_samples=2,
     )
     names = build_dart_artifact_filenames(summary)
 
     assert names["dynamic_spectrum"].startswith(
-        "0001_20250124T044800Z-20250124T045000Z_dart_"
+        "0001_20000101T044800Z-20000101T045000Z_dart_"
     )
     assert names["selected_spectrum"].startswith(
-        "0002_20250124T044800Z-20250124T045000Z_dart_"
+        "0002_20000101T044800Z-20000101T045000Z_dart_"
     )
     assert names["narrowband_lightcurve"].startswith(
-        "0003_20250124T044800Z-20250124T045000Z_dart_"
+        "0003_20000101T044800Z-20000101T045000Z_dart_"
     )
     assert all(_CONTRACT_NAME.fullmatch(name) for name in names.values())
 
 
 def test_suvi_and_euvi_providers_use_observation_metadata(tmp_path: Path) -> None:
-    observed = dt.datetime(2025, 1, 24, 4, 48, 30, 900000, tzinfo=dt.UTC)
+    observed = dt.datetime(2000, 1, 1, 4, 48, 30, 900000, tzinfo=dt.UTC)
     suvi_map = SimpleNamespace(date=observed, wavelength=195 * u.Angstrom)
     euvi_map = SimpleNamespace(date=observed, wavelength=171 * u.Angstrom)
     selection = SuviSelection("goes16", "g16", "195", tmp_path / "source.fits")
 
     assert output_name(selection, suvi_map) == (
-        "0001_20250124T044830Z_suvi_g16_195a_intensity_lower_right_quadrant.png"
+        "0001_20000101T044830Z_suvi_g16_195a_intensity_lower_right_quadrant.png"
     )
     assert euvi_output_name(euvi_map) == (
-        "0001_20250124T044830Z_stereo_a_euvi_171a_intensity.png"
+        "0001_20000101T044830Z_stereo_a_euvi_171a_intensity.png"
     )
 
 
 def test_web_contracts_expose_actual_download_basename() -> None:
-    filename = "0001_20250124T044830Z_radio_149mhz_rcp_source_map.png"
+    filename = "0001_20000101T044830Z_radio_149mhz_rcp_source_map.png"
     artifact = RadioArtifact(
         id="artifact1",
         relative_path=f"nested/{filename}",
@@ -134,7 +134,7 @@ def test_web_contracts_expose_actual_download_basename() -> None:
         width=10,
         height=10,
         frame_count=1,
-        created_at="2025-01-24T04:48:30Z",
+        created_at="2000-01-01T04:48:30Z",
     )
 
     assert artifact.to_dict()["suggested_filename"] == filename

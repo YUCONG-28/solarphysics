@@ -91,7 +91,7 @@ def test_gaussian_launch_uses_existing_source_map_workflow_for_one_frame(
     adapter, observations, layout = _adapter(tmp_path)
     radio = observations / "radio"
     radio.mkdir()
-    fits_path = radio / "radio_149MHz_RR_20250124_044829.fits"
+    fits_path = radio / "radio_149MHz_RR_20000101_000001.fits"
     fits_path.write_bytes(b"fixture")
 
     launch = adapter.build_gaussian_fit(radio, source_count=2)
@@ -171,7 +171,7 @@ def test_phase2b_rejects_paths_outside_allowed_roots(tmp_path: Path) -> None:
 def test_composite_candidate_contract_uses_manifest_mhz_and_time(
     tmp_path: Path,
 ) -> None:
-    source = tmp_path / "149MHz_2025124_044829_108.fits"
+    source = tmp_path / "149MHz_2000101_000001_100.fits"
     candidates = [
         {
             "id": "file-0000",
@@ -184,18 +184,18 @@ def test_composite_candidate_contract_uses_manifest_mhz_and_time(
     _normalize_candidate_contract(
         candidates,
         149.0,
-        {str(source.resolve()): "2025-01-24T04:48:29.108Z"},
+        {str(source.resolve()): "2000-01-01T00:00:01.100Z"},
     )
 
     assert candidates[0]["id"] == "149mhz-file-0000"
     assert candidates[0]["frequencies_mhz"] == [149.0]
-    assert candidates[0]["observation_time"] == "2025-01-24T04:48:29.108Z"
+    assert candidates[0]["observation_time"] == "2000-01-01T00:00:01.100Z"
 
 
 def test_composite_clips_broader_radio_coverage_to_dart_observation() -> None:
-    radio_start = datetime(2025, 1, 24, 4, 37, tzinfo=UTC)
-    radio_end = datetime(2025, 1, 24, 5, 1, tzinfo=UTC)
-    dart_start = datetime(2025, 1, 24, 4, 45, tzinfo=UTC)
+    radio_start = datetime(2000, 1, 1, 4, 37, tzinfo=UTC)
+    radio_end = datetime(2000, 1, 1, 5, 1, tzinfo=UTC)
+    dart_start = datetime(2000, 1, 1, 4, 45, tzinfo=UTC)
     times = tuple(dart_start + timedelta(seconds=index) for index in range(4))
     dart_end = times[-1]
     curve = DartNarrowbandCurve(

@@ -43,7 +43,7 @@ def _pair():
             header.copy(),
             pol,
             149.0,
-            datetime(2025, 1, 24, 4, 48),
+            datetime(2000, 1, 1, 4, 48),
         )
         for pol, value in [(POL_LCP, 2.0), (POL_RCP, 5.0)]
     ]

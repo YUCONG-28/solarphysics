@@ -77,8 +77,8 @@ class AIAConfig:
     # User-facing defaults. Keep these values behavior-compatible with the
     # historical processor unless a real-data comparison approves a change.
     root_dir: str = "data/aia"
-    year: str = "2026"
-    date: str = "20260326"
+    year: str | None = None
+    date: str | None = None
 
     # Supported modes: single, mosaic, and test. use_test_mode previews one
     # selected FITS file even when another mode is configured.
@@ -89,7 +89,7 @@ class AIAConfig:
     # under data_path/test_wave by time and selects the zero-based test_index.
     test_file: str | None = None
     test_wave: int = 131
-    test_index: int = 99
+    test_index: int = 0
 
     data_path: str | None = None
     output_dir: str | None = None
@@ -105,7 +105,7 @@ class AIAConfig:
 
     # ROI in arcsec helioprojective coordinates: (xmin, xmax, ymin, ymax).
     # Test mode is the safest way to tune it interactively.
-    roi_bounds: tuple[float, float, float, float] = (-1100, -800, -550, -200)
+    roi_bounds: tuple[float, float, float, float] | None = None
 
     # None means use AIA_CONFIG. Override only for temporary plot tuning.
     user_vmin: float | None = None
@@ -233,11 +233,11 @@ class AIAConfig:
         )
         if self.mode not in ("single", "mosaic", "test"):
             raise ValueError(f"Invalid mode: {self.mode}")
-        if self.data_path is None:
+        if self.data_path is None and self.year and self.date:
             self.data_path = str(
                 Path(self.root_dir) / self.year / self.date / "SDO" / "AIA"
             )
-        else:
+        elif self.data_path is not None:
             self.data_path = str(Path(self.data_path))
         if self.test_file is not None:
             self.test_file = str(Path(self.test_file))

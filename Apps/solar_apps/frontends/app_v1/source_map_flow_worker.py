@@ -14,7 +14,9 @@ from .source_map_worker import main as source_map_worker_main
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--config", required=True)
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument("--config")
+    group.add_argument("--config-file", type=Path)
     parser.add_argument("--source-path", required=True)
     parser.add_argument(
         "--mode", choices=("single_band", "multi_band"), default="single_band"
@@ -59,6 +61,7 @@ def main(argv: list[str] | None = None) -> int:
         "allowed_roots": allowed_roots,
         "config": {
             "config": args.config,
+            "config_file": str(args.config_file) if args.config_file else None,
             "source_path": str(source),
             "output_dir": str(output),
             "mode": args.mode,

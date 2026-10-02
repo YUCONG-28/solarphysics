@@ -14,11 +14,15 @@ from solar_toolkit.radio.output_paths import plot_output_subdir
 __all__ = [
     "apply_output_overrides",
     "apply_pipeline_output_overrides",
+    "add_config_arguments",
     "build_common_parser",
     "build_legacy_config",
     "load_workspace_config_overrides",
+    "load_json_config",
     "parse_known_common_args",
     "resolve_analysis_dir",
+    "resolve_config_source",
+    "config_source_label",
 ]
 
 
@@ -26,7 +30,7 @@ def build_common_parser(
     description: str,
     *,
     prog: str | None = None,
-    default_config: str = "radio_20250124_config",
+    default_config: str | None = None,
     include_pipeline_outputs: bool = False,
 ) -> argparse.ArgumentParser:
     """Build the small user-facing CLI shared by radio entrypoints."""
@@ -36,7 +40,7 @@ def build_common_parser(
         description=description,
         add_help=True,
     )
-    parser.add_argument("--config", default=default_config)
+    add_config_arguments(parser, default_config=default_config)
     parser.add_argument("--output-dir")
     parser.add_argument("--analysis-subdir")
     parser.add_argument("--gaussian-csv")
@@ -51,10 +55,80 @@ def build_common_parser(
     return parser
 
 
+def add_config_arguments(parser, *, default_config=None):
+    """Accept a caller-selected module or JSON file without loading either."""
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument(
+        "--config",
+        default=default_config,
+        help="Explicit fully qualified configuration module name.",
+    )
+    group.add_argument(
+        "--config-file",
+        type=Path,
+        help="JSON file containing explicit radio configuration sections.",
+    )
+
+
+def load_json_config(path, *, section=None):
+    """Read an explicit JSON object, optionally selecting one named section."""
+    with Path(path).expanduser().open(encoding="utf-8") as handle:
+        payload = json.load(handle)
+    if not isinstance(payload, dict):
+        raise TypeError("Radio JSON configuration must contain an object.")
+    selected = payload.get(section, payload) if section is not None else payload
+    if not isinstance(selected, dict):
+        raise TypeError(f"Configuration section {section!r} must be an object.")
+    return selected
+
+
+def resolve_config_source(args):
+    """Resolve explicit CLI settings; never select an observation implicitly."""
+    if getattr(args, "config_file", None) is not None:
+        return load_json_config(args.config_file)
+    if getattr(args, "config", None):
+        return args.config
+    values = load_workspace_config_overrides(args)
+    if values or getattr(args, "workspace_config_json", None):
+        # Native adapters supply either named event sections or user settings.
+        if "user" in values:
+            return values
+        model_sections = {
+            "newkirk",
+            "newkirk_height_comparison",
+            "drift_selection_products",
+            "diagnostic_presentation",
+            "aia_radio_hmi",
+            "aia_raw_radio_spectrogram",
+            "aia_multi_wave_raw_radio_spectrogram",
+            "aia_multi_wave_gaussian_spectrogram",
+        }
+        return {
+            "user": {
+                name: value
+                for name, value in values.items()
+                if name not in model_sections
+            },
+            **{name: value for name, value in values.items() if name in model_sections},
+        }
+    raise ValueError(
+        "Provide --config-file, --config, or explicit --workspace-config-json."
+    )
+
+
+def config_source_label(args):
+    """Return the explicit source locator for private run provenance."""
+    return (
+        str(args.config_file)
+        if getattr(args, "config_file", None)
+        else getattr(args, "config", None) or "explicit-workspace-mapping"
+    )
+
+
 def parse_known_common_args(
     description: str,
     *,
-    default_config: str,
+    default_config: str | None,
     include_pipeline_outputs: bool = False,
     argv: Sequence[str] | None = None,
 ) -> argparse.Namespace:

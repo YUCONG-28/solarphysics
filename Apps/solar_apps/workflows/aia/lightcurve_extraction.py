@@ -1,10 +1,7 @@
 # 模块用途: 从 AIA EUV FITS 图像序列中提取光变/流量数据。
 # 主要输入: AIA FITS 序列、目标区域和波段配置。
 # 主要输出/运行说明: 输出表格化光变数据，供后续绘图和多波段时间分析使用。
-"""
-Created on Fri Oct 10 21:37:15 2025
-
-"""
+""" """
 
 import argparse
 import csv

@@ -120,8 +120,8 @@ def _roi(image_sha256: str, *, outside: bool = False) -> dict:
 
 
 def test_external_directory_scan_validates_and_sorts(tmp_path: Path) -> None:
-    later = _artifact(tmp_path, "map_20250124T044832Z.png")
-    earlier = _artifact(tmp_path, "map_20250124T044831Z.png")
+    later = _artifact(tmp_path, "map_20000101T044832Z.png")
+    earlier = _artifact(tmp_path, "map_20000101T044831Z.png")
     natural_ten = _artifact(tmp_path, "map10.png")
     natural_two = _artifact(tmp_path, "map2.png")
 
@@ -133,7 +133,7 @@ def test_external_directory_scan_validates_and_sorts(tmp_path: Path) -> None:
         Path(natural_two["image_path"]).name,
         Path(natural_ten["image_path"]).name,
     ]
-    assert scientific_utc_from_filename("0001_20250124T044829Z_radio.png") is not None
+    assert scientific_utc_from_filename("0001_20000101T044829Z_radio.png") is not None
     assert scientific_utc_from_filename("bad_20250230T120000Z.png") is None
 
 
@@ -194,7 +194,7 @@ def test_roi_sequence_export_is_atomic_and_writes_matching_contracts(
     sources = tmp_path / "sources"
     sources.mkdir()
     records = [
-        _artifact(sources, f"map_20250124T04483{index}Z.png", color=(index, 20, 30))
+        _artifact(sources, f"map_20000101T04483{index}Z.png", color=(index, 20, 30))
         for index in range(3)
     ]
     output_root = tmp_path / "exports"

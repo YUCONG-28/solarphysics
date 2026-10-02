@@ -7,6 +7,9 @@
 distribution name remains `solar-physics-toolkit`, the import namespace remains
 `solar_toolkit`, and this partition is version 0.3.0.
 
+The repository is a collection of composable modules. Select APIs for your own
+inputs and scientific conditions; examples are small demonstrations of composition.
+
 ## Public boundary
 
 The wheel contains reusable base, time, I/O, data, map, time-series, modeling,
@@ -87,7 +90,7 @@ from datetime import datetime, timedelta
 event = RadioEventConfig.from_mapping(
     {"user": {"data": {"multi_band_freqs": [149.0, 164.0]}}}
 )
-target = datetime.fromisoformat("2025-01-24T04:48:30")
+target = datetime.fromisoformat("2000-01-01T00:00:00")
 index = nearest_time_index(
     target,
     [target - timedelta(seconds=1), target + timedelta(seconds=2)],
@@ -125,9 +128,9 @@ but automatic workflows do not use the legacy constants.
 Examples:
 
 ```text
-0001_20250124T044830Z_aia_171a_intensity.png
-0002_20250124T044831Z_radio_223mhz_lcp_source_map.png
-0001_20250124T044800Z-20250124T045000Z_dart_stokes_i_v_over_i_dynamic_spectrum.png
+0001_20000101T000000Z_aia_171a_intensity.png
+0002_20000101T000001Z_radio_223mhz_lcp_source_map.png
+0001_20000101T000000Z-20000101T000100Z_dart_stokes_i_v_over_i_dynamic_spectrum.png
 ```
 
 ## Verify
@@ -145,5 +148,5 @@ $Conda = "<miniforge-root>\Scripts\conda.exe"
 ## License and citation
 
 This Python partition is covered by [`LICENSE`](LICENSE). The repository root
-does not impose that license on the separate Paper evidence layer. Citation
+does not impose that license on other source partitions. Citation
 metadata is in [`CITATION.cff`](CITATION.cff).

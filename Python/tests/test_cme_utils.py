@@ -12,12 +12,12 @@ def test_lasco_timestamp_scan_and_running_difference(tmp_path):
         scan_lasco_files,
     )
 
-    first = tmp_path / "lasco_c2_20250124_044800.jp2"
-    second = tmp_path / "lasco_c2_20250124_045000.jp2"
+    first = tmp_path / "lasco_c2_20000101_044800.jp2"
+    second = tmp_path / "lasco_c2_20000101_045000.jp2"
     first.write_bytes(b"a")
     second.write_bytes(b"b")
 
-    assert extract_lasco_timestamp(first.name) == dt.datetime(2025, 1, 24, 4, 48)
+    assert extract_lasco_timestamp(first.name) == dt.datetime(2000, 1, 1, 4, 48)
     assert [path.name for path in scan_lasco_files(tmp_path)] == [
         first.name,
         second.name,

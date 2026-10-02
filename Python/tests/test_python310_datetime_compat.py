@@ -19,9 +19,9 @@ from solar_toolkit.radio import dart_spectrogram
 from solar_toolkit.visualization.image_naming import format_utc_filename_time
 from solar_toolkit.net.observations import ObservationQueryV1
 
-assert format_utc_filename_time(dt.datetime(2025, 1, 24, 4, 48)) == "20250124T044800Z"
+assert format_utc_filename_time(dt.datetime(2000, 1, 1, 4, 48)) == "20000101T044800Z"
 query = ObservationQueryV1(
-    "compat", "sdo-aia-euv", "2025-01-24T04:48:00Z", "2025-01-24T04:49:00Z"
+    "compat", "sdo-aia-euv", "2000-01-01T04:48:00Z", "2000-01-01T04:49:00Z"
 )
 assert query.start_utc.utcoffset() == dt.timedelta(0)
 """

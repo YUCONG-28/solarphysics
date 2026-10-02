@@ -43,7 +43,7 @@ def _request(tmp_path: Path, **overrides: object) -> CompositeRequest:
     values: dict[str, object] = {
         "aia_directory": tmp_path / "aia",
         "aia_wave": 171,
-        "aia_time": datetime(2025, 1, 24, 4, 48, 32, tzinfo=UTC),
+        "aia_time": datetime(2000, 1, 1, 4, 48, 32, tzinfo=UTC),
         "radio_directory": tmp_path / "radio",
         "radio_frequency": 149.0,
         "polarization": "RR",
@@ -72,7 +72,7 @@ def _background(
         x_arcsec=np.linspace(-90.0, 90.0, 10),
         y_arcsec=np.linspace(-90.0, 90.0, 10),
         label=f"AIA {wavelength}",
-        obs_time=pd.Timestamp("2025-01-24T04:48:31"),
+        obs_time=pd.Timestamp("2000-01-01T04:48:31"),
         wavelength=str(wavelength),
     )
 
@@ -107,7 +107,7 @@ def _radio_image(
         header=_radio_header(),
         pol=polarization,
         freq_mhz=frequency_mhz,
-        obs_time=observed or datetime(2025, 1, 24, 4, 48, 32),
+        obs_time=observed or datetime(2000, 1, 1, 4, 48, 32),
     )
 
 
@@ -139,8 +139,8 @@ def _aia_selection(*, wavelength: int = 171) -> AiaSelection:
             f"/data/aia{wavelength}.fits",
             wavelength=wavelength,
         ),
-        requested_time_utc=datetime(2025, 1, 24, 4, 48, 32, tzinfo=UTC),
-        matched_time_utc=datetime(2025, 1, 24, 4, 48, 31, tzinfo=UTC),
+        requested_time_utc=datetime(2000, 1, 1, 4, 48, 32, tzinfo=UTC),
+        matched_time_utc=datetime(2000, 1, 1, 4, 48, 31, tzinfo=UTC),
         delta_seconds=1.0,
         candidate_count=3,
     )
@@ -180,8 +180,8 @@ def _radio_selection(
             },
             "fit_snr_threshold": 5.0,
         },
-        requested_time_utc=datetime(2025, 1, 24, 4, 48, 32, tzinfo=UTC),
-        matched_time_utc=datetime(2025, 1, 24, 4, 48, 32, tzinfo=UTC),
+        requested_time_utc=datetime(2000, 1, 1, 4, 48, 32, tzinfo=UTC),
+        matched_time_utc=datetime(2000, 1, 1, 4, 48, 32, tzinfo=UTC),
         delta_seconds=0.0,
         candidate_count=1,
         failure_diagnostics={},
@@ -199,9 +199,9 @@ def test_aia_adapter_filters_wavelength_before_reading(
             "path": ["/data/aia94.fits", "/data/aia171.fits", "/data/aia193.fits"],
             "obs_time": pd.to_datetime(
                 [
-                    "2025-01-24T04:48:32",
-                    "2025-01-24T04:48:31",
-                    "2025-01-24T04:48:32",
+                    "2000-01-01T04:48:32",
+                    "2000-01-01T04:48:31",
+                    "2000-01-01T04:48:32",
                 ]
             ),
             "wavelength": ["94", "171.0", "193"],
@@ -236,7 +236,7 @@ def test_aia_adapter_fails_closed_when_wave_is_missing(
         lambda *_args, **_kwargs: pd.DataFrame(
             {
                 "path": ["/data/aia193.fits"],
-                "obs_time": pd.to_datetime(["2025-01-24T04:48:32"]),
+                "obs_time": pd.to_datetime(["2000-01-01T04:48:32"]),
                 "wavelength": ["193"],
             }
         ),
@@ -254,11 +254,11 @@ def test_radio_adapter_uses_nearest_existing_radio_plane(
 
     early = _radio_image(
         tmp_path / "early.fits",
-        observed=datetime(2025, 1, 24, 4, 48, 25),
+        observed=datetime(2000, 1, 1, 4, 48, 25),
     )
     near = _radio_image(
         tmp_path / "near.fits",
-        observed=datetime(2025, 1, 24, 4, 48, 31, 900000),
+        observed=datetime(2000, 1, 1, 4, 48, 31, 900000),
     )
     images = {early.path: early, near.path: near}
     monkeypatch.setattr(
@@ -287,13 +287,13 @@ def test_radio_candidate_index_loads_only_the_selected_image(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     paths = [
-        tmp_path / f"149MHz_2025124_0448{second:02d}_000.fits"
+        tmp_path / f"149MHz_2000101_0448{second:02d}_000.fits"
         for second in (30, 32, 34)
     ]
     images = {
         path: _radio_image(
             path,
-            observed=datetime(2025, 1, 24, 4, 48, second),
+            observed=datetime(2000, 1, 1, 4, 48, second),
         )
         for path, second in zip(paths, (30, 32, 34), strict=True)
     }
@@ -324,7 +324,7 @@ def test_radio_adapter_reuses_existing_rr_ll_sum(
 ) -> None:
     """RR+LL selection is synthesized by ``maybe_make_sum_images``."""
 
-    observed = datetime(2025, 1, 24, 4, 48, 32)
+    observed = datetime(2000, 1, 1, 4, 48, 32)
     left = _radio_image(
         tmp_path / "LL.fits",
         polarization=POL_LCP,
@@ -903,5 +903,5 @@ def test_top_panel_renders_selected_aia_waves_in_order_as_grid() -> None:
     assert artifact.metadata["render"]["grid_columns"] == 3
     assert artifact.metadata["reference_radio_frequency_mhz"] == 149.0
     assert artifact.metadata["reference_radio_time_utc"].startswith(
-        "2025-01-24T04:48:32"
+        "2000-01-01T04:48:32"
     )

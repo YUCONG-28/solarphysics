@@ -101,7 +101,7 @@ def test_pipeline_tables_and_provenance_survive_a_later_plot_failure(
         output.mkdir(parents=True)
         pd.DataFrame(
             {
-                "time": ["20250124044830", "20250124044831"],
+                "time": ["20000101044830", "20000101044831"],
                 "freq": [149.0, 164.0],
                 "center_x_arcsec": [100.0, 200.0],
                 "center_y_arcsec": [200.0, 300.0],

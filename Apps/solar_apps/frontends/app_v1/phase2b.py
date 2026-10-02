@@ -245,8 +245,6 @@ class Phase2BAdapter:
             },
         }
         arguments = (
-            "--config",
-            "solar_apps.workflows.radio.configs.radio_20250124_config",
             "--output-dir",
             str(output),
             "--workspace-config-json",

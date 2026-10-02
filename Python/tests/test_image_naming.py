@@ -19,9 +19,7 @@ from solar_toolkit.visualization.image_naming import (
 
 def test_format_utc_time_converts_timezone_and_truncates_subseconds() -> None:
     value = dt.datetime(
-        2025,
-        1,
-        24,
+        2000, 1, 1,
         12,
         48,
         30,
@@ -29,12 +27,12 @@ def test_format_utc_time_converts_timezone_and_truncates_subseconds() -> None:
         tzinfo=dt.timezone(dt.timedelta(hours=8)),
     )
 
-    assert format_utc_filename_time(value) == "20250124T044830Z"
+    assert format_utc_filename_time(value) == "20000101T044830Z"
 
 
 def test_format_utc_time_accepts_numpy_datetime64() -> None:
-    value = np.datetime64("2025-01-24T04:48:30.999999999")
-    assert format_utc_filename_time(value) == "20250124T044830Z"
+    value = np.datetime64("2000-01-01T04:48:30.999999999")
+    assert format_utc_filename_time(value) == "20000101T044830Z"
 
 
 @pytest.mark.parametrize(
@@ -62,8 +60,8 @@ def test_fractional_iso_times_use_python310_parser_surface(
         ),
     )
     assert (
-        format_utc_filename_time(f"2025-01-24T{hour}:48:30.{fraction}{zone}")
-        == "20250124T044830Z"
+        format_utc_filename_time(f"2000-01-01T{hour}:48:30.{fraction}{zone}")
+        == "20000101T044830Z"
     )
 
 
@@ -84,23 +82,23 @@ def test_numpy_nanoseconds_use_python310_parser_surface(monkeypatch) -> None:
         ),
     )
     assert (
-        format_utc_filename_time(np.datetime64("2025-01-24T04:48:30.999999999"))
-        == "20250124T044830Z"
+        format_utc_filename_time(np.datetime64("2000-01-01T04:48:30.999999999"))
+        == "20000101T044830Z"
     )
 
 
 def test_format_utc_time_range_uses_start_and_end() -> None:
     assert (
         format_utc_filename_time(
-            "2025-01-24T04:48:00Z",
-            "2025-01-24T04:50:00.999Z",
+            "2000-01-01T04:48:00Z",
+            "2000-01-01T04:50:00.999Z",
         )
-        == "20250124T044800Z-20250124T045000Z"
+        == "20000101T044800Z-20000101T045000Z"
     )
     with pytest.raises(ValueError, match="precedes"):
         format_utc_filename_time(
-            "2025-01-24T04:50:00Z",
-            "2025-01-24T04:48:00Z",
+            "2000-01-01T04:50:00Z",
+            "2000-01-01T04:48:00Z",
         )
 
 
@@ -109,14 +107,14 @@ def test_build_filename_normalizes_channel_polarization_and_products() -> None:
         build_image_filename(
             ImageFilenameSpec(
                 sequence=2,
-                start_time="2025-01-24T04:48:31.500Z",
+                start_time="2000-01-01T04:48:31.500Z",
                 instrument="Radio",
                 channel="223.5 MHz",
                 polarization="LL",
                 product="Source Map",
             )
         )
-        == "0002_20250124T044831Z_radio_223p5mhz_lcp_source_map.png"
+        == "0002_20000101T044831Z_radio_223p5mhz_lcp_source_map.png"
     )
 
 
@@ -124,14 +122,14 @@ def test_build_filename_supports_composite_stokes_token() -> None:
     assert build_image_filename(
         ImageFilenameSpec(
             sequence=1,
-            start_time="2025-01-24T04:48:00Z",
-            end_time="2025-01-24T04:50:00Z",
+            start_time="2000-01-01T04:48:00Z",
+            end_time="2000-01-01T04:50:00Z",
             instrument="DART",
             polarization="Stokes I V over I",
             product="Dynamic Spectrum",
         )
     ) == (
-        "0001_20250124T044800Z-20250124T045000Z_"
+        "0001_20000101T044800Z-20000101T045000Z_"
         "dart_stokes_i_v_over_i_dynamic_spectrum.png"
     )
 
@@ -159,7 +157,7 @@ def test_invalid_sequence_is_rejected(sequence: int) -> None:
         build_image_filename(
             ImageFilenameSpec(
                 sequence=sequence,
-                start_time="2025-01-24T04:48:00Z",
+                start_time="2000-01-01T04:48:00Z",
                 instrument="AIA",
                 product="Intensity",
             )
@@ -171,7 +169,7 @@ def test_invalid_extension_and_empty_ascii_token_are_rejected() -> None:
         build_image_filename(
             ImageFilenameSpec(
                 sequence=1,
-                start_time="2025-01-24T04:48:00Z",
+                start_time="2000-01-01T04:48:00Z",
                 instrument="AIA",
                 product="Intensity",
                 extension=".mp4",
@@ -181,7 +179,7 @@ def test_invalid_extension_and_empty_ascii_token_are_rejected() -> None:
         build_image_filename(
             ImageFilenameSpec(
                 sequence=1,
-                start_time="2025-01-24T04:48:00Z",
+                start_time="2000-01-01T04:48:00Z",
                 instrument="太阳",
                 product="Intensity",
             )

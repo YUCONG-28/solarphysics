@@ -66,10 +66,14 @@ def _build_source_map_selection_preview(
     """Scan source-map inputs, persist an explicit selection, and render one PNG."""
 
     from solar_apps.workflows.radio import source_map_workflow as workflow
-    from solar_toolkit.radio.config import DEFAULT_CONFIG_NAME, load_radio_user_config
+    from solar_toolkit.radio.config import load_radio_user_config
+    from solar_apps.workflows.radio.entrypoint_utils import load_json_config
 
-    config_name = str(form.get("config") or DEFAULT_CONFIG_NAME)
-    event_user_config, _newkirk = load_radio_user_config(config_name)
+    config_name = form.get("config_file") or form.get("config")
+    source = (
+        load_json_config(validate_path(config_name)) if config_name else {"user": {}}
+    )
+    event_user_config, _newkirk = load_radio_user_config(source)
     workspace_config = _source_map_adapter_config(form)
     user_config = _deep_merge_dict(event_user_config, workspace_config)
     cfg = workflow.build_config(user_config, workflow.DEFAULT_CONFIG)

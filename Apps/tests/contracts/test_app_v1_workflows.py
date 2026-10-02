@@ -244,24 +244,75 @@ def test_gaussian_catalog_forces_single_file_mode() -> None:
     assert payload["gaussian"]["multi_gaussian_source_count"] == 3
 
 
-def test_rrll_preview_uses_qualified_config_and_explicit_paths(
+def test_rrll_preview_requires_explicit_config_and_preserves_paths(
     tmp_path: Path,
 ) -> None:
     from solar_apps.workflows.radio.rrll_percentile_preview_comparison import (
         CONFIG_NAME,
         _base_user_config,
+        build_parser,
     )
+    from solar_apps.workflows.radio.entrypoint_utils import resolve_config_source
 
     radio_root = tmp_path / "radio"
     spectrum = tmp_path / "spectrum.fits"
-    user_config, _newkirk_config = _base_user_config(
+    config_file = tmp_path / "synthetic.json"
+    settings = {
+        "user": {
+            "mode": "multi_band",
+            "data": {
+                "multi_band_freqs": [149],
+                "polarization": "RR+LL",
+                "combine_polarizations": True,
+            },
+            "spectrogram": {
+                "time_start": "2000-01-01T00:00:00",
+                "time_end": "2000-01-01T00:01:00",
+            },
+        },
+        "newkirk": {"multipliers": [1]},
+    }
+    config_file.write_text(json.dumps(settings), encoding="utf-8")
+    function = DEFAULT_FUNCTION_CATALOG.get("rrll-percentile-comparison")
+    with pytest.raises(ValueError, match="Configuration JSON is required"):
+        function.build_arguments(
+            {"radio_root": str(radio_root), "spectrogram_file": str(spectrum)},
+            default_output=str(tmp_path / "outputs"),
+            allowed_roots=(str(tmp_path),),
+        )
+    _module, arguments, _values = function.build_arguments(
+        {
+            "config": str(config_file),
+            "radio_root": str(radio_root),
+            "spectrogram_file": str(spectrum),
+        },
+        default_output=str(tmp_path / "outputs"),
+        allowed_roots=(str(tmp_path),),
+    )
+    args = build_parser().parse_args(arguments)
+    source = resolve_config_source(args)
+    assert source == settings
+    assert CONFIG_NAME is None
+    with pytest.raises(ValueError, match="explicit radio"):
+        _base_user_config(radio_root=radio_root, spectrogram_file=spectrum)
+    user_config, newkirk_config = _base_user_config(
+        config_source=source,
         radio_root=radio_root,
         spectrogram_file=spectrum,
     )
 
-    assert CONFIG_NAME.startswith("solar_apps.workflows.radio.configs.")
     assert user_config["data"]["multi_band_root"] == str(radio_root)
     assert user_config["spectrogram"]["file_path"] == str(spectrum)
+    assert (
+        user_config["spectrogram"]["time_start"]
+        == settings["user"]["spectrogram"]["time_start"]
+    )
+    assert (
+        user_config["spectrogram"]["time_end"]
+        == settings["user"]["spectrogram"]["time_end"]
+    )
+    assert newkirk_config["multipliers"] == [1]
+    assert source == settings
 
 
 def test_rrll_preview_propagates_explicit_study_mode(

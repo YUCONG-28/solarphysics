@@ -19,7 +19,7 @@ def test_build_streamlit_command_forwards_local_directories() -> None:
     args = launcher.build_parser().parse_args(
         [
             "--input-dir",
-            "D:/data/20250124Spec",
+            "D:/data/20000101Spec",
             "--output-dir",
             "D:/outputs",
             "--allowed-roots",
@@ -32,7 +32,7 @@ def test_build_streamlit_command_forwards_local_directories() -> None:
     assert command[:4] == [str(selected_python_executable()), "-m", "streamlit", "run"]
     assert "dart_spectrogram_app.py" in command[4]
     assert command[command.index("--server.port") + 1] == "8765"
-    assert command[command.index("--input-dir") + 1] == "D:/data/20250124Spec"
+    assert command[command.index("--input-dir") + 1] == "D:/data/20000101Spec"
     assert command[command.index("--output-dir") + 1] == "D:/outputs"
     assert command[command.index("--allowed-roots") + 1] == "D:/data;D:/outputs"
 

@@ -816,9 +816,11 @@ FUNCTIONS: tuple[FunctionSpec, ...] = (
         parameters=(
             _p(
                 "config",
-                "Event config",
-                default="solar_apps.workflows.radio.configs.radio_20250124_config",
-                flag="--config",
+                "Configuration JSON",
+                "file",
+                default="",
+                flag="--config-file",
+                extensions=(".json",),
             ),
             _p(
                 "source_path",
@@ -953,9 +955,11 @@ FUNCTIONS: tuple[FunctionSpec, ...] = (
         parameters=(
             _p(
                 "config",
-                "Event config",
-                default="solar_apps.workflows.radio.configs.radio_20250124_config",
-                flag="--config",
+                "Configuration JSON",
+                "file",
+                default="",
+                flag="--config-file",
+                extensions=(".json",),
             ),
             _p(
                 "single_file_path",
@@ -1435,9 +1439,11 @@ FUNCTIONS: tuple[FunctionSpec, ...] = (
             ),
             _p(
                 "config",
-                "Event config",
-                default="solar_apps.workflows.radio.configs.radio_20250124_config",
-                flag="--config",
+                "Configuration JSON",
+                "file",
+                default="",
+                flag="--config-file",
+                extensions=(".json",),
             ),
             OUTPUT_DIR,
         ),
@@ -1821,8 +1827,8 @@ FUNCTIONS: tuple[FunctionSpec, ...] = (
                 "calibration",
                 "Calibration",
                 "enum",
-                default="legacy",
-                choices=("legacy", "secchi-prep"),
+                default="python-preprocess",
+                choices=("python-preprocess", "legacy", "secchi-prep"),
                 flag="--calibration",
             ),
             _p(

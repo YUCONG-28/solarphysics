@@ -204,6 +204,8 @@ def project_hpc(point_rsun, observer_rsun, north=(0, 0, 1)):
 def triangulate_rays(origin_a, ray_a, origin_b, ray_b, *, min_angle_deg=1.0):
     """Closest positive ray points; separation is not a positional uncertainty."""
     a, b = np.asarray(origin_a, float), np.asarray(origin_b, float)
+    if any(p.shape != (3,) or not np.isfinite(p).all() for p in (a, b)):
+        raise ValueError("Expected finite three-vector origins")
     u, v = _unit(ray_a), _unit(ray_b)
     angle = np.degrees(np.arccos(np.clip(abs(u @ v), 0, 1)))
     if angle < min_angle_deg:
@@ -213,6 +215,8 @@ def triangulate_rays(origin_a, ray_a, origin_b, ray_b, *, min_angle_deg=1.0):
             angle_deg=angle,
             point_rsun=np.full(3, np.nan),
             separation_rsun=np.nan,
+            closest_points_rsun=np.full((2, 3), np.nan),
+            ray_distances_rsun=np.full(2, np.nan),
         )
     distances = np.linalg.lstsq(np.column_stack((u, -v)), b - a, rcond=None)[0]
     pa, pb = a + distances[0] * u, b + distances[1] * v
@@ -223,6 +227,8 @@ def triangulate_rays(origin_a, ray_a, origin_b, ray_b, *, min_angle_deg=1.0):
         angle_deg=angle,
         point_rsun=(pa + pb) / 2,
         separation_rsun=float(np.linalg.norm(pa - pb)),
+        closest_points_rsun=np.array([pa, pb]),
+        ray_distances_rsun=distances,
     )
 
 

@@ -33,8 +33,8 @@ def test_sqlite_index_records_statuses_duplicates_and_can_be_rebuilt(
         module_id="source-map",
         local_source=tmp_path / "radio",
         samples=[
-            _sample("b.fits", "2025-01-24T23:59:59Z"),
-            _sample("a.fits", "2025-01-24T23:59:59Z"),
+            _sample("b.fits", "2000-01-01T23:59:59Z"),
+            _sample("a.fits", "2000-01-01T23:59:59Z"),
             _sample("missing.fits", None, "missing"),
             _sample("broken.fits", None, "unreadable"),
         ],
@@ -62,7 +62,7 @@ def test_sqlite_index_records_statuses_duplicates_and_can_be_rebuilt(
             source_id="radio-source",
             module_id="source-map",
             local_source=tmp_path / "radio",
-            samples=[_sample("new.fits", "2025-01-25T00:00:01Z")],
+            samples=[_sample("new.fits", "2000-01-02T00:00:01Z")],
         )
         == 1
     )
@@ -80,8 +80,8 @@ def test_coordinator_matches_offsets_duplicates_gaps_and_cross_day(
         module_id="dart-spectrogram",
         local_source=tmp_path / "dart",
         samples=[
-            _sample("before", "2025-01-24T23:59:59Z"),
-            _sample("after", "2025-01-25T00:00:01Z"),
+            _sample("before", "2000-01-01T23:59:59Z"),
+            _sample("after", "2000-01-02T00:00:01Z"),
         ],
     )
     index.rebuild_source(
@@ -89,15 +89,15 @@ def test_coordinator_matches_offsets_duplicates_gaps_and_cross_day(
         module_id="image-viewer",
         local_source=tmp_path / "aia",
         samples=[
-            _sample("z-match", "2025-01-25T00:00:00Z"),
-            _sample("a-match", "2025-01-25T00:00:00Z"),
+            _sample("z-match", "2000-01-02T00:00:00Z"),
+            _sample("a-match", "2000-01-02T00:00:00Z"),
         ],
     )
     index.rebuild_source(
         source_id="gap-source",
         module_id="source-map",
         local_source=tmp_path / "gap",
-        samples=[_sample("too-far", "2025-01-25T00:00:20Z")],
+        samples=[_sample("too-far", "2000-01-02T00:00:20Z")],
     )
     coordinator = TimeCoordinator(index)
     coordinator.register_source("base-source")
@@ -111,12 +111,10 @@ def test_coordinator_matches_offsets_duplicates_gaps_and_cross_day(
 
     first = coordinator.step(1)
     assert first.current_time_utc == datetime(
-        2025, 1, 24, 23, 59, 59, tzinfo=timezone.utc
+        2000, 1, 1, 23, 59, 59, tzinfo=timezone.utc
     )
     second = coordinator.step(1)
-    assert second.current_time_utc == datetime(
-        2025, 1, 25, 0, 0, 1, tzinfo=timezone.utc
-    )
+    assert second.current_time_utc == datetime(2000, 1, 2, 0, 0, 1, tzinfo=timezone.utc)
     assert second.matched_locators["aia-source"] == "a-match"
     assert second.matched_locators["gap-source"] is None
     assert coordinator.step(-1).current_time_utc == first.current_time_utc
@@ -130,7 +128,7 @@ def test_coordinator_persists_and_restores_sync_configuration(
         source_id="radio-source",
         module_id="source-trajectory",
         local_source=tmp_path / "radio",
-        samples=[_sample("one", "2025-01-24T04:48:30Z")],
+        samples=[_sample("one", "2000-01-01T04:48:30Z")],
     )
     config = tmp_path / "workspaces" / "preview.timeline.json"
     coordinator = TimeCoordinator(index)
@@ -139,13 +137,13 @@ def test_coordinator_persists_and_restores_sync_configuration(
         offset_seconds=-0.45,
         tolerance_seconds=1.25,
     )
-    coordinator.select("2025-01-24T04:48:29.55Z")
+    coordinator.select("2000-01-01T04:48:29.55Z")
     coordinator.save(config)
 
     restored = TimeCoordinator(SQLiteTimelineIndex(index.path))
     assert restored.load(config) is True
     assert restored.base_source_id == "radio-source"
-    assert restored.current_time_utc == normalize_utc("2025-01-24T04:48:29.55Z")
+    assert restored.current_time_utc == normalize_utc("2000-01-01T04:48:29.55Z")
     assert restored.sources[0].offset_seconds == -0.45
     assert restored.sources[0].tolerance_seconds == 1.25
     assert (
@@ -156,7 +154,7 @@ def test_coordinator_persists_and_restores_sync_configuration(
 
 def test_naive_or_invalid_timestamps_are_rejected(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="UTC offset"):
-        normalize_utc("2025-01-24T04:48:30")
+        normalize_utc("2000-01-01T04:48:30")
     with pytest.raises(ValueError, match="UTC timestamp"):
         normalize_utc("")
 
@@ -167,6 +165,6 @@ def test_naive_or_invalid_timestamps_are_rejected(tmp_path: Path) -> None:
                 """
                 INSERT INTO timeline_sources(
                     source_id, module_id, local_source, updated_at_utc, record_count
-                ) VALUES ('bad source', 'source-map', 'x', '2025-01-24T00:00:00Z', -1)
+                ) VALUES ('bad source', 'source-map', 'x', '2000-01-01T00:00:00Z', -1)
                 """
             )

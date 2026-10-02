@@ -239,10 +239,10 @@ def _parse_time_from_filename(filename: str) -> tuple[str, int] | None:
     """
     从文件名中解析时间信息（精确到毫秒），用于时间对齐匹配。
 
-    文件名格式: 149MHz_2025124_043739_681.fits
-      - 日期部分:   2025124  (YYYYDDD，7~8位)
-      - 时间部分:   043739   (HHMMSS，6位)
-      - 毫秒部分:   681      (1~3位，不足3位按实际值处理)
+    合成文件名示例: 149MHz_2000001_000000_000.fits
+      - 日期部分:   2000001  (YYYYDDD，7位)
+      - 时间部分:   000000   (HHMMSS，6位)
+      - 毫秒部分:   000      (1~3位，不足3位按实际值处理)
 
     返回: (date_str, total_ms) 或 None
       - date_str  : 日期字符串，用于跨天判断
@@ -252,9 +252,9 @@ def _parse_time_from_filename(filename: str) -> tuple[str, int] | None:
     pattern = r"_(\d{6,8})_(\d{6})_(\d{1,3})"
     match = re.search(pattern, filename)
     if match:
-        date_part = match.group(1)  # e.g. "2025124"
-        time_part = match.group(2)  # e.g. "043739"
-        ms_str = match.group(3)  # e.g. "681"
+        date_part = match.group(1)  # e.g. "2000001"
+        time_part = match.group(2)  # e.g. "000000"
+        ms_str = match.group(3)  # e.g. "000"
 
         hh = int(time_part[0:2])
         mm = int(time_part[2:4])

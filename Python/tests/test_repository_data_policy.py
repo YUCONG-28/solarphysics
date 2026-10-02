@@ -255,3 +255,36 @@ def test_citation_keeps_public_academic_attribution():
     assert 'given-names: "Y."' in citation
     assert 'institution: "Shandong University"' in citation
     assert "https://github.com/YUCONG-28/solarphysics" in citation
+
+
+POSIX_USER_PROFILE = re.compile(
+    r"/(?:Users|home)/(?!<[^>]+>(?:/|$))[^/\s`\"']+",
+    re.IGNORECASE,
+)
+
+
+def test_public_tree_has_no_research_record_partition():
+    forbidden = ("Paper/", "tools/literature/", "Notes/", "Runtime/")
+    assert not [path for path in _all_tracked_paths() if path.startswith(forbidden)]
+
+
+def test_all_public_text_uses_machine_path_placeholders():
+    paths = [path for path in _all_tracked_paths() if (REPO_ROOT / path).is_file()]
+    unexpected = []
+    for path, text in _tracked_text(paths):
+        if POSIX_USER_PROFILE.search(text) or WINDOWS_USER_PROFILE.search(text):
+            unexpected.append(path)
+    assert unexpected == []
+
+
+def test_public_notebooks_have_no_saved_outputs():
+    import json
+
+    for path in _all_tracked_paths():
+        if not path.endswith(".ipynb") or not (REPO_ROOT / path).is_file():
+            continue
+        notebook = json.loads((REPO_ROOT / path).read_text(encoding="utf-8"))
+        for cell in notebook.get("cells", []):
+            if cell.get("cell_type") == "code":
+                assert cell.get("execution_count") is None, path
+                assert not cell.get("outputs"), path

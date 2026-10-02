@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-"""Plot SUVI 2025-01-24 04:48 UT lower-right quadrant images."""
+"""Plot SUVI lower-right quadrant images at an explicit UTC time."""
 
 from __future__ import annotations
 
 import argparse
-import os
 import warnings
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -19,10 +18,10 @@ from sunpy.util.exceptions import SunpyMetadataWarning, SunpyUserWarning
 
 from solar_apps.workflows.common.image_naming import build_scientific_image_filename
 
-DATA_ROOT = Path(os.getenv("SUVI_DATA_ROOT", "data/raw/suvi"))
-OUT_ROOT = Path(os.getenv("SUVI_PRODUCT_DIR", "data/products/suvi"))
-DATE_STAMP = "20250124"
-TARGET_START = "044800"
+DATA_ROOT = None
+OUT_ROOT = None
+DATE_STAMP = None
+TARGET_START = None
 SATELLITES = ("goes16", "goes18")
 CHANNELS = ("094", "131", "171", "195", "284", "304")
 
@@ -44,9 +43,13 @@ __all__ = [
 
 def build_parser() -> argparse.ArgumentParser:
     """Build the event-recipe parser without scanning the archive."""
-    return argparse.ArgumentParser(
-        description="Plot the event GOES/SUVI lower-right quadrant products."
+    parser = argparse.ArgumentParser(
+        description="Plot GOES/SUVI lower-right quadrant products."
     )
+    parser.add_argument("--input-dir", type=Path, required=True)
+    parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--target-time", type=datetime.fromisoformat, required=True)
+    return parser
 
 
 @dataclass(frozen=True)
@@ -179,7 +182,9 @@ def plot_overview(
         if idx <= 6:
             ax.coords[0].set_ticklabel_visible(False)
 
-    fig.suptitle("SUVI lower-right quadrant | 2025-01-24 04:48 UT", fontsize=15)
+    fig.suptitle(
+        f"SUVI lower-right quadrant | {DATE_STAMP} {TARGET_START} UTC", fontsize=15
+    )
     fig.tight_layout(rect=(0, 0, 1, 0.965))
     generated_at = generated_at or datetime.now(timezone.utc)
     observation_times = [item[1].date for item in items]
@@ -201,7 +206,7 @@ def write_selected_files(selections: list[SuviSelection]) -> Path:
     out_path = OUT_ROOT / "selected_files.txt"
     lines = [
         "# SUVI files used for lower-right quadrant plots",
-        "# target_start=2025-01-24T04:48:00Z",
+        f"# target_start={DATE_STAMP}T{TARGET_START}Z",
         "",
     ]
     for selection in selections:
@@ -211,7 +216,12 @@ def write_selected_files(selections: list[SuviSelection]) -> Path:
 
 
 def main(argv: list[str] | None = None) -> int:
-    build_parser().parse_args(argv)
+    global DATA_ROOT, OUT_ROOT, DATE_STAMP, TARGET_START
+    args = build_parser().parse_args(argv)
+    DATA_ROOT = args.input_dir.expanduser()
+    OUT_ROOT = args.output_dir.expanduser()
+    DATE_STAMP = args.target_time.strftime("%Y%m%d")
+    TARGET_START = args.target_time.strftime("%H%M%S")
     plt.switch_backend("Agg")
     OUT_ROOT.mkdir(parents=True, exist_ok=True)
     warnings.filterwarnings("ignore", category=SunpyUserWarning)

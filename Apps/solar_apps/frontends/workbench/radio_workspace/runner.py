@@ -1040,13 +1040,19 @@ class RadioRunManager:
             "solar_apps.workflows.radio.raw_quality_cli",
         }:
             return
-        from solar_toolkit.radio.config import (
-            DEFAULT_CONFIG_NAME,
-            load_radio_event_config,
-        )
+        from solar_toolkit.radio.config import load_radio_event_config
+        from solar_apps.workflows.radio.entrypoint_utils import load_json_config
 
-        config_name = str(config.get("config") or DEFAULT_CONFIG_NAME)
-        event = load_radio_event_config(config_name)
+        config_name = config.get("config_file") or config.get("config")
+        if config_name:
+            self._validate_path_values(
+                config_name, key="config_file", source="configuration"
+            )
+            event = load_radio_event_config(load_json_config(config_name))
+        else:
+            event = load_radio_event_config(
+                {"user": self._adapter_config(action, config)}
+            )
         adapter = self._adapter_config(action, config)
         if module == "solar_apps.workflows.radio.source_map_cli":
             data_adapter = adapter.get("data")
@@ -1179,33 +1185,11 @@ class RadioRunManager:
 
     @staticmethod
     def _validate_event_config_name(value: Any) -> None:
-        """Restrict web actions to package-owned event configuration modules."""
-
+        """Web actions use data-only JSON configuration, never import user code."""
         if value in (None, ""):
             return
-        name = str(value).strip()
-        if name.endswith(".py"):
-            name = name[:-3]
-        for prefix in (
-            "solar_apps.workflows.radio.configs.",
-            "scripts.radio.configs.",
-        ):
-            if name.startswith(prefix):
-                name = name[len(prefix) :]
-                break
-        if (
-            not name
-            or "." in name
-            or "/" in name
-            or "\\" in name
-            or not name.replace("_", "").isalnum()
-        ):
-            raise ValueError("Event config must name a package-owned radio config")
-        from solar_apps.workflows.radio import configs as config_package
-
-        config_dir = Path(config_package.__file__).resolve().parent
-        if not (config_dir / f"{name}.py").is_file():
-            raise ValueError(f"Unknown package-owned radio event config: {name}")
+        if Path(str(value)).suffix.casefold() != ".json":
+            raise ValueError("Event configuration must be a JSON file")
 
     @staticmethod
     def _validate_required_fields(

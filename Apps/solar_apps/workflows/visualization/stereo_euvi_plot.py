@@ -104,18 +104,10 @@ def exposure_normalized(path: Path) -> "sunpy.map.Map":
 
         verify_prepared(path)
         return euvi_map
-    native_unit = str(euvi_map.meta.get("bunit", "")).upper().replace(" ", "")
-    if "/S" in native_unit or "S-1" in native_unit:
-        raise ValueError(
-            "Already normalized EUVI requires verified calibration provenance"
-        )
-    exptime = getattr(euvi_map, "exposure_time", None)
-    if exptime is not None:
-        seconds = exptime.to_value(u.s)
-        if seconds > 0:
-            euvi_map = euvi_map / seconds
-    euvi_map.meta["bunit"] = "DN/s"
-    return euvi_map
+    from solar_toolkit.map.euvi_preprocessing import prepared_map
+
+    prepared, _ = prepared_map(euvi_map)
+    return prepared
 
 
 def make_norm(euvi_map) -> ImageNormalize:

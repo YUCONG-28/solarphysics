@@ -13,7 +13,7 @@ from solar_toolkit.radio.quicklook import (
 EVENT_CONFIG = {
     "user": {"data": {"multi_band_freqs": [149.0, 164.0]}},
     "output": {
-        "output_dir": "outputs/radio/2025-01-24",
+        "output_dir": "outputs/radio/2000-01-01",
         "analysis_subdir": "gaussian_spectrogram_overlay",
         "gaussian_diagnostics_csv": "radio_gaussian_fit_diagnostics.csv",
     },
@@ -51,20 +51,20 @@ def test_filter_valid_gaussian_centers_uses_quality_and_visibility_flags():
     data = pd.DataFrame(
         [
             _gaussian_row(
-                time="20250124044840000",
+                time="20000101044840000",
                 freq=149.0,
                 x_arcsec=1100.0,
                 y_arcsec=0.0,
             ),
             _gaussian_row(
-                time="20250124044841000",
+                time="20000101044841000",
                 freq=149.0,
                 x_arcsec=100.0,
                 y_arcsec=100.0,
                 overlay_valid=False,
             ),
             _gaussian_row(
-                time="20250124044842000",
+                time="20000101044842000",
                 freq=164.0,
                 x_arcsec=1110.0,
                 y_arcsec=10.0,
@@ -87,19 +87,19 @@ def test_quicklook_generates_isolated_outputs_from_gaussian_csv(tmp_path):
     pd.DataFrame(
         [
             _gaussian_row(
-                time="20250124044840000",
+                time="20000101044840000",
                 freq=149.0,
                 x_arcsec=1100.0,
                 y_arcsec=0.0,
             ),
             _gaussian_row(
-                time="20250124044841000",
+                time="20000101044841000",
                 freq=149.0,
                 x_arcsec=100.0,
                 y_arcsec=100.0,
             ),
             _gaussian_row(
-                time="20250124044842000",
+                time="20000101044842000",
                 freq=164.0,
                 x_arcsec=1110.0,
                 y_arcsec=10.0,
@@ -129,10 +129,10 @@ def test_quicklook_generates_isolated_outputs_from_gaussian_csv(tmp_path):
     height_plot = Path(result["height_plot"])
     trajectory_plot = Path(result["trajectory_plot"])
     assert height_plot.name == (
-        "0001_20250124T044840Z-20250124T044842Z_" "radio_newkirk_height_comparison.png"
+        "0001_20000101T044840Z-20000101T044842Z_" "radio_newkirk_height_comparison.png"
     )
     assert trajectory_plot.name == (
-        "0002_20250124T044840Z-20250124T044841Z_"
+        "0002_20000101T044840Z-20000101T044841Z_"
         "radio_149mhz_lcp_plus_rcp_source_trajectory.png"
     )
     assert height_plot.exists()
@@ -160,7 +160,7 @@ def test_resolves_default_gaussian_csv_from_config_without_requiring_local_data(
 
     assert (
         resolved
-        == Path("outputs/radio/2025-01-24")
+        == Path("outputs/radio/2000-01-01")
         / "gaussian_spectrogram_overlay"
         / "radio_gaussian_fit_diagnostics.csv"
     )

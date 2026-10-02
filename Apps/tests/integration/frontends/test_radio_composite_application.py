@@ -139,7 +139,7 @@ def test_centered_dart_bands_follow_all_selected_radio_frequencies() -> None:
 
 
 def test_dart_spectrum_overlays_every_band_and_highlights_active_frequency() -> None:
-    start = datetime(2025, 1, 24, 4, 48, 30, tzinfo=UTC)
+    start = datetime(2000, 1, 1, 4, 48, 30, tzinfo=UTC)
     frequencies = [149.0, 164.0, 190.0, 205.0, 223.0, 238.0]
     bands = build_centered_frequency_bands(frequencies, 2.0)
     window = DartSpectrogramWindow(
@@ -209,7 +209,7 @@ def test_pending_plotly_width_updates_only_the_active_frequency() -> None:
 def test_dart_extraction_batches_equal_widths_and_splits_results(
     tmp_path: Path,
 ) -> None:
-    start = datetime(2025, 1, 24, 4, 48, 30, tzinfo=UTC)
+    start = datetime(2000, 1, 1, 4, 48, 30, tzinfo=UTC)
     calls: list[tuple[tuple[float, ...], float]] = []
 
     def fake_extractor(directory, centers, bandwidth, *, time_range_utc):
@@ -259,7 +259,7 @@ def test_dart_extraction_batches_equal_widths_and_splits_results(
 
 
 def test_dart_overlap_preserves_partial_gaps_and_rejects_no_samples() -> None:
-    start = datetime(2025, 1, 24, 4, 48, 30, tzinfo=UTC)
+    start = datetime(2000, 1, 1, 4, 48, 30, tzinfo=UTC)
     samples = tuple(start + timedelta(seconds=value) for value in (1, 2, 3))
 
     overlap_start, overlap_end, partial = select_dart_time_overlap(
@@ -289,7 +289,7 @@ def test_roi_is_mapped_onto_full_source_map_png() -> None:
 
 
 def test_three_rows_share_utc_axis_and_map_time_line() -> None:
-    start = datetime(2025, 1, 24, 4, 48, 30, tzinfo=UTC)
+    start = datetime(2000, 1, 1, 4, 48, 30, tzinfo=UTC)
     marker = start + timedelta(seconds=2)
     figure = build_composite_figure(
         annotate_source_map_png(_source_map_png(), _source_map_metadata(), _roi()),
@@ -320,7 +320,7 @@ def test_three_rows_share_utc_axis_and_map_time_line() -> None:
 
 
 def test_artifact_bundle_uses_v1_schema_and_conflict_safe_save(tmp_path: Path) -> None:
-    start = datetime(2025, 1, 24, 4, 48, 30, tzinfo=UTC)
+    start = datetime(2000, 1, 1, 4, 48, 30, tzinfo=UTC)
     bundle = build_composite_artifacts(
         _source_map_png(),
         _source_map_metadata(),
@@ -364,7 +364,7 @@ def test_artifact_bundle_uses_v1_schema_and_conflict_safe_save(tmp_path: Path) -
 
 
 def test_curve_template_is_marker_free_and_cached_frame_markers_align() -> None:
-    start = datetime(2025, 1, 24, 4, 48, 30, tzinfo=UTC)
+    start = datetime(2000, 1, 1, 4, 48, 30, tzinfo=UTC)
     annotated = annotate_source_map_png(
         _source_map_png(), _source_map_metadata(), _roi()
     )
@@ -468,7 +468,7 @@ def test_prepare_single_panel_render_handles_linear_and_log_candidates(
         "mode": "multi_band",
         "frequencies_mhz": [149.0, 164.0],
         "slot": [["rr-149.fits", "ll-149.fits"], ["rr-164.fits", "ll-164.fits"]],
-        "observation_time": "2025-01-24T04:48:32+00:00",
+        "observation_time": "2000-01-01T04:48:32+00:00",
     }
     config = {"spatial_display": {"cmap": "hot"}}
 
@@ -498,12 +498,12 @@ def test_prepare_single_panel_render_handles_linear_and_log_candidates(
 def test_synthetic_fits_end_to_end_uses_public_radio_and_dart_algorithms(
     tmp_path: Path,
 ) -> None:
-    start = datetime(2025, 1, 24, 4, 48, 30, tzinfo=UTC)
+    start = datetime(2000, 1, 1, 4, 48, 30, tzinfo=UTC)
     radio_dir = tmp_path / "radio" / "149MHz" / "RR"
     radio_dir.mkdir(parents=True)
     radio_paths: list[Path] = []
     for index, value in enumerate((2.0, 3.0, 4.0)):
-        path = radio_dir / f"20250124T04483{index}_RR.fits"
+        path = radio_dir / f"20000101T04483{index}_RR.fits"
         _write_radio_fits(path, value=value, observed=start + timedelta(seconds=index))
         radio_paths.append(path)
 
@@ -635,7 +635,7 @@ def _write_dart_fits(folder: Path) -> None:
     sample_index = np.arange(3, dtype=float)
     stokes_i = frequency[:, None] - 129.0 + sample_index[None, :]
     time_rows = np.asarray(
-        [[25.0, 1.0, 24.0, 4.0, 48.0, 30.0 + index] for index in sample_index]
+        [[0.0, 1.0, 1.0, 4.0, 48.0, 30.0 + index] for index in sample_index]
     )
     payloads = {
         "synthetic_SpecDataIdB.fits": stokes_i,

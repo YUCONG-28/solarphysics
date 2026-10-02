@@ -31,7 +31,7 @@ def synthetic_map(nphi=72, ns=36, degree=1, projection="CEA"):
         cdelt1=360 / nphi,
         cdelt2=(360 / np.pi if projection == "CEA" else 180) / ns,
         bunit="G",
-        date_obs="2025-01-24T04:48:30",
+        date_obs="2000-01-01T04:48:30",
         hgln_obs=0,
         hglt_obs=0,
         dsun_obs=149597870700,
@@ -150,7 +150,7 @@ def test_bundle_roundtrip_and_tamper(tmp_path):
         )
     ]
     projected = [dict(hpc_arcsec=np.zeros((2, 2)))]
-    save_bundle(tmp_path, records, projected, {"obstime": "2025-01-24T04:48:30"})
+    save_bundle(tmp_path, records, projected, {"obstime": "2000-01-01T04:48:30"})
     _, loaded = load_bundle(tmp_path)
     np.testing.assert_array_equal(
         loaded[0]["xyz_carrington_rsun"], records[0]["xyz_carrington_rsun"]
@@ -184,7 +184,7 @@ def test_cache_separates_geometry_density_and_display(tmp_path, monkeypatch):
         "boundary_fits": str(tmp_path / "boundary"),
         "aia_fits": str(tmp_path / "aia"),
         "sources_csv": str(tmp_path / "sources"),
-        "event_utc": "2025-01-24T04:48:30",
+        "event_utc": "2000-01-01T04:48:30",
     }
     a = cache.cache_keys(config)
     b = cache.cache_keys(
@@ -215,7 +215,7 @@ def test_height_interface_keeps_pfss_conditional_even_with_bad_evidence_flag():
         pd.DataFrame(
             [
                 dict(
-                    time="2025-01-24T04:48:30Z",
+                    time="2000-01-01T04:48:30Z",
                     freq=150,
                     center_x_arcsec=1200,
                     center_y_arcsec=-300,
@@ -282,9 +282,9 @@ def test_header_times_and_exposure():
         observation_midpoint,
     )
 
-    assert header_time("2025.01.24_04:49:07_TAI").isot == "2025-01-24T04:48:30.000"
-    frame = SimpleNamespace(meta={"date-obs": "2025-01-24T04:48:30.000", "exptime": 2})
-    assert observation_midpoint(frame).isot == "2025-01-24T04:48:31.000"
+    assert header_time("2000.01.01_00:00:32_TAI").isot == "2000-01-01T00:00:00.000"
+    frame = SimpleNamespace(meta={"date-obs": "2000-01-01T00:00:00.000", "exptime": 2})
+    assert observation_midpoint(frame).isot == "2000-01-01T00:00:01.000"
     frame.meta["exptime"] = float("nan")
     with pytest.raises(ValueError):
         observation_midpoint(frame)
@@ -328,7 +328,7 @@ def test_association_never_promotes_missing_errors():
         [
             dict(
                 source_id="s",
-                time_utc="2025-01-24T04:48:30Z",
+                time_utc="2000-01-01T04:48:30Z",
                 frequency_mhz=150,
                 center_x_arcsec=xy[1, 0],
                 center_y_arcsec=xy[1, 1],
@@ -363,7 +363,7 @@ def test_projection_matches_exact_ray():
     from solar_toolkit.modeling.pfss.projection import project_fieldlines
     from solar_toolkit.radio.source_geometry import project_hpc
 
-    time = Time("2025-01-24T04:48:30")
+    time = Time("2000-01-01T04:48:30")
     obs = get_earth(time)
     cart = obs.transform_to(
         frames.HeliographicCarrington(observer="earth", obstime=time)

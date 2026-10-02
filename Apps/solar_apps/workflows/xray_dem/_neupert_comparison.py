@@ -20,8 +20,8 @@ from solar_toolkit.xray_dem.processing import smooth_flux_data as _smooth_flux_d
 from solar_toolkit.xray_dem.sxr import load_goes_sxr_dataset
 
 DEFAULT_INPUT = "data/xray/goes-sxr.nc"
-START_TIME = "2024-08-08T19:00:00"
-END_TIME = "2024-08-08T20:00:00"
+START_TIME = None
+END_TIME = None
 SMOOTH_WINDOW = 22
 SMOOTH_POLY_ORDER = 3
 FIG_SIZE = (12, 16)
@@ -234,8 +234,8 @@ def build_parser() -> argparse.ArgumentParser:
         description="Compare GOES SXR flux and its derivative for Neupert analysis"
     )
     parser.add_argument("--input", default=config["data_file_path"])
-    parser.add_argument("--start-time", default=START_TIME)
-    parser.add_argument("--end-time", default=END_TIME)
+    parser.add_argument("--start-time", default=START_TIME, required=True)
+    parser.add_argument("--end-time", default=END_TIME, required=True)
     parser.add_argument("--window-length", type=int, default=SMOOTH_WINDOW)
     parser.add_argument("--polyorder", type=int, default=SMOOTH_POLY_ORDER)
     parser.add_argument("--save", action="store_true", help="Save the figure")

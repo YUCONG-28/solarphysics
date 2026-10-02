@@ -21,8 +21,8 @@ from solar_toolkit.xray_dem.sxr import load_goes_sxr_dataset
 DEFAULT_SXR = "data/xray/goes-sxr.nc"
 DEFAULT_HXI = "data/xray/hxi.fits"
 DEFAULT_AIA_DIR = "data/aia/flux"
-DEFAULT_START = "2024-08-08T19:00:00"
-DEFAULT_END = "2024-08-08T20:00:00"
+DEFAULT_START = None
+DEFAULT_END = None
 DEFAULT_WINDOW = 22
 DEFAULT_POLYORDER = 3
 
@@ -234,12 +234,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--aia-patterns", nargs="+", default=["aia_304.csv", "aia_1600.csv"]
     )
-    parser.add_argument("--start-time", default=DEFAULT_START)
-    parser.add_argument("--end-time", default=DEFAULT_END)
+    parser.add_argument("--start-time", default=DEFAULT_START, required=True)
+    parser.add_argument("--end-time", default=DEFAULT_END, required=True)
     parser.add_argument(
         "--vline-times",
         nargs="+",
-        default=["2024-08-08T19:22:30", "2024-08-08T19:27:50"],
+        default=[],
     )
     parser.add_argument(
         "--output",

@@ -52,7 +52,7 @@ def _write_fits(
 ) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     image = fits.ImageHDU(data=np.asarray(data, dtype=np.float32))
-    image.header["DATE-OBS"] = f"2025-05-03T07:20:{second:02d}.000Z"
+    image.header["DATE-OBS"] = f"2000-05-03T07:20:{second:02d}.000Z"
     if with_wcs:
         image.header.update(
             {
@@ -78,7 +78,7 @@ def _radio_dataset(
     folder = root / "149MHz" / "RR"
     bad_path = None
     for index in range(5):
-        path = folder / f"149MHz_20250503_0720{index:02d}_000.fits"
+        path = folder / f"149MHz_20000503_0720{index:02d}_000.fits"
         is_bad = include_bad and index == 2
         _write_fits(
             path,
@@ -378,7 +378,7 @@ def test_fixed_preview_uses_cached_frequency_sample_across_polarizations(
     root, _bad_path = _radio_dataset(tmp_path / "radio", with_wcs=True)
     ll_paths = []
     for index in range(5):
-        path = root / "149MHz" / "LL" / f"149MHz_20250503_0720{index:02d}_000.fits"
+        path = root / "149MHz" / "LL" / f"149MHz_20000503_0720{index:02d}_000.fits"
         _write_fits(
             path,
             _compact_source() * (2.0 + index),
@@ -472,7 +472,7 @@ def test_frequency_sample_is_deterministic_bounded_and_frequency_specific(
     root, _bad_path = _radio_dataset(tmp_path / "radio", with_wcs=True)
     for index in range(5):
         _write_fits(
-            root / "164MHz" / "RR" / f"164MHz_20250503_0720{index:02d}_000.fits",
+            root / "164MHz" / "RR" / f"164MHz_20000503_0720{index:02d}_000.fits",
             _compact_source() * 20.0,
             second=index,
             with_wcs=True,
@@ -574,7 +574,7 @@ def test_fixed_frequency_sample_rejects_all_unreadable_files(
 def test_fixed_frequency_range_rejects_conflicting_bunit(tmp_path: Path) -> None:
     root, _bad_path = _radio_dataset(tmp_path / "radio", with_wcs=True)
     for index in range(5):
-        path = root / "149MHz" / "LL" / f"149MHz_20250503_0720{index:02d}_000.fits"
+        path = root / "149MHz" / "LL" / f"149MHz_20000503_0720{index:02d}_000.fits"
         _write_fits(path, _compact_source(), second=index, with_wcs=True)
         with fits.open(path, mode="update") as hdus:
             hdus[1].header["BUNIT"] = "Jy"

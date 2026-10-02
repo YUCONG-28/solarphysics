@@ -18,10 +18,12 @@ MACHINE_PATHS = (
 PRIVATE_EMAIL = re.compile(r"\b[A-Z0-9.!#$%&'*+/=?^_`{|}~-]+@gmail\.com\b", re.I)
 
 
-def test_root_readme_is_app_first_and_links_apps_manual() -> None:
+def test_root_readme_is_library_first_and_links_application_adapters() -> None:
     text = ROOT_README.read_text(encoding="utf-8")
-    assert "# Solar Physics App 1.0" in text
-    assert "[Apps/README.md](Apps/README.md)" in text
+    assert text.startswith("# Solar Physics Toolkit")
+    assert "(Python/README.md)" in text
+    assert "(Apps/README.md)" in text
+    assert text.index("## 从基础模块开始") < text.index("## 应用展示")
     assert "solar_toolkit" in text
     assert "Local repository" not in text
     assert "PUBLIC_BASE" not in text and "SHA256SUMS" not in text

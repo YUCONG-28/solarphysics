@@ -87,16 +87,14 @@ class SourceMapNativePanel(NativeModulePanel):
         form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
         form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapAllRows)
 
-        self.config_name = QLineEdit(
-            "solar_apps.workflows.radio.configs.radio_20250124_config"
-        )
+        self.config_name = QLineEdit()
         self.config_name.setCursorPosition(0)
         self.source_path = QLineEdit()
         self.output_path = QLineEdit()
         for field in (self.config_name, self.source_path, self.output_path):
             self.configure_path_field(field)
             field.setMinimumWidth(135)
-        form.addRow("Event config", self.config_name)
+        form.addRow("Configuration JSON", self.config_name)
         form.addRow("Source", self._source_path_row())
         form.addRow("Output folder", self._directory_row(self.output_path))
 
@@ -344,7 +342,7 @@ class SourceMapNativePanel(NativeModulePanel):
             if value.strip()
         ]
         payload: dict[str, Any] = {
-            "config": self.config_name.text().strip(),
+            "config_file": self.config_name.text().strip(),
             "mode": self.mode.currentData(),
             "source_path": self.source_path.text().strip(),
             "output_dir": str(self._ensure_output()),

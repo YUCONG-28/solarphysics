@@ -38,7 +38,7 @@ def _request(tmp_path: Path, spectrum_type: str = "dart") -> CompositeRequest:
     return CompositeRequest(
         aia_directory=tmp_path / "aia",
         aia_wave=171,
-        aia_time=datetime(2025, 1, 24, 4, 48, 32, tzinfo=UTC),
+        aia_time=datetime(2000, 1, 1, 4, 48, 32, tzinfo=UTC),
         radio_directory=tmp_path / "radio",
         radio_frequency=149.0,
         polarization="RR",
@@ -61,7 +61,7 @@ def _png() -> bytes:
 
 
 def _spectrum(source: str = "DART") -> SpectrumWindow:
-    start = datetime(2025, 1, 24, 4, 48, 30, tzinfo=UTC)
+    start = datetime(2000, 1, 1, 4, 48, 30, tzinfo=UTC)
     return SpectrumWindow(
         data=np.asarray([[1.0, 2.0], [3.0, 4.0]]),
         frequency_mhz=np.asarray([100.0, 200.0]),
@@ -83,7 +83,7 @@ def test_mock_aia_build_top_panel(
 ) -> None:
     aia = object()
     frame = SimpleNamespace(
-        obs_time=datetime(2025, 1, 24, 4, 48, 32),
+        obs_time=datetime(2000, 1, 1, 4, 48, 32),
         path=tmp_path / "radio.fits",
         hdu_index=0,
         freq_mhz=149.0,
@@ -119,7 +119,7 @@ def test_mock_radio_build_top_panel(
 ) -> None:
     radio = object()
     frame = SimpleNamespace(
-        obs_time=datetime(2025, 1, 24, 4, 48, 32),
+        obs_time=datetime(2000, 1, 1, 4, 48, 32),
         path=tmp_path / "radio.fits",
         hdu_index=0,
         freq_mhz=149.0,
@@ -156,7 +156,7 @@ def test_reference_radio_time_matches_first_frequency_without_rendering(
     monkeypatch,
 ) -> None:
     request = _request(tmp_path)
-    matched = datetime(2025, 1, 24, 4, 48, 31, 917000)
+    matched = datetime(2000, 1, 1, 4, 48, 31, 917000)
     frame = SimpleNamespace(obs_time=matched)
     captured: dict[str, object] = {}
 
@@ -196,7 +196,7 @@ def test_reference_radio_time_cache_does_not_require_top_panel(
     monkeypatch,
 ) -> None:
     request = _request(tmp_path)
-    matched = datetime(2025, 1, 24, 4, 48, 31, 917000, tzinfo=UTC)
+    matched = datetime(2000, 1, 1, 4, 48, 31, 917000, tzinfo=UTC)
     calls: list[tuple[float, ...]] = []
 
     def fake_match(candidate_request, *, radio_frequencies_mhz):
@@ -224,7 +224,7 @@ def test_frequency_time_alignments_use_each_radio_frequency(
     monkeypatch,
 ) -> None:
     request = _request(tmp_path)
-    dart_start = datetime(2025, 1, 24, 4, 48, 30, 312134, tzinfo=UTC)
+    dart_start = datetime(2000, 1, 1, 4, 48, 30, 312134, tzinfo=UTC)
     spectrum = SpectrumWindow(
         data=np.ones((2, 2), dtype=float),
         frequency_mhz=np.asarray([163.0, 239.0]),
@@ -297,9 +297,9 @@ def test_mock_cso_reader(tmp_path: Path, monkeypatch) -> None:
         time=np.asarray([0.0, 1.0]),
         freq=np.asarray([100.0, 200.0]),
         polar="RR",
-        dateobs="2025-01-24",
+        dateobs="2000-01-01",
         unit="K",
-        dt_base=datetime(2025, 1, 24),
+        dt_base=datetime(2000, 1, 1),
     )
     monkeypatch.setattr(
         spectrum_adapter,
@@ -317,7 +317,7 @@ def test_mock_cso_reader(tmp_path: Path, monkeypatch) -> None:
 
 
 def test_generate_three_panel_figure() -> None:
-    start = datetime(2025, 1, 24, 4, 48, 30, tzinfo=UTC)
+    start = datetime(2000, 1, 1, 4, 48, 30, tzinfo=UTC)
     curve = pd.DataFrame(
         {
             "time": [start.isoformat(), (start + timedelta(seconds=1)).isoformat()],
@@ -350,7 +350,7 @@ def test_composite_result_records_dart_alignment_to_matched_radio_time(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
-    radio_time = datetime(2025, 1, 24, 4, 48, 30, 312000, tzinfo=UTC)
+    radio_time = datetime(2000, 1, 1, 4, 48, 30, 312000, tzinfo=UTC)
     dart_start = radio_time + timedelta(microseconds=134)
     spectrum = SpectrumWindow(
         data=np.asarray([[1.0, 2.0], [3.0, 4.0]]),

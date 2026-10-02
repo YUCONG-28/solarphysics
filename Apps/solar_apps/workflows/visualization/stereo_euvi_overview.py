@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
-"""Plot STEREO-A EUVI images nearest 2025-01-24 04:48:30-04:49:00 UT."""
+"""Plot STEREO-A EUVI images nearest an explicitly selected UTC time."""
 
 from __future__ import annotations
 
 import argparse
 import csv
-import os
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -17,10 +16,10 @@ from sunpy.map import Map
 
 from solar_apps.workflows.common.image_naming import build_scientific_image_filename
 
-DATA_DIR = Path(os.getenv("STEREO_EUVI_DATA_DIR", "data/raw/stereo/euvi/20250124"))
-MANIFEST = DATA_DIR / "manifest_by_wavelength.csv"
-OUT_DIR = Path(os.getenv("STEREO_EUVI_PRODUCT_DIR", "data/products/stereo_euvi"))
-TARGET = datetime.fromisoformat("2025-01-24T04:48:45")
+DATA_DIR = None
+MANIFEST = None
+OUT_DIR = None
+TARGET = None
 WAVELENGTHS = ("171", "195", "284", "304")
 
 __all__ = [
@@ -39,9 +38,11 @@ __all__ = [
 
 def build_parser() -> argparse.ArgumentParser:
     """Build the event-recipe parser without reading the manifest."""
-    return argparse.ArgumentParser(
-        description="Plot the event STEREO/EUVI overview products."
-    )
+    parser = argparse.ArgumentParser(description="Plot STEREO/EUVI overview products.")
+    parser.add_argument("--input-dir", type=Path, required=True)
+    parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--target-time", type=datetime.fromisoformat, required=True)
+    return parser
 
 
 def load_manifest() -> list[dict[str, str]]:
@@ -129,7 +130,7 @@ def plot_overview(items, *, sequence=1, generated_at=None) -> Path:
         ax.coords.grid(color="white", alpha=0.22, linestyle="--", linewidth=0.5)
         ax.set_xlabel("")
         ax.set_ylabel("")
-    fig.suptitle("STEREO-A EUVI nearest 2025-01-24 04:48:30-04:49:00 UT", fontsize=14)
+    fig.suptitle(f"STEREO-A EUVI nearest {TARGET.isoformat()} UT", fontsize=14)
     fig.tight_layout(rect=(0, 0, 1, 0.97))
     generated_at = generated_at or datetime.now(timezone.utc)
     observation_times = [item[0].date for item in items]
@@ -147,7 +148,12 @@ def plot_overview(items, *, sequence=1, generated_at=None) -> Path:
 
 
 def main(argv: list[str] | None = None) -> int:
-    build_parser().parse_args(argv)
+    global DATA_DIR, MANIFEST, OUT_DIR, TARGET
+    args = build_parser().parse_args(argv)
+    DATA_DIR = args.input_dir.expanduser()
+    MANIFEST = DATA_DIR / "manifest_by_wavelength.csv"
+    OUT_DIR = args.output_dir.expanduser()
+    TARGET = args.target_time
     plt.switch_backend("Agg")
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     rows = load_manifest()
@@ -177,7 +183,7 @@ def main(argv: list[str] | None = None) -> int:
         sequence=len(paths) + 1,
         generated_at=batch_generated_at,
     )
-    selected = OUT_DIR / "selected_euvi_044830_044900.txt"
+    selected = OUT_DIR / "selected_euvi.txt"
     selected.write_text(
         "wavelength,date_obs,path\n" + "\n".join(selection_lines) + "\n",
         encoding="utf-8",

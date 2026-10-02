@@ -17,6 +17,8 @@ from solar_toolkit.radio.physical_diagnostics import build_drift_newkirk_table
 
 from .configs import DEFAULT_CONFIG_NAME
 
+from .entrypoint_utils import add_config_arguments, resolve_config_source
+
 __all__ = [
     "build_drift_newkirk_table",
     "build_parser",
@@ -31,7 +33,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--gaussian-csv")
     parser.add_argument("--drift-csv")
-    parser.add_argument("--config", default=DEFAULT_CONFIG_NAME)
+    add_config_arguments(parser, default_config=DEFAULT_CONFIG_NAME)
     parser.add_argument("--output-dir", default="physical_diagnostics")
     parser.add_argument(
         "--workspace-config-json",
@@ -195,7 +197,7 @@ def main(argv: list[str] | None = None) -> int:
     result = run_physical_diagnostics(
         gaussian_csv=args.gaussian_csv,
         drift_csv=args.drift_csv,
-        config_name=args.config,
+        config_name=resolve_config_source(args),
         output_dir=args.output_dir,
         workspace_config=workspace_config,
     )

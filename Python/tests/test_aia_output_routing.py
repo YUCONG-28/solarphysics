@@ -11,8 +11,14 @@ from solar_toolkit.aia._euv_processor_impl import (
 from solar_toolkit.aia.config import AIAConfig
 
 
+def _synthetic_config(**kwargs):
+    kwargs.setdefault("data_path", "synthetic/aia")
+    kwargs.setdefault("roi_bounds", (-1, 1, -1, 1))
+    return AIAConfig(**kwargs)
+
+
 def test_explicit_output_root_routes_mosaic_without_changing_input() -> None:
-    config = AIAConfig(
+    config = _synthetic_config(
         data_path="observations/aia",
         output_dir="private/outputs/aia",
     )
@@ -23,7 +29,7 @@ def test_explicit_output_root_routes_mosaic_without_changing_input() -> None:
 
 
 def test_explicit_output_root_routes_per_band_differences() -> None:
-    config = AIAConfig(
+    config = _synthetic_config(
         data_path="observations/aia",
         output_dir="private/outputs/aia",
         use_band_subdirs=True,
@@ -38,7 +44,7 @@ def test_explicit_output_root_routes_per_band_differences() -> None:
 
 
 def test_default_output_root_preserves_historical_data_location() -> None:
-    config = AIAConfig(data_path="observations/aia")
+    config = _synthetic_config(data_path="observations/aia")
 
     assert Path(config.output_dir) == Path(config.data_path)
     assert _mosaic_save_dir(config).is_relative_to(Path(config.data_path))
@@ -46,7 +52,7 @@ def test_default_output_root_preserves_historical_data_location() -> None:
 
 def test_single_worker_uses_serial_execution(monkeypatch) -> None:
     calls: list[tuple[Path, int]] = []
-    config = AIAConfig(max_workers=1)
+    config = _synthetic_config(max_workers=1)
     files = [Path("one.fits"), Path("two.fits")]
     monkeypatch.setattr(
         "solar_toolkit.aia._euv_processor_impl._resolve_single_files",
@@ -78,7 +84,7 @@ def test_single_worker_uses_serial_execution(monkeypatch) -> None:
 
 def test_difference_worker_uses_serial_execution(monkeypatch) -> None:
     calls: list[int] = []
-    config = AIAConfig(
+    config = _synthetic_config(
         max_workers=1,
         draw_difference=True,
         difference_wavelengths=(171, 193),
@@ -122,7 +128,7 @@ def test_auto_difference_output_mode_routes_to_mosaic_batch(monkeypatch) -> None
         def _run_difference_batch(_cfg):
             calls.append("difference")
 
-    config = AIAConfig(
+    config = _synthetic_config(
         mode="mosaic",
         multi_band_composite=True,
         draw_original=False,
@@ -152,7 +158,7 @@ def test_single_difference_output_mode_skips_mosaic_batch(monkeypatch) -> None:
         def _run_difference_batch(_cfg):
             calls.append("difference")
 
-    config = AIAConfig(
+    config = _synthetic_config(
         mode="mosaic",
         multi_band_composite=True,
         draw_original=False,
@@ -165,3 +171,17 @@ def test_single_difference_output_mode_skips_mosaic_batch(monkeypatch) -> None:
     processor.process_aia_fits(config)
 
     assert calls == ["difference"]
+
+
+def test_processor_requires_explicit_observation_and_roi():
+    import pytest
+
+    from solar_toolkit.aia.processor import process_aia_fits
+
+    config = AIAConfig()
+    assert config.data_path is None
+    assert config.year is None and config.date is None
+    with pytest.raises(ValueError, match="data_path"):
+        process_aia_fits(config)
+    with pytest.raises(ValueError, match="roi_bounds"):
+        process_aia_fits(AIAConfig(data_path="synthetic/aia"))

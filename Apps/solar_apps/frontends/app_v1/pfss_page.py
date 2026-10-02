@@ -388,7 +388,7 @@ class PFSSPanel(NativeModulePanel):
                 seed_hpc_box=json.loads(self.seed_box.text() or "null"),
             )
             self.status.setText(
-                f"Parameters saved: {target}. Run on SEVERUS; results return through the existing sync session."
+                f"Parameters saved: {target}. Run the workflow using this configuration."
             )
         except Exception as exc:
             self.status.setText(f"Configuration not saved: {exc}")

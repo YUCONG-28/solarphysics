@@ -80,7 +80,7 @@ private = importlib.import_module('solar_apps.workflows.radio._overlay_{module}'
 from solar_apps.workflows.radio import overlay_workflow as overlay
 assert pickle.loads(pickle.dumps(overlay.Config())).selected_bands == overlay.Config().selected_bands
 assert pickle.loads(pickle.dumps(overlay.parse_aia_time_from_filename)) is overlay.parse_aia_time_from_filename
-assert overlay.parse_aia_time_from_filename('aia.lev1_euv_12s.2026-10-01T120000Z.171.image_lev1.fits').hour == 12
+assert overlay.parse_aia_time_from_filename('aia.lev1_euv_12s.2000-01-01T120000Z.171.image_lev1.fits').hour == 12
 """
     subprocess.run(
         [sys.executable, "-c", code], check=True, capture_output=True, text=True
@@ -109,9 +109,9 @@ def test_overlay_selection_keeps_core_time_parser_replacement_hook(
 ) -> None:
     from datetime import datetime
 
-    expected = datetime(2026, 10, 1, 12)
+    expected = datetime(2000, 1, 1, 12)
     monkeypatch.setattr(core, "_parse_flexible_datetime", lambda value: expected)
-    assert overlay.parse_radio_time_from_filename("20261001_120000.fits") == expected
+    assert overlay.parse_radio_time_from_filename("20000101_120000.fits") == expected
 
 
 def test_overlay_science_keeps_canonical_replacement_hook(

@@ -29,22 +29,22 @@ def _write_aia(path, obs_time: str, wavelength: int = 171) -> None:
 
 
 def test_scans_aia_folder_and_finds_nearest_file(tmp_path):
-    _write_aia(tmp_path / "aia_171_20250124_044837.fits", "2025-01-24T04:48:37")
+    _write_aia(tmp_path / "aia_171_20000101_044837.fits", "2000-01-01T04:48:37")
 
     table = scan_aia_folder(tmp_path)
     matched = find_nearest_aia(
         table,
-        pd.Timestamp("2025-01-24T04:48:39"),
+        pd.Timestamp("2000-01-01T04:48:39"),
         max_dt_seconds=5.0,
     )
     too_far = find_nearest_aia(
         table,
-        pd.Timestamp("2025-01-24T04:49:30"),
+        pd.Timestamp("2000-01-01T04:49:30"),
         max_dt_seconds=5.0,
     )
     empty = find_nearest_aia(
         pd.DataFrame(columns=["path", "obs_time"]),
-        pd.Timestamp("2025-01-24T04:48:39"),
+        pd.Timestamp("2000-01-01T04:48:39"),
         max_dt_seconds=5.0,
     )
 
@@ -57,8 +57,8 @@ def test_scans_aia_folder_and_finds_nearest_file(tmp_path):
 
 
 def test_reads_lightweight_aia_background_grid(tmp_path):
-    path = tmp_path / "aia_171_20250124_044837.fits"
-    _write_aia(path, "2025-01-24T04:48:37")
+    path = tmp_path / "aia_171_20000101_044837.fits"
+    _write_aia(path, "2000-01-01T04:48:37")
 
     background = read_aia_background(
         path,
@@ -70,5 +70,5 @@ def test_reads_lightweight_aia_background_grid(tmp_path):
     assert background.z.shape == (2, 2)
     assert background.x_arcsec.tolist() == pytest.approx([0.0, 4.0])
     assert background.y_arcsec.tolist() == pytest.approx([0.0, 4.0])
-    assert background.obs_time == pd.Timestamp("2025-01-24T04:48:37")
+    assert background.obs_time == pd.Timestamp("2000-01-01T04:48:37")
     assert "171" in background.label

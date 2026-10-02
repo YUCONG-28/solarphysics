@@ -164,27 +164,27 @@ def test_stereo_vso_query_uses_secchi_detector_and_nominal_wavelengths(
     import astropy.units as u
     from sunpy.net import Fido
 
-    observed = dt.datetime(2025, 1, 24, 4, 30, tzinfo=UTC)
+    observed = dt.datetime(2000, 1, 1, 4, 30, tzinfo=UTC)
     rows = [
         {
             "Start Time": observed,
             "End Time": observed + dt.timedelta(seconds=2),
             "Wavelength": [171, 175] * u.AA,
-            "fileid": "secchi/L0/a/img/euvi/20250124/171.fts",
+            "fileid": "secchi/L0/a/img/euvi/20000101/171.fts",
             "Size": 8_409_600 * u.byte,
         },
         {
             "Start Time": observed + dt.timedelta(seconds=15),
             "End Time": observed + dt.timedelta(seconds=17),
             "Wavelength": [195, 195] * u.AA,
-            "fileid": "secchi/L0/a/img/euvi/20250124/195.fts",
+            "fileid": "secchi/L0/a/img/euvi/20000101/195.fts",
             "Size": 8_409_600 * u.byte,
         },
         {
             "Start Time": observed + dt.timedelta(seconds=30),
             "End Time": observed + dt.timedelta(seconds=32),
             "Wavelength": [304, 304] * u.AA,
-            "fileid": "secchi/L0/a/img/euvi/20250124/304.fts",
+            "fileid": "secchi/L0/a/img/euvi/20000101/304.fts",
             "Size": 8_409_600 * u.byte,
         },
     ]

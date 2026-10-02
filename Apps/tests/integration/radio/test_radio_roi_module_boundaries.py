@@ -123,10 +123,10 @@ def _write_frames(folder):
                     "FREQ": frequency,
                     "FREQUNIT": "MHz",
                     "BUNIT": "Jy/beam",
-                    "DATE-OBS": f"2025-01-24T04:48:{45 + frame}",
+                    "DATE-OBS": f"2000-01-01T04:48:{45 + frame}",
                 }
             )
-            name = f"{frequency:g}MHz_20250124T0448{45 + frame}_LCP.fits"
+            name = f"{frequency:g}MHz_20000101T0448{45 + frame}_LCP.fits"
             fits.writeto(folder / name, image, header)
 
 

@@ -9,8 +9,14 @@ from __future__ import annotations
 from importlib import import_module
 
 _SUBMODULES = {
+    "spectrum_display": "solar_toolkit.radio.spectrum_display",
+    "muser_comparison": "solar_toolkit.radio.muser_comparison",
+    "muser": "solar_toolkit.radio.muser",
+    "cso_window": "solar_toolkit.radio.cso_window",
+    "cso_extract": "solar_toolkit.radio.cso_extract",
     "fieldline_association": "solar_toolkit.radio.fieldline_association",
     "source_geometry": "solar_toolkit.radio.source_geometry",
+    "jet_cone": "solar_toolkit.radio.jet_cone",
     "centers": "solar_toolkit.radio.centers",
     "config": "solar_toolkit.radio.config",
     "coordinates": "solar_toolkit.radio.coordinates",

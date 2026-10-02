@@ -5,24 +5,25 @@ from __future__ import annotations
 
 import argparse
 import csv
-import os
 from pathlib import Path
 
 from astropy.io import fits
 
-DATA_DIR = Path(os.getenv("STEREO_EUVI_DATA_DIR", "data/raw/stereo/euvi/20250124"))
-LINK_ROOT = DATA_DIR / "by_wavelength"
-MANIFEST = DATA_DIR / "manifest_by_wavelength.csv"
+DATA_DIR = None
+LINK_ROOT = None
+MANIFEST = None
 
 __all__ = ["build_parser", "main", "make_relative_symlink", "read_metadata"]
 
 
 def build_parser() -> argparse.ArgumentParser:
     """Build the event-recipe parser without touching local data."""
-    return argparse.ArgumentParser(
+    parser = argparse.ArgumentParser(
         prog="solar-apps workflow data stereo-manifest",
         description="Create the STEREO/EUVI wavelength manifest and symlink view.",
     )
+    parser.add_argument("--input-dir", type=Path, required=True)
+    return parser
 
 
 def read_metadata(path: Path) -> dict[str, str]:
@@ -53,7 +54,11 @@ def make_relative_symlink(target: Path, link: Path) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    build_parser().parse_args(argv)
+    global DATA_DIR, LINK_ROOT, MANIFEST
+    args = build_parser().parse_args(argv)
+    DATA_DIR = args.input_dir.expanduser()
+    LINK_ROOT = DATA_DIR / "by_wavelength"
+    MANIFEST = DATA_DIR / "manifest_by_wavelength.csv"
     fits_files = sorted(DATA_DIR.glob("*.fts"))
     if not fits_files:
         raise FileNotFoundError(f"No .fts files found in {DATA_DIR}")

@@ -51,4 +51,14 @@ def test_event_configuration_has_no_implicit_workstation_default():
     with pytest.raises(TypeError):
         load_radio_event_config()
     with pytest.raises(ValueError, match="fully qualified"):
-        load_radio_event_config("radio_20250124_config")
+        load_radio_event_config("synthetic_radio_config")
+
+
+def test_module_configuration_remains_explicit_and_supported():
+    from types import ModuleType
+
+    module = ModuleType("synthetic_radio_config")
+    module.EVENT_CONFIG = {"user": {"data": {"synthetic": True}}}
+    assert load_radio_event_config(module).section("user")["data"]["synthetic"]
+    with pytest.raises(ValueError, match="explicit radio"):
+        load_radio_event_config(None)

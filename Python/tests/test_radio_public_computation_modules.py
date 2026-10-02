@@ -95,7 +95,7 @@ def test_reproject_radio_array_with_explicit_pixel_mapper():
 
 
 def test_nearest_time_index_honors_tolerance_and_first_tie():
-    target = datetime(2025, 1, 24, 4, 48, 40)
+    target = datetime(2000, 1, 1, 4, 48, 40)
     candidates = [target - timedelta(seconds=2), target + timedelta(seconds=2)]
 
     assert nearest_time_index(target, candidates) == 0

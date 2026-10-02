@@ -65,7 +65,7 @@ def test_attach_newkirk_height_filters_invalid_gaussian_rows():
     df = pd.DataFrame(
         [
             {
-                "time": "2025-01-24T04:48:50",
+                "time": "2000-01-01T04:48:50",
                 "freq": 150.0,
                 "center_x_arcsec": 100.0,
                 "center_y_arcsec": 200.0,
@@ -74,7 +74,7 @@ def test_attach_newkirk_height_filters_invalid_gaussian_rows():
                 "trajectory_valid": True,
             },
             {
-                "time": "2025-01-24T04:48:51",
+                "time": "2000-01-01T04:48:51",
                 "freq": 150.0,
                 "center_x_arcsec": 100.0,
                 "center_y_arcsec": 200.0,

@@ -9,7 +9,7 @@ def test_map_extent_obs_time_and_normalization_from_header():
     from solar_toolkit.map import get_display_extent, get_map_obs_time, normalize_image
 
     header = {
-        "DATE-OBS": "2025-01-24T04:48:37Z",
+        "DATE-OBS": "2000-01-01T04:48:37Z",
         "NAXIS1": 4,
         "NAXIS2": 2,
         "CRVAL1": 0.0,
@@ -20,7 +20,7 @@ def test_map_extent_obs_time_and_normalization_from_header():
         "CDELT2": 2.0,
     }
 
-    assert get_map_obs_time(header) == dt.datetime(2025, 1, 24, 4, 48, 37)
+    assert get_map_obs_time(header) == dt.datetime(2000, 1, 1, 4, 48, 37)
     assert get_display_extent(header) == (-1.5, 2.5, 9.0, 13.0)
     assert np.allclose(normalize_image(np.array([1.0, 2.0, 3.0])), [0.0, 0.5, 1.0])
 

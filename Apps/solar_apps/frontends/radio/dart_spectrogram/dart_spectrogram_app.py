@@ -1233,7 +1233,7 @@ def _render_configuration(
             "Marked UTC times (comma separated, optional)",
             value="",
             key="marked_times",
-            placeholder="04:45:01.5, 2025-01-24T04:45:02Z",
+            placeholder="04:45:01.5, 2000-01-01T00:00:02Z",
             help=(
                 "Accepts HH:MM:SS[.fraction] or ISO-8601. Time-only values use "
                 "the unique matching date inside this observation."

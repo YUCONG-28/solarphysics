@@ -41,6 +41,7 @@ _PATH_FIELD_METADATA: dict[str, dict[str, Any]] = {
     "gaussian_csv": {"path_kind": "file", "extensions": [".csv"]},
     "drift_csv": {"path_kind": "file", "extensions": [".csv"]},
     "config_file": {"path_kind": "file", "extensions": [".json"]},
+    "config": {"path_kind": "file", "extensions": [".json"]},
     "aia_dir": {"path_kind": "directory", "extensions": []},
     "hmi_dir": {"path_kind": "directory", "extensions": []},
     "center_csv": {"path_kind": "file", "extensions": [".csv"]},
@@ -147,9 +148,16 @@ MODULES: tuple[RadioModuleSpec, ...] = (
                 ),
                 command_module="solar_apps.workflows.radio.raw_quality_cli",
                 output_flag="--output-dir",
+                config_json_flag="--workspace-config-json",
                 produces_artifacts=("quality-table", "diagnostic-image"),
                 input_schema=(
-                    _field("config", "Event config", cli_flag="--config"),
+                    _field(
+                        "config",
+                        "Configuration JSON",
+                        "path",
+                        cli_flag="--config-file",
+                        path=True,
+                    ),
                     _field(
                         "root",
                         "Radio data folder",
@@ -200,7 +208,13 @@ MODULES: tuple[RadioModuleSpec, ...] = (
                 accepts_artifacts=("radio-fits",),
                 produces_artifacts=("source-map",),
                 input_schema=(
-                    _field("config", "Event config", cli_flag="--config"),
+                    _field(
+                        "config",
+                        "Configuration JSON",
+                        "path",
+                        cli_flag="--config-file",
+                        path=True,
+                    ),
                     _field(
                         "mode",
                         "Input mode",
@@ -326,7 +340,13 @@ MODULES: tuple[RadioModuleSpec, ...] = (
                 accepts_artifacts=("radio-fits",),
                 produces_artifacts=("gaussian-table", "diagnostic-image"),
                 input_schema=(
-                    _field("config", "Event config", cli_flag="--config"),
+                    _field(
+                        "config",
+                        "Configuration JSON",
+                        "path",
+                        cli_flag="--config-file",
+                        path=True,
+                    ),
                     _field(
                         "mode",
                         "Input mode",
@@ -357,7 +377,7 @@ MODULES: tuple[RadioModuleSpec, ...] = (
                 id="rrll-percentile-comparison",
                 title="RR/LL Percentile Comparison",
                 description=(
-                    "Run the event-specific nine-band RR/LL percentile comparison."
+                    "Compare fixed percentile display ranges for selected RR/LL data."
                 ),
                 command_module=(
                     "solar_apps.workflows.radio.rrll_percentile_preview_comparison"
@@ -369,8 +389,16 @@ MODULES: tuple[RadioModuleSpec, ...] = (
                 produces_artifacts=("preview-image", "provenance-json"),
                 input_schema=(
                     _field(
+                        "config",
+                        "Configuration JSON",
+                        "path",
+                        cli_flag="--config-file",
+                        required=True,
+                        path=True,
+                    ),
+                    _field(
                         "radio_root",
-                        "Nine-band radio root",
+                        "Multi-band radio root",
                         "path",
                         cli_flag="--radio-root",
                         required=True,
@@ -942,7 +970,13 @@ MODULES: tuple[RadioModuleSpec, ...] = (
                         path=True,
                         artifact_types=("drift-table",),
                     ),
-                    _field("config", "Event config", cli_flag="--config"),
+                    _field(
+                        "config",
+                        "Configuration JSON",
+                        "path",
+                        cli_flag="--config-file",
+                        path=True,
+                    ),
                     _ADVANCED_ARGUMENTS,
                 ),
             ),
@@ -952,6 +986,7 @@ MODULES: tuple[RadioModuleSpec, ...] = (
                 description="Create center, height, residual, and trajectory quicklooks.",
                 command_module="solar_apps.workflows.radio.quicklook",
                 output_flag="--output-dir",
+                config_json_flag="--workspace-config-json",
                 accepts_artifacts=("gaussian-table",),
                 produces_artifacts=("physics-table", "diagnostic-image"),
                 input_schema=(
@@ -963,7 +998,13 @@ MODULES: tuple[RadioModuleSpec, ...] = (
                         path=True,
                         artifact_types=("gaussian-table",),
                     ),
-                    _field("config", "Event config", cli_flag="--config"),
+                    _field(
+                        "config",
+                        "Configuration JSON",
+                        "path",
+                        cli_flag="--config-file",
+                        path=True,
+                    ),
                     _ADVANCED_ARGUMENTS,
                 ),
             ),
@@ -984,7 +1025,13 @@ MODULES: tuple[RadioModuleSpec, ...] = (
                     "physics-dashboard",
                 ),
                 input_schema=(
-                    _field("config", "Event config", cli_flag="--config"),
+                    _field(
+                        "config",
+                        "Configuration JSON",
+                        "path",
+                        cli_flag="--config-file",
+                        path=True,
+                    ),
                     _ADVANCED_ARGUMENTS,
                 ),
             ),
@@ -1019,7 +1066,13 @@ MODULES: tuple[RadioModuleSpec, ...] = (
                 config_json_flag="--workspace-config-json",
                 produces_artifacts=("overlay-image", "overlay-animation"),
                 input_schema=(
-                    _field("config", "Event config", cli_flag="--config"),
+                    _field(
+                        "config",
+                        "Configuration JSON",
+                        "path",
+                        cli_flag="--config-file",
+                        path=True,
+                    ),
                     _field(
                         "config_file",
                         "Config JSON",
@@ -1554,18 +1607,7 @@ PRESETS: dict[str, dict[str, Any]] = {
 }
 
 
-EVENT_PRESETS: dict[str, dict[str, Any]] = {
-    "radio-20250124": {
-        "id": "radio-20250124",
-        "title": "2025-01-24 Type III Burst",
-        "config": {"config": "radio_20250124_config"},
-    },
-    "radio-20250503": {
-        "id": "radio-20250503",
-        "title": "2025-05-03 Radio Event",
-        "config": {"config": "radio_20250503_config"},
-    },
-}
+EVENT_PRESETS: dict[str, dict[str, Any]] = {}
 
 
 def get_module(module_id: str) -> RadioModuleSpec:

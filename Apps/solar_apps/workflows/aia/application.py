@@ -429,6 +429,8 @@ def config_from_args(args: argparse.Namespace) -> AIAConfig:
     if args.data_path is not None:
         cfg.data_path = str(Path(args.data_path))
     elif any(getattr(args, name) is not None for name in ("root_dir", "year", "date")):
+        if not cfg.year or not cfg.date:
+            raise ValueError("Supply both --year and --date, or --data-path.")
         cfg.data_path = str(Path(cfg.root_dir) / cfg.year / cfg.date / "SDO" / "AIA")
     cfg.output_dir = (
         str(Path(args.output_dir)) if args.output_dir is not None else cfg.data_path
