@@ -1,2 +1,0 @@
-# Preserve immutable vendored browser assets byte-for-byte on every platform.
-solar_toolkit/visualization/_media_assets/** -text

@@ -215,18 +215,3 @@ htmlcov/
 
 # PDF exports
 *.pdf
-
-# Keep README display asset placeholders trackable.
-!docs/assets/
-!docs/assets/images/
-!docs/assets/videos/
-!docs/assets/images/.gitkeep
-!docs/assets/videos/.gitkeep
-!examples/output/
-!examples/output/.gitkeep
-!examples/images/
-!examples/images/.gitkeep
-!examples/videos/
-!examples/videos/.gitkeep
-!examples/configs/
-!examples/configs/.gitkeep
