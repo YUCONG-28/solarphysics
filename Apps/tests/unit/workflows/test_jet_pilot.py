@@ -9,6 +9,8 @@ from astropy.io import fits
 from astropy.time import Time
 
 from solar_apps.workflows.jet_lab import pilot
+from solar_apps.workflows.jet_lab import prepare_timeline
+from solar_toolkit.map.jet_annotations import file_sha256
 
 
 def test_missing_sample_times_fails_before_creating_output(tmp_path):
@@ -74,7 +76,13 @@ def test_configured_times_prepare_native_samples_without_event_defaults(
         writer = csv.DictWriter(stream, fieldnames=list(rows[0]))
         writer.writeheader()
         writer.writerows(rows)
-    monkeypatch.setattr(pilot, "synthetic_qa", lambda output: None)
+
+    def nested_check(output):
+        nested = output / "example"
+        nested.mkdir()
+        (nested / "COMPLETE.json").write_text("{}")
+
+    monkeypatch.setattr(pilot, "synthetic_qa", nested_check)
     monkeypatch.setattr(
         pilot,
         "registered_difference",
@@ -101,4 +109,39 @@ def test_configured_times_prepare_native_samples_without_event_defaults(
         fits.getheader(output / view["image"])["SYNTHET"]
         for pair in manifest["pairs"]
         for view in pair["views"]
+    )
+    checks = json.loads((output / "PREPARATION_COMPLETE.json").read_text())["sha256"]
+    assert "example/COMPLETE.json" in checks
+    assert all("\\" not in name for name in checks)
+    assert all(file_sha256(output / name) == digest for name, digest in checks.items())
+
+    monkeypatch.setattr(
+        prepare_timeline.socket, "gethostname", lambda: "synthetic-host"
+    )
+    monkeypatch.setattr(
+        prepare_timeline,
+        "registered_difference",
+        lambda *args: (None, {"status": "not_requested"}),
+    )
+    timeline_output = tmp_path / "timeline"
+    prepare_timeline.prepare(
+        dict(
+            compute_host="synthetic-host",
+            output_directory=str(timeline_output),
+            inventory=str(inventory),
+            reuse_samples=str(output),
+            start_utc=selected[0],
+            end_utc=selected[-1],
+            roi_arcsec={"AIA": [-5, 5, -5, 5], "EUVI": [-5, 5, -5, 5]},
+        )
+    )
+    frames = json.loads((timeline_output / "timeline.json").read_text())["frames"]
+    assert len(frames) == 4
+    assert all(frame["image"].startswith("frames/") for frame in frames)
+    assert all("\\" not in frame["image"] for frame in frames)
+    checks = json.loads((timeline_output / "COMPLETE.json").read_text())["sha256"]
+    assert all(frame["image"] in checks for frame in frames)
+    assert all("\\" not in name for name in checks)
+    assert all(
+        file_sha256(timeline_output / name) == digest for name, digest in checks.items()
     )

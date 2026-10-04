@@ -104,6 +104,51 @@ def test_pairing_tolerance():
     assert nearest_index([], 1.0, 0.1) is None
 
 
+@pytest.mark.parametrize(
+    ("times", "target", "tolerance", "expected"),
+    [
+        ([0.0, 1.0, 1.0, 2.0], 1.0, 0.0, 1),
+        ([0.0, 1.0, 1.0, 2.0], 1.5, 0.5, 2),
+        (np.array([0.0, 2.0]), 1.0, 1.0, 0),
+        ([0.0, 2.0], -0.1, 0.1, 0),
+        ([0.0, 2.0], 2.1, 0.1, 1),
+        ([0.0], 0.5e-6, 0.0, 0),
+        ([0.0], 2e-6, 0.0, None),
+        ([], 0.0, 0.0, None),
+    ],
+)
+def test_nearest_index_preserves_positions_ties_and_tolerance_allowance(
+    times, target, tolerance, expected
+):
+    assert nearest_index(times, target, tolerance) == expected
+
+
+@pytest.mark.parametrize(
+    ("times", "target", "tolerance", "message"),
+    [
+        ([0.0, 10.0, 5.0], 6.0, 10.0, "sorted"),
+        ([0.0, np.nan], 0.0, 1.0, "finite timestamps"),
+        ([0.0, np.inf], 0.0, 1.0, "finite timestamps"),
+        ([-np.inf, 0.0], 0.0, 1.0, "finite timestamps"),
+        ([[0.0]], 0.0, 1.0, "one-dimensional"),
+        ([0.0], np.nan, 1.0, "target must be finite"),
+        ([0.0], np.inf, 1.0, "target must be finite"),
+        ([0.0], -np.inf, 1.0, "target must be finite"),
+        ([0.0], 0.0, -1.0, "non-negative"),
+        ([0.0], 0.0, np.nan, "finite and non-negative"),
+        ([0.0], 0.0, np.inf, "finite and non-negative"),
+        ([], np.nan, 0.0, "target must be finite"),
+        ([], 0.0, -1.0, "non-negative"),
+        ([0j], 0.0, 1.0, "real numbers"),
+        ([0.0], np.complex128(1j), 1.0, "real numbers"),
+        ([0.0], 0.0, np.complex128(1j), "real numbers"),
+    ],
+)
+def test_nearest_index_rejects_invalid_search_inputs(times, target, tolerance, message):
+    with pytest.raises(ValueError, match=message):
+        nearest_index(times, target, tolerance)
+
+
 def test_dart_sum_and_grid_guard(tmp_path):
     paths = []
     for pol, val in [("LL", 2.0), ("RR", 3.0)]:

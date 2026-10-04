@@ -31,7 +31,7 @@ def finalize_manifest(out):
     out = Path(out)
     markers = {out / "COMPLETE.json", out / "PREPARATION_COMPLETE.json"}
     checks = {
-        str(p.relative_to(out)): file_sha256(p)
+        p.relative_to(out).as_posix(): file_sha256(p)
         for p in out.rglob("*")
         if p.is_file() and p not in markers
     }

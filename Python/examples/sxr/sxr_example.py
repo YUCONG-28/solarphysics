@@ -20,8 +20,6 @@ def main(argv=None) -> int:
     parser.add_argument("--start-time")
     parser.add_argument("--end-time")
     args = parser.parse_args(argv)
-    if (args.start_time is None) != (args.end_time is None):
-        parser.error("Supply both --start-time and --end-time, or neither.")
     output = args.output_dir.expanduser().resolve()
     repo_root = Path(__file__).resolve().parents[3]
     if output.is_relative_to(repo_root) and not output.is_relative_to(

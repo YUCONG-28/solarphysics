@@ -23,6 +23,66 @@ def test_normalize_time_column_and_crop_range():
     assert cropped["flux"].tolist() == [3.0]
 
 
+@pytest.mark.parametrize(
+    ("start", "end", "expected"),
+    [
+        (None, None, [3.0, 1.0, 2.0, 4.0]),
+        ("2000-01-01T00:00:01", None, [3.0, 2.0, 4.0]),
+        (None, "2000-01-01T00:00:01Z", [1.0, 2.0, 4.0]),
+        ("2000-01-01T00:00:01Z", "2000-01-01T00:00:01Z", [2.0, 4.0]),
+        ("2000-01-01T01:00:01+01:00", "2000-01-01T00:00:02Z", [3.0, 2.0, 4.0]),
+        ("2000-01-01T00:00:03Z", None, []),
+    ],
+)
+def test_crop_time_range_supports_optional_inclusive_utc_bounds(start, end, expected):
+    from solar_toolkit.timeseries import crop_time_range
+
+    frame = pd.DataFrame(
+        {
+            "sample_time": pd.to_datetime(
+                [
+                    "2000-01-01T00:00:02Z",
+                    "2000-01-01T00:00:00Z",
+                    "2000-01-01T00:00:01Z",
+                    "2000-01-01T00:00:01Z",
+                ],
+                utc=True,
+            ),
+            "flux": [3.0, 1.0, 2.0, 4.0],
+        },
+        index=[9, 7, 5, 3],
+    )
+    original = frame.copy(deep=True)
+    cropped = crop_time_range(frame, start, end, time_column="sample_time")
+
+    assert cropped["flux"].tolist() == expected
+    assert cropped.index.tolist() == [
+        index
+        for index, value in zip(frame.index, frame["flux"], strict=True)
+        if value in expected
+    ]
+    assert cropped is not frame
+    pd.testing.assert_frame_equal(frame, original)
+
+
+@pytest.mark.parametrize(
+    ("start", "end"),
+    [
+        ("2000-01-01T00:00:02Z", "2000-01-01T00:00:01Z"),
+        ("NaT", None),
+        (None, pd.NaT),
+        ("not-a-time", None),
+        (["2000-01-01"], None),
+    ],
+)
+def test_crop_time_range_rejects_invalid_or_reversed_bounds(start, end):
+    from solar_toolkit.timeseries import crop_time_range
+
+    frame = pd.DataFrame({"obs_time": pd.to_datetime([]), "flux": []})
+    with pytest.raises(ValueError):
+        crop_time_range(frame, start, end)
+
+
 def test_smooth_and_derivative_series_are_shape_stable():
     from solar_toolkit.timeseries import derivative_series, smooth_series
 

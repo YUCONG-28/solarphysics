@@ -76,7 +76,7 @@ def prepare(config):
                 record = {
                     "instrument": instrument,
                     "band": band,
-                    "image": str(dest.relative_to(out)),
+                    "image": dest.relative_to(out).as_posix(),
                     "image_sha256": digest,
                     "midpoint_utc": cinfo["midpoint_utc"],
                     "dsun_m": cinfo["dsun_m"],
@@ -88,7 +88,7 @@ def prepare(config):
                     audit.append({"image": record["image"], **details})
                     if result:
                         record.update(
-                            difference=str(delta.relative_to(out)),
+                            difference=delta.relative_to(out).as_posix(),
                             difference_sha256=file_sha256(delta),
                         )
                 frames.append(record)
@@ -110,7 +110,9 @@ def prepare(config):
     )
     (out / "resolved_config.json").write_text(json.dumps(config, indent=2))
     files = {
-        str(p.relative_to(out)): file_sha256(p) for p in out.rglob("*") if p.is_file()
+        p.relative_to(out).as_posix(): file_sha256(p)
+        for p in out.rglob("*")
+        if p.is_file()
     }
     (out / "COMPLETE.json").write_text(
         json.dumps({"version": 1, "sha256": files}, indent=2)

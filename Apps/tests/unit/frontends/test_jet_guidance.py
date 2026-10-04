@@ -47,6 +47,19 @@ for theme in ('Light','Dark','Auto'):
   assert w.width()<=width and w.height()<=height,(w.size(),width,height)
   assert min(p.canvas.height() for p in w.panes)>300
   w.grab().save(str(out/f'native_{theme}_{width}.png'))
+ # Wide title metrics must wrap without forcing the dual-view workspace wider.
+ fonts=[pane.title.font() for pane in w.panes]
+ for pane in w.panes:
+  font=pane.title.font();font.setPointSize(24);pane.title.setFont(font)
+ for _ in range(5):app.processEvents()
+ w.resize(1280,800)
+ for _ in range(5):app.processEvents()
+ assert w.width()<=1280 and w.height()<=800,w.size()
+ assert w.minimumSizeHint().width()<=1280,w.minimumSizeHint()
+ assert all(p.isVisible() and p.title.isVisible() for p in w.panes)
+ assert min(p.canvas.height() for p in w.panes)>300
+ for pane,font in zip(w.panes,fonts):pane.title.setFont(font)
+ app.processEvents()
 w.guide.hide();w.resize(1440,900);w.set_view_mode('split');wait()
 w.vertical_splitter.setSizes([350,450]);app.processEvents();ratio=w.vertical_splitter.sizes()
 w.set_view_mode('common');wait();w.set_view_mode('split');wait()

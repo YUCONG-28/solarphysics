@@ -59,6 +59,12 @@ c.load_timeline(out/'timeline.json');wait();assert c.reference_hash==reference
 saved_axis=doc.state['axis'].copy();c.slider.setValue(c.slider.maximum());c.start_job();c.height.setCurrentIndex(1);wait();assert c.current_pair==c.paired[-1];c.slider.setValue(0);wait();assert c.documents[doc.sha256].state['axis']==saved_axis
 w.panes[1].display_limits=[3,98];w.colour.setCurrentText('viridis')
 path=c.save_to(out/'session',for_compute=True);assert path.exists()
+session=json.loads(path.read_text())
+assert all('/' in d['annotation'] and '\\' not in d['annotation'] for d in session['documents'])
+assert all('\\' not in frame['image'] for frame in session['frames'])
+checks=json.loads((path.parent/'COMPLETE.json').read_text())['sha256']
+assert 'calculation_pair/annotations.json' in checks and all('\\' not in name for name in checks)
+assert all(file_sha256(path.parent/name)==digest for name,digest in checks.items())
 calc=json.loads((path.parent/'calculation_input.json').read_text());assert not calc['display_shell_used_for_geometry']
 undo_before=len(c.documents[doc.sha256]._undo)
 c.restore_session(path);wait();assert c.documents[doc.sha256].state['axis']==saved_axis

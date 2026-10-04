@@ -288,7 +288,7 @@ def prepare(config):
                         raise ValueError("inventory_midpoint_disagrees_with_FITS")
                     entry = {
                         "instrument": camera,
-                        "image": str(output.relative_to(out)),
+                        "image": output.relative_to(out).as_posix(),
                         "image_sha256": file_sha256(output),
                         "parent": str(source),
                         "info": info,
@@ -310,7 +310,7 @@ def prepare(config):
                         )
                         if difference:
                             entry.update(
-                                difference=str(difference.relative_to(out)),
+                                difference=difference.relative_to(out).as_posix(),
                                 difference_sha256=file_sha256(difference),
                             )
                     pair["views"].append(entry)
@@ -356,7 +356,9 @@ def prepare(config):
         fig.savefig(out / "paired_samples_overview.png", dpi=140)
         plt.close(fig)
     checksums = {
-        str(p.relative_to(out)): file_sha256(p) for p in out.rglob("*") if p.is_file()
+        p.relative_to(out).as_posix(): file_sha256(p)
+        for p in out.rglob("*")
+        if p.is_file()
     }
     dump(
         out / "PREPARATION_COMPLETE.json",

@@ -396,6 +396,7 @@ def test_completion_hashes_follow_updated_pairing_and_nested_manifest(tmp_path):
     for marker in ("COMPLETE.json", "PREPARATION_COMPLETE.json"):
         record = json.loads((tmp_path / marker).read_text())
         assert "example/COMPLETE.json" in record["sha256"]
+        assert all("\\" not in name for name in record["sha256"])
         assert all(file_sha256(tmp_path / p) == h for p, h in record["sha256"].items())
     assert (
         json.loads((tmp_path / "PREPARATION_COMPLETE.json").read_text())["pair_count"]
