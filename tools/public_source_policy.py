@@ -11,9 +11,9 @@ import json
 import re
 import subprocess
 import tarfile
+from configparser import ConfigParser
 from pathlib import Path, PurePosixPath
 from zipfile import ZipFile
-from configparser import ConfigParser
 
 BLOCKED_PARTS = {
     "local",

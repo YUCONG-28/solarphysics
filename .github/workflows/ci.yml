@@ -99,7 +99,7 @@ jobs:
       - name: Run Ruff
         run: |
           python -m ruff check solar_toolkit tests examples/public_api examples/radio examples/sxr
-          python -m ruff check ../tools/public_source_policy.py ../tools/build_distributions.py ../tools/installed_library_smoke.py
+          python -m ruff check --config pyproject.toml ../tools/public_source_policy.py ../tools/build_distributions.py ../tools/installed_library_smoke.py
 
       - name: Run public Python tests
         run: python -m pytest tests -ra --junitxml "$RUNNER_TEMP/python-tests.xml"
