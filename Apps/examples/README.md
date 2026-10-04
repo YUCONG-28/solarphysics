@@ -1,55 +1,68 @@
 # Synthetic examples
 
-These examples are deterministic, import-safe, and require no observation
-files. By default, every generated file is written below
-`Local/outputs/examples/`, which is part of the ignored runtime tree. Both
-examples reject output paths inside `Apps/`.
+These two examples compose application services with deterministic inputs and
+require no observation files or GUI. Install both source partitions as described
+in the [Apps guide](../README.md#install), then run from the repository root using
+the primary Miniforge environment.
 
-Initialize the private runtime through the public launcher first:
+The examples create their private directories as needed. Defaults write below
+`Local/outputs/examples/`; explicit destinations must resolve inside `Local/` or
+outside the repository. The repository root and public source directories are
+rejected. Before creating runtime directories or writing any artifact, each
+example validates every actual target, including symbolic links and derived
+files.
 
-```powershell
-.\Apps\run.ps1 admin init
-```
-
-On macOS use `./Apps/run.sh admin init`.
-
-The examples are developer entry points rather than public application
-commands. Run them with the same Miniforge environment used by the launcher:
+Windows:
 
 ```powershell
-& "<miniforge-root>\Scripts\conda.exe" run -n solarphysics_env_latest python .\Apps\examples\synthetic_radio_display.py
-& "<miniforge-root>\Scripts\conda.exe" run -n solarphysics_env_latest python .\Apps\examples\synthetic_state_and_paths.py
+$Conda = "<miniforge-root>\Scripts\conda.exe"
+& $Conda run -n solarphysics_env_latest python .\Apps\examples\synthetic_radio_display.py
+& $Conda run -n solarphysics_env_latest python .\Apps\examples\synthetic_state_and_paths.py
 ```
 
-On macOS replace the Conda executable with
-`<miniforge-root>/bin/conda` and use POSIX paths.
+macOS:
+
+```bash
+"<miniforge-root>/bin/conda" run -n solarphysics_env_latest python Apps/examples/synthetic_radio_display.py
+"<miniforge-root>/bin/conda" run -n solarphysics_env_latest python Apps/examples/synthetic_state_and_paths.py
+```
 
 ## Spatial radio display
 
-`synthetic_radio_display.py` creates a small two-source NumPy array, applies
-`SpatialRadioDisplay`, and writes a PNG plus its schema-1 JSON sidecar. It
-demonstrates the same colormap, invalid-value color, transform, percentile,
-field-of-view, and cache-signature contract used by Source Map.
+`synthetic_radio_display.py` builds a deterministic two-source NumPy array,
+applies `SpatialRadioDisplay`, and writes a PNG and schema-1 JSON sidecar. It
+shows colormap, invalid-value color, transform, percentile, field-of-view and
+cache-signature behavior. Both the PNG and its derived JSON destination are
+validated before either is written.
 
-Choose a different non-`Apps` destination with `--output`:
+Choose another private PNG destination with `--output`:
 
 ```powershell
-& "<miniforge-root>\Scripts\conda.exe" run -n solarphysics_env_latest python .\Apps\examples\synthetic_radio_display.py --output "<ignored-output-path>\synthetic_radio_display.png"
+& $Conda run -n solarphysics_env_latest python .\Apps\examples\synthetic_radio_display.py --output .\Local\outputs\examples\custom\radio.png
+```
+
+```bash
+"<miniforge-root>/bin/conda" run -n solarphysics_env_latest python Apps/examples/synthetic_radio_display.py --output Local/outputs/examples/custom/radio.png
 ```
 
 ## State and recent paths
 
-`synthetic_state_and_paths.py` creates an isolated example directory, saves
-the latest UI fields with `StateStore`, records one synthetic directory with
-`RecentPathMemory`, then constructs fresh readers to verify restart recovery.
-It saves only the latest values: no history, timestamps, job identifiers,
-logs, or scientific results.
+`synthetic_state_and_paths.py` saves current synthetic UI fields with
+`StateStore`, remembers one directory with `RecentPathMemory`, and creates fresh
+readers to check restart recovery. It validates `synthetic-input`,
+`ui_state.json`, `recent_paths.json` and `summary.json` before creating any of
+them. Saved content contains only the latest values, without operation history,
+logs or scientific results.
 
-Choose a different non-`Apps` destination with `--output-dir`:
+Choose another private directory with `--output-dir`:
 
 ```powershell
-& "<miniforge-root>\Scripts\conda.exe" run -n solarphysics_env_latest python .\Apps\examples\synthetic_state_and_paths.py --output-dir "<ignored-output-directory>"
+& $Conda run -n solarphysics_env_latest python .\Apps\examples\synthetic_state_and_paths.py --output-dir .\Local\outputs\examples\custom\state
 ```
 
-Each module exposes `main(argv=None) -> int`, so integration tests can import
-it without creating files or opening a GUI.
+```bash
+"<miniforge-root>/bin/conda" run -n solarphysics_env_latest python Apps/examples/synthetic_state_and_paths.py --output-dir Local/outputs/examples/custom/state
+```
+
+An absolute path outside the repository is also supported. Each module exposes
+`run_demo(...)` and `main(argv=None) -> int`; importing it creates no files.

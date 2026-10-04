@@ -1,31 +1,23 @@
 # Reproducible environment locks
 
+Use the Miniforge `solarphysics_env_latest` environment for normal development.
 `Apps/environment.miniforge.yml` and the two `pyproject.toml` files are source
-specifications, not lock files. They contain version ranges and therefore ask
-Conda and pip to solve again. That is suitable for compatibility testing, but
-it is not sufficient evidence for a confirmatory research run.
+specifications with version ranges. Conda and pip resolve those ranges again
+when installing; this supports compatibility testing, but a run must not describe that environment as exact or frozen.
 
-## Current gate
+## Validation boundary
 
-The exact-environment gate is **green** for `osx-arm64-py314`. Its committed
-lock seals 18 Conda artifacts and 206 pip wheels, and a fresh environment has
-passed hash-required installation, runtime verification, `pip check`, and the
-complete Python and Apps test suites. Run `tools/environment_lock.py check
---require-artifact-hashes` to read the current combined lock digest.
+An exact-environment claim requires a sealed lock for the target platform,
+hash-required installation, a successful detached runtime-verification receipt,
+and the applicable tests in that environment. A lock from one platform must
+never be relabeled for another platform.
 
-A run may claim this exact environment only when it installs the sealed lock
-with `--require-hashes` and produces a successful detached replay receipt.
-Source-specification installs remain suitable for exploration, but a run must not describe that environment as exact or frozen.
-An earlier candidate failed replay because it
-combined incompatible PyQt6 and PySide6 runtimes; it has been superseded by the
-single-PyQt6 lock and is not release evidence.
-
-The first replay-validated lock target is `osx-arm64-py314`. The independent
-`linux-64-py314` lock also seals Conda artifacts and pip wheels, including the
-optional PFSS backend. Offline lock validation checks its hashes and source
-specifications; a Linux run still needs a successful target-platform replay
-receipt before claiming an exact environment. Windows jobs remain compatibility
-checks. A lock from one platform must never be relabeled for another platform.
+`tools/environment_lock.py check --require-artifact-hashes` validates committed
+artifact hashes and their source bindings and reports the combined lock digest.
+This offline check does not install the environment or prove a successful replay.
+Likewise, CI that resolves source specifications establishes compatibility,
+not exact-environment evidence. Validation receipts and test output remain in
+private run directories, outside the committed locks.
 
 ## Evidence model
 
@@ -69,12 +61,14 @@ export SOLAR_APPS_ALLOW_LOCK_CANDIDATE=1
 
 The lock-candidate opt-in is accepted only for the exact disposable environment
 name above and still requires an explicitly verified Miniforge root. Normal
-application launches continue to accept only the primary or formal standby
-environment.
+application launches use `solarphysics_env_latest`; the standby environment
+`solarphysics_env` is for explicitly requested compatibility checks.
 
-Those commands resolve the current ranges and are not yet reproducible. Run
-the complete relevant tests before observing the candidate. Then preview and
-write the installed-version and Conda-artifact lock:
+Those commands resolve the current ranges and are not yet an exact replay. Run
+the complete relevant tests before capturing the candidate. The examples below
+use `osx-arm64-py314`; select the matching target on every command when maintaining
+a different platform. Then preview and write the installed-version and
+Conda-artifact lock:
 
 ```bash
 "$CONDA" run -n "$TARGET_ENV" python tools/environment_lock.py capture \
@@ -119,18 +113,26 @@ WHEELHOUSE="<temporary-wheelhouse>"
 ```
 
 Never hand-edit hashes or invent a result for a package that was not present.
-If any step fails, leave the exact-environment gate red, correct the candidate
-or source specification, and start the capture again.
+If any step fails, do not treat the incomplete lock as validated. Correct the
+candidate or source specification, then capture and seal again.
 
 ## Rebind unchanged artifacts to compatible source requirements
 
-For packaging or dependency-metadata edits that remain compatible with every
-existing pin, run `tools/environment_lock.py refresh-sources` through the
-selected Miniforge interpreter. The default is a preview; add `--apply` to
-update the source hash bindings after all selected locks pass validation.
-This preserves artifact hashes and capture metadata. It does not record a new
-environment capture or replay. A changed Conda environment definition is
-rejected and requires the capture workflow above.
+For compatible edits to the two `pyproject.toml` files or the lock tool,
+`refresh-sources` can update source hash bindings while preserving artifact
+hashes and capture metadata. It validates all selected locks before writing.
+The default is a preview; use `--apply` only after reviewing it:
+
+```bash
+"$CONDA" run -n solarphysics_env_latest python tools/environment_lock.py refresh-sources
+"$CONDA" run -n solarphysics_env_latest python tools/environment_lock.py refresh-sources --apply
+"$CONDA" run -n solarphysics_env_latest python tools/environment_lock.py check \
+  --require-artifact-hashes
+```
+
+This records no new environment capture or replay. A changed
+`Apps/environment.miniforge.yml` is rejected and requires the capture workflow
+above. Incompatible requirements also require a new candidate and sealed lock.
 
 ## Recreate from a sealed lock
 
@@ -167,10 +169,11 @@ export SOLAR_APPS_ALLOW_LOCK_REPLAY=1
   --apply
 ```
 
-Run the complete package and Apps test suites in that replay environment. Only
-the combined `environment_lock_sha256` and the detached SHA-256 of the generated
-replay receipt may be bound into a formal run manifest. The receipt proves the
+Run the complete package and Apps test suites in that replay environment. The
+combined `environment_lock_sha256` and the detached SHA-256 of the generated
+replay receipt identify the verification used by a run manifest. The receipt checks the
 sealed Conda/pip versions, the selected editable checkout, and `pip check`; it
 does not reconstruct an installed wheel archive from `site-packages`, so the
-fresh install command must retain `--require-hashes`. Editing a source
-environment file makes `check` fail until the lock is regenerated and replayed.
+fresh install command must retain `--require-hashes`. Keep the receipt in a
+private run directory and generate it against the current combined lock digest;
+source rebinding changes that digest even when the artifacts remain unchanged.

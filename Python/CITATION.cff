@@ -4,7 +4,6 @@ title: "Python for Solar Physics: Multi-wavelength Data Processing Toolkit"
 authors:
   - family-names: "Li"
     given-names: "Y."
-year: 2025
+    affiliation: "Shandong University"
 license: MIT
 repository-code: "https://github.com/YUCONG-28/solarphysics"
-institution: "Shandong University"

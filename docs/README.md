@@ -1,5 +1,10 @@
 # Documentation
 
+[中文首页](../README.md) | [English home](../README.en.md)
+
+The home and contribution guides have Chinese and English entry points.
+Detailed technical guides have one canonical version linked below.
+
 | Task | Entry point |
 | --- | --- |
 | Select and compose scientific modules | [Library guide](../Python/README.md), [public API map](../Python/docs/FUNCTION_MAP.md) |
@@ -9,9 +14,9 @@
 | Plot a supplied SXR dataset | [SXR example](../Python/examples/sxr/README.md) |
 | Run the application demonstration | [Application guide](../Apps/README.md) |
 | Develop application adapters | [Apps development](../Apps/docs/development.md) |
-| Inspect interface ownership | [Capability matrix](../Apps/docs/app-v1-capability-matrix.md), [interface map](../Apps/docs/app-v1-equivalence-audit.md) |
+| Inspect interface ownership and compatibility | [Apps architecture](../Apps/docs/architecture.md) |
 | Understand package and runtime boundaries | [Architecture](../ARCHITECTURE.md) |
-| Verify and contribute code | [Development workflow](../WORKFLOW_README.md) |
+| Verify and contribute code | [Contribution guide](../CONTRIBUTING.en.md), [library development](../Python/CONTRIBUTING.md), [maintenance workflow](../WORKFLOW_README.md) |
 | Recreate platform dependencies | [Environment guide](../environment/README.md) |
 | Compose AIA/radio displays | [Composite guide](aia_radio_composite.md) |
 

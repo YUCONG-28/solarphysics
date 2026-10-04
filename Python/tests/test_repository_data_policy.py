@@ -249,12 +249,22 @@ def test_tracked_text_does_not_expose_private_paths_or_email():
 
 
 def test_citation_keeps_public_academic_attribution():
-    citation = (PYTHON_ROOT / "CITATION.cff").read_text(encoding="utf-8")
+    import yaml
 
-    assert 'family-names: "Li"' in citation
-    assert 'given-names: "Y."' in citation
-    assert 'institution: "Shandong University"' in citation
-    assert "https://github.com/YUCONG-28/solarphysics" in citation
+    citation = yaml.safe_load(
+        (PYTHON_ROOT / "CITATION.cff").read_text(encoding="utf-8")
+    )
+
+    assert citation["authors"] == [
+        {
+            "family-names": "Li",
+            "given-names": "Y.",
+            "affiliation": "Shandong University",
+        }
+    ]
+    assert citation["repository-code"] == "https://github.com/YUCONG-28/solarphysics"
+    assert "institution" not in citation
+    assert "year" not in citation
 
 
 POSIX_USER_PROFILE = re.compile(
