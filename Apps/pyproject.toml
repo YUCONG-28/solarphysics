@@ -32,17 +32,17 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-  "black>=25.1.0,<26",
+  "black==25.12.0",
   "build>=1.2",
   "pre-commit>=4.0",
   "pytest>=8.0",
-  "ruff>=0.9",
+  "ruff>=0.15.12,<0.17",
   "setuptools>=77",
   "wheel>=0.45",
 ]
 
 [tool.setuptools]
-include-package-data = true
+include-package-data = false
 
 [tool.setuptools.dynamic]
 version = {attr = "solar_apps._version.__version__"}
@@ -53,14 +53,31 @@ include = ["solar_apps*"]
 
 [tool.setuptools.package-data]
 solar_apps = [
-  "**/*.cjs",
-  "**/*.css",
-  "**/*.html",
-  "**/*.js",
-  "**/*.json",
-  "**/*.txt",
-  "**/*.yaml",
-  "**/*.yml",
+  "frontends/image_viewer/templates/index.html",
+  "frontends/image_viewer/static/style.css",
+  "frontends/image_viewer/static/main.js",
+  "frontends/radio/source_map/templates/index.html",
+  "frontends/radio/source_map/static/app.js",
+  "frontends/radio/source_map/static/style.css",
+  "frontends/radio_bad_frame_review/templates/index.html",
+  "frontends/radio_bad_frame_review/static/app.js",
+  "frontends/radio_bad_frame_review/static/style.css",
+  "frontends/workbench/templates/radio.html",
+  "frontends/workbench/templates/index.html",
+  "frontends/workbench/static/radio.js",
+  "frontends/workbench/static/style.css",
+  "frontends/workbench/static/radio_figure_composer.js",
+  "frontends/workbench/static/main.js",
+  "frontends/workbench/static/radio.css",
+  "frontends/app_v1/LICENSE.md",
+  "ui/theme_assets/state.js",
+  "ui/theme_assets/theme.js",
+  "ui/theme_assets/theme.css",
+  "ui/media/native_path_dialog.js",
+  "ui/media/browser_media.js",
+  "ui/media/mediabunny-1.50.8.cjs",
+  "ui/media/mediabunny-MPL-2.0.txt",
+  "ui/media/NOTICE.txt",
 ]
 
 [tool.pytest.ini_options]

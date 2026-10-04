@@ -11,7 +11,10 @@ python Python/examples/sxr/sxr_example.py --output-dir Local/outputs/examples/sx
 ```
 
 Choose a new output directory for each synthetic run. To use your own input,
-add `--input <data-file>` and optionally both `--start-time` and `--end-time`.
+add `--input <data-file>` and optionally `--start-time`, `--end-time`, or both.
+Each bound is inclusive; a missing bound leaves that side open. Offset-aware
+times are converted to UTC and naive times are interpreted as UTC. The plotted
+window must retain at least five samples for the smoothing step.
 CSV inputs require `time`, `xrsa_flux` and `xrsb_flux`; flux is expressed in
 W m^-2. NetCDF inputs require the optional xarray dependency. The example does
 not perform instrument calibration or infer a physical relationship from the

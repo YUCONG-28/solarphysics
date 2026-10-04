@@ -17,44 +17,6 @@ from pathlib import Path
 from solar_apps.platform.environment import inspect_miniforge_runtime
 from solar_apps.platform.layout import RuntimeLayout
 
-_BLOCKED_SUFFIXES = {
-    ".avi",
-    ".csv",
-    ".db",
-    ".fit",
-    ".fits",
-    ".gif",
-    ".h5",
-    ".hdf5",
-    ".jpg",
-    ".json",
-    ".jsonl",
-    ".mkv",
-    ".mov",
-    ".mp4",
-    ".nc",
-    ".npy",
-    ".npz",
-    ".parquet",
-    ".pdf",
-    ".pkl",
-    ".png",
-    ".sqlite",
-    ".tsv",
-    ".webp",
-    ".xls",
-    ".xlsx",
-}
-_BLOCKED_PARTS = {
-    "Local",
-    "Local-migration-backup",
-    "outputs",
-    "logs",
-    "history",
-    "legacy",
-    "legacy_tests",
-}
-
 
 def _repo_root() -> Path:
     return RuntimeLayout.discover().repo_root
@@ -96,16 +58,19 @@ def _git(
 
 
 def _staged_has_private_content(repo_root: Path) -> list[str]:
-    completed = _git(repo_root, "diff", "--cached", "--name-only", capture=True)
-    names = [line for line in completed.stdout.splitlines() if line.strip()]
-    offenders: list[str] = []
-    for name in names:
-        path = Path(name)
-        if path.suffix.casefold() in _BLOCKED_SUFFIXES:
-            offenders.append(f"{name}: blocked suffix {path.suffix}")
-        if any(part.casefold() in _BLOCKED_PARTS for part in path.parts):
-            offenders.append(f"{name}: private/ignored directory part")
-    return offenders
+    checker = repo_root / "tools" / "public_source_policy.py"
+    completed = subprocess.run(
+        [sys.executable, str(checker), "--repo", str(repo_root), "--staged"],
+        cwd=repo_root,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if completed.returncode == 0:
+        return []
+    if completed.returncode != 1:
+        return ["public-source inspection failed; staged content was not approved"]
+    return completed.stdout.splitlines() or ["public-source inspection failed"]
 
 
 def _require_clean_review(repo_root: Path) -> int:

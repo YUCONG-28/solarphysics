@@ -48,6 +48,29 @@ def test_quick_help_lists_commands() -> None:
         assert command in help_text
 
 
+def test_quick_source_guard_reads_index_and_fails_closed(tmp_path: Path) -> None:
+    import shutil
+    import subprocess
+
+    from solar_apps.cli.quick_update import _staged_has_private_content
+
+    tools = tmp_path / "tools"
+    tools.mkdir()
+    shutil.copyfile(
+        APPS_ROOT.parent / "tools" / "public_source_policy.py",
+        tools / "public_source_policy.py",
+    )
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    file = tmp_path / "synthetic.csv"
+    file.write_text("synthetic,value\n", encoding="utf-8")
+    subprocess.run(["git", "add", "synthetic.csv"], cwd=tmp_path, check=True)
+    assert _staged_has_private_content(tmp_path)
+    subprocess.run(["git", "rm", "--cached", "synthetic.csv"], cwd=tmp_path, check=True)
+    assert _staged_has_private_content(tmp_path) == []
+    (tools / "public_source_policy.py").unlink()
+    assert "not approved" in _staged_has_private_content(tmp_path)[0]
+
+
 def test_version_bump_levels() -> None:
     assert release._bump_version("0.3.0", "patch") == "0.3.1"
     assert release._bump_version("0.3.0", "minor") == "0.4.0"

@@ -26,17 +26,49 @@ def normalize_time_column(
 
 def crop_time_range(
     frame: pd.DataFrame,
-    start_time,
-    end_time,
+    start_time=None,
+    end_time=None,
     *,
     time_column: str = "obs_time",
 ) -> pd.DataFrame:
-    """Return rows inside an inclusive time range."""
+    """Copy rows inside optional inclusive UTC bounds, preserving row order.
 
-    start = pd.to_datetime(start_time, utc=True).tz_convert(None)
-    end = pd.to_datetime(end_time, utc=True).tz_convert(None)
+    Naive bounds are interpreted as UTC; aware bounds are converted to UTC.
+    Missing bounds leave that side open. Invalid or reversed bounds raise
+    ``ValueError``.
+    """
+    start, end = _normalize_time_bounds(start_time, end_time)
+    if start is None and end is None:
+        return frame.copy()
     times = pd.to_datetime(frame[time_column], utc=True).dt.tz_convert(None)
-    return frame.loc[(times >= start) & (times <= end)].copy()
+    mask = times.notna()
+    if start is not None:
+        mask &= times >= start
+    if end is not None:
+        mask &= times <= end
+    return frame.loc[mask].copy()
+
+
+def _normalize_time_bounds(start_time, end_time):
+    """Normalize optional scalar bounds to timezone-naive UTC timestamps."""
+    bounds = []
+    for name, value in (("start_time", start_time), ("end_time", end_time)):
+        if value is None:
+            bounds.append(None)
+            continue
+        try:
+            bound = pd.Timestamp(value)
+            if pd.isna(bound):
+                raise ValueError("missing timestamp")
+            if bound.tzinfo is None:
+                bound = bound.tz_localize("UTC")
+            bounds.append(bound.tz_convert(None))
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise ValueError(f"{name} must be a valid scalar UTC timestamp") from exc
+    start, end = bounds
+    if start is not None and end is not None and start > end:
+        raise ValueError("start_time must not be after end_time")
+    return start, end
 
 
 __all__ = ["crop_time_range", "normalize_time_column"]

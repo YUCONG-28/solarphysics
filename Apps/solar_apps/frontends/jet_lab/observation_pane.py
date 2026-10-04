@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import (
     QLabel,
     QHBoxLayout,
     QPushButton,
+    QSizePolicy,
     QTabBar,
     QVBoxLayout,
     QWidget,
@@ -40,6 +41,9 @@ class ObservationPane(QWidget):
         layout = QVBoxLayout(self)
         self.title = QLabel("AIA / 视角 A" if index == 0 else "EUVI / 视角 B")
         self.title.setWordWrap(True)
+        policy = self.title.sizePolicy()
+        policy.setHorizontalPolicy(QSizePolicy.Policy.Ignored)
+        self.title.setSizePolicy(policy)
         title_row = QHBoxLayout()
         layout.addLayout(title_row)
         title_row.addWidget(self.title, 1)

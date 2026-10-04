@@ -44,7 +44,8 @@ def test_only_one_public_machine_config_template_exists() -> None:
 
 def test_package_metadata_includes_frontend_and_notice_assets() -> None:
     metadata = (APPS_ROOT / "pyproject.toml").read_text(encoding="utf-8-sig")
-    for suffix in ("html", "css", "js", "cjs", "txt"):
-        assert f'"**/*.{suffix}"' in metadata
+    assert "**/*" not in metadata
+    assert '"ui/media/mediabunny-1.50.8.cjs"' in metadata
+    assert '"frontends/image_viewer/templates/index.html"' in metadata
     assert "[project.scripts]" not in metadata
     assert list((APPS_ROOT / "solar_apps").rglob("NOTICE.txt"))

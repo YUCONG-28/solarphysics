@@ -1,6 +1,7 @@
 """Header-based indexing and strict temporal matching for MUSER/DART previews."""
 
 from bisect import bisect_left
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -37,13 +38,39 @@ def index_images(paths):
     return sorted(entries, key=lambda ref: ref.seconds)
 
 
-def nearest_index(times, target, tolerance):
-    if not len(times):
+def nearest_index(
+    times: Sequence[float], target: float, tolerance: float
+) -> int | None:
+    """Match sorted finite UTC seconds, keeping input indices and earlier ties.
+
+    Times must be a one-dimensional, nondecreasing sequence. The target must be
+    finite and the tolerance finite and non-negative, including for empty inputs.
+    The existing one-microsecond tolerance allowance is retained.
+    """
+    try:
+        if any(np.iscomplexobj(value) for value in (times, target, tolerance)):
+            raise ValueError("times, target and tolerance must be real")
+        timestamps = np.asarray(times, dtype=np.float64)
+        target = float(target)
+        tolerance = float(tolerance)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError("times, target and tolerance must be real numbers") from exc
+    if timestamps.ndim != 1 or not np.isfinite(timestamps).all():
+        raise ValueError(
+            "times must be a one-dimensional sequence of finite timestamps"
+        )
+    if np.any(timestamps[1:] < timestamps[:-1]):
+        raise ValueError("times must be sorted in nondecreasing order")
+    if not np.isfinite(target):
+        raise ValueError("target must be finite")
+    if not np.isfinite(tolerance) or tolerance < 0:
+        raise ValueError("tolerance must be finite and non-negative")
+    if not len(timestamps):
         return None
-    i = bisect_left(times, target)
-    choices = range(max(0, i - 1), min(len(times), i + 1))
-    best = min(choices, key=lambda j: abs(times[j] - target))
-    return best if abs(times[best] - target) <= tolerance + 1e-6 else None
+    i = bisect_left(timestamps, target)
+    choices = range(max(0, i - 1), min(len(timestamps), i + 1))
+    best = min(choices, key=lambda j: abs(float(timestamps[j]) - target))
+    return best if abs(float(timestamps[best]) - target) <= tolerance + 1e-6 else None
 
 
 def pair_dart(left, right, tolerance=0.1):

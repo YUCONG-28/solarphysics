@@ -131,7 +131,8 @@ class JetDocument:
 
     def __init__(self, path, *, lazy_segmentation=False):
         self.path = Path(path).resolve()
-        self.map = sunpy.map.Map(self.path)
+        # Documents outlive the file reader and must not retain a FITS mapping.
+        self.map = sunpy.map.Map(self.path, memmap=False)
         self.info = observation_info(self.map)
         from .euvi_preprocessing import geometry_issues
 
@@ -205,7 +206,7 @@ class JetDocument:
         return self.raw
 
     def load_difference(self, path):
-        candidate = sunpy.map.Map(path)
+        candidate = sunpy.map.Map(path, memmap=False)
         if not candidate.meta.get("jetreg", False):
             raise ValueError("Difference requires JETREG=T and a registration audit")
         if candidate.data.shape != self.raw.shape:

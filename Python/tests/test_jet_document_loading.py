@@ -3,6 +3,7 @@
 from unittest.mock import patch
 
 import numpy as np
+import pytest
 from astropy.io import fits
 
 from solar_toolkit.map import euvi_preprocessing
@@ -71,6 +72,36 @@ def test_non_euvi_intensity_array_is_processed_once(tmp_path):
     assert prepare.call_count == 1
     np.testing.assert_allclose(doc.raw, pixels / 2, equal_nan=True)
     assert doc.preparation is None
+
+
+@pytest.mark.parametrize("euvi", [False, True])
+def test_document_pixels_are_detached_from_the_source_file(tmp_path, euvi):
+    path, pixels = image(tmp_path / "synthetic.fits", euvi=euvi)
+    doc = annotations.JetDocument(path, lazy_segmentation=True)
+    original_hash = doc.sha256
+    # A live document must permit truncation on Windows and retain its snapshot.
+    path.write_bytes(b"corrupt")
+    assert annotations.file_sha256(path) != original_hash
+    np.testing.assert_allclose(doc.map.data, pixels, equal_nan=True)
+    np.testing.assert_allclose(doc.raw, pixels / 2, equal_nan=True)
+    assert doc.sha256 == original_hash and not doc.segmentation_ready
+
+
+def test_registered_difference_is_detached_from_its_source_file(tmp_path):
+    path, pixels = image(tmp_path / "synthetic.fits", euvi=False)
+    doc = annotations.JetDocument(path, lazy_segmentation=True)
+    header = fits.getheader(path)
+    header["JETREG"] = True
+    header["JORIGHSH"] = doc.sha256
+    difference_path = tmp_path / "difference.fits"
+    fits.writeto(difference_path, pixels / 4, header)
+    doc.load_difference(difference_path)
+    original_hash = doc.difference_sha256
+    difference_path.write_bytes(b"corrupt")
+    assert annotations.file_sha256(difference_path) != original_hash
+    np.testing.assert_allclose(doc.difference, pixels / 4, equal_nan=True)
+    assert doc.difference_sha256 == original_hash
+    assert not doc.difference.flags.writeable
 
 
 def test_lazy_ties_undo_and_session_roundtrip_do_not_segment(tmp_path):

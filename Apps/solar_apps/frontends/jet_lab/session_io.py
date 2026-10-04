@@ -156,7 +156,7 @@ class SessionStorage:
             index.append(
                 {
                     "sha256": digest,
-                    "annotation": str(path.relative_to(destination)),
+                    "annotation": path.relative_to(destination).as_posix(),
                     "undo_stack": d._undo,
                 }
             )
@@ -171,9 +171,11 @@ class SessionStorage:
             r = dict(r)
             import os
 
-            r["image"] = os.path.relpath(r.pop("_path"), destination)
+            r["image"] = Path(os.path.relpath(r.pop("_path"), destination)).as_posix()
             if r.get("_difference"):
-                r["difference"] = os.path.relpath(r.pop("_difference"), destination)
+                r["difference"] = Path(
+                    os.path.relpath(r.pop("_difference"), destination)
+                ).as_posix()
             records.append(r)
         active = [p.doc.sha256 if p.doc else None for p in self.owner.panes]
         session = {
@@ -230,7 +232,7 @@ class SessionStorage:
                 )
             )
         checks = {
-            str(p.relative_to(destination)): file_sha256(p)
+            p.relative_to(destination).as_posix(): file_sha256(p)
             for p in destination.rglob("*")
             if p.is_file()
         }

@@ -38,6 +38,21 @@ Run the lightweight checks that do not require local FITS/NetCDF data:
 Black checks, so style, formatting, and obvious data-policy problems are caught
 before code reaches shared branches.
 
+The public-source hook inspects actual staged Git blobs, including changes
+hidden by different working-tree contents. Deletions are allowed. CI inspects
+the committed tree with the same rules; neither check replaces a review of
+scientific context or the separate secret scan. Start pre-commit from the
+selected Miniforge environment so its local hook uses that interpreter.
+
+Build validation is separate from editable-source tests. From the repository
+root, use `tools/build_distributions.py --project Python --output-dir` with a
+new private directory through the selected Miniforge interpreter. It checks
+the wheel and source archive, rebuilds the wheel outside the checkout, and
+checks its contents again. CI installs that rebuilt wheel into a fresh
+Miniforge environment without Apps, then runs the four existing synthetic/API
+examples through `tools/installed_library_smoke.py`. These builds are local
+validation artifacts and are not uploaded as releases.
+
 ## Code Style
 
 - Use Black as the Python formatter.

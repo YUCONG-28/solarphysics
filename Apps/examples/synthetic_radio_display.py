@@ -10,20 +10,10 @@ from typing import Any
 
 import numpy as np
 
-from solar_apps.platform.layout import RuntimeLayout
+from solar_apps.platform.layout import RuntimeLayout, validate_private_output_path
 from solar_apps.workflows.radio.spatial_display import SpatialRadioDisplay
 
 DEFAULT_FILENAME = "synthetic_radio_display.png"
-
-
-def _inside(path: Path, root: Path) -> bool:
-    """Return whether ``path`` is inside ``root`` without requiring existence."""
-
-    try:
-        path.relative_to(root)
-    except ValueError:
-        return False
-    return True
 
 
 def _safe_output_path(
@@ -41,10 +31,7 @@ def _safe_output_path(
         candidate = Path(requested).expanduser()
         if not candidate.is_absolute():
             candidate = Path.cwd() / candidate
-    resolved = candidate.resolve(strict=False)
-    apps_root = layout.apps_root.resolve(strict=False)
-    if _inside(resolved, apps_root):
-        raise ValueError("Example outputs must not be written inside Apps/")
+    resolved = validate_private_output_path(candidate, repo_root=layout.repo_root)
     if resolved.suffix.lower() != ".png":
         raise ValueError("--output must name a .png file")
     return resolved
@@ -80,8 +67,12 @@ def run_demo(
 ) -> dict[str, Any]:
     """Render the synthetic map and return the generated artifact metadata."""
 
-    selected_layout = (layout or RuntimeLayout.discover()).ensure()
+    selected_layout = layout or RuntimeLayout.discover()
     output_path = _safe_output_path(output, layout=selected_layout)
+    sidecar_path = validate_private_output_path(
+        output_path.with_suffix(".json"), repo_root=selected_layout.repo_root
+    )
+    selected_layout.ensure()
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     display = SpatialRadioDisplay(
@@ -126,7 +117,6 @@ def run_demo(
     figure.savefig(output_path, dpi=160, facecolor="white")
     figure.clear()
 
-    sidecar_path = output_path.with_suffix(".json")
     sidecar = {
         "schema_version": 1,
         "synthetic": True,

@@ -13,6 +13,16 @@ from solar_toolkit.xray_dem.processing import calculate_derivative, smooth_flux_
 from solar_toolkit.xray_dem.sxr import load_sxr_data
 
 
+def _private_output_path(path: Path, repo_root: Path) -> Path:
+    """Resolve each write target while keeping the allowed Local root lexical."""
+    resolved = path.expanduser().resolve()
+    if resolved.is_relative_to(repo_root) and not resolved.is_relative_to(
+        repo_root / "Local"
+    ):
+        raise ValueError("Outputs must be outside public source or under Local.")
+    return resolved
+
+
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input", type=Path, help="User-owned SXR CSV or NetCDF file.")
@@ -20,23 +30,23 @@ def main(argv=None) -> int:
     parser.add_argument("--start-time")
     parser.add_argument("--end-time")
     args = parser.parse_args(argv)
-    if (args.start_time is None) != (args.end_time is None):
-        parser.error("Supply both --start-time and --end-time, or neither.")
-    output = args.output_dir.expanduser().resolve()
     repo_root = Path(__file__).resolve().parents[3]
-    if output.is_relative_to(repo_root) and not output.is_relative_to(
-        repo_root / "Local"
-    ):
-        parser.error("Outputs must be outside public source or under Local.")
-    output.mkdir(parents=True, exist_ok=True)
     source = args.input
     synthetic = source is None
+    try:
+        output = _private_output_path(args.output_dir, repo_root)
+        image_path = _private_output_path(output / "sxr_example.png", repo_root)
+        if synthetic:
+            source = _private_output_path(output / "synthetic_sxr.csv", repo_root)
+    except ValueError as exc:
+        parser.error(str(exc))
     if synthetic:
-        source = output / "synthetic_sxr.csv"
         if source.exists():
             parser.error(
                 "Choose a new output directory; synthetic input already exists."
             )
+    output.mkdir(parents=True, exist_ok=True)
+    if synthetic:
         seconds = np.arange(81, dtype=float)
         times = pd.date_range("2000-01-01", periods=len(seconds), freq="s", tz="UTC")
         flux = 1e-7 + 1e-6 * np.exp(-0.5 * ((seconds - 40) / 10) ** 2)
@@ -74,7 +84,7 @@ def main(argv=None) -> int:
     axes[1].set_xlabel("UTC")
     axes[1].xaxis.set_major_formatter(mdates.DateFormatter("%H:%M:%S", tz=timezone.utc))
     figure.tight_layout()
-    figure.savefig(output / "sxr_example.png", dpi=120)
+    figure.savefig(image_path, dpi=120)
     plt.close(figure)
     print("SXR composition example completed.")
     return 0

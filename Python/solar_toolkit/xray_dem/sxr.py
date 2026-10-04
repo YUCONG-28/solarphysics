@@ -14,6 +14,7 @@ from typing import Any
 import pandas as pd
 
 from solar_toolkit.timeseries import crop_time_range, normalize_time_column
+from solar_toolkit.timeseries.tables import _normalize_time_bounds
 
 
 def load_sxr_data(
@@ -28,6 +29,8 @@ def load_sxr_data(
     CSV and text files return a normalized :class:`pandas.DataFrame`. NetCDF
     files return an in-memory :class:`xarray.Dataset`; loading into memory
     ensures the source file can be closed before this function returns.
+    Bounds are optional and inclusive: naive timestamps mean UTC, aware ones
+    are converted to UTC, and a missing bound leaves that side open.
     """
 
     path = Path(file_path)
@@ -38,8 +41,6 @@ def load_sxr_data(
     else:
         frame = pd.read_table(path)
     normalized = normalize_time_column(frame, source_column=time_column)
-    if start_time is None or end_time is None:
-        return normalized
     return crop_time_range(normalized, start_time, end_time)
 
 
@@ -50,11 +51,16 @@ def load_goes_sxr_dataset(
     *,
     require_data: bool = False,
 ):
-    """Load and detach a GOES SXR NetCDF dataset from its source file."""
+    """Load and detach a NetCDF dataset with optional inclusive UTC bounds.
+
+    Selection preserves input order and duplicate times. Invalid or reversed
+    bounds raise ``ValueError``; naive bounds are interpreted as UTC.
+    """
 
     path = Path(file_path)
     if not path.exists():
         raise FileNotFoundError(f"SXR data file does not exist: {path}")
+    start, end = _normalize_time_bounds(start_time, end_time)
 
     try:
         import xarray as xr
@@ -66,10 +72,14 @@ def load_goes_sxr_dataset(
     try:
         with xr.open_dataset(path) as source:
             dataset = xr.decode_cf(source)
-            if start_time is not None or end_time is not None:
-                start = start_time if start_time is not None else dataset.time.min()
-                end = end_time if end_time is not None else dataset.time.max()
-                dataset = dataset.sel(time=slice(start, end))
+            if start is not None or end is not None:
+                times = pd.to_datetime(dataset.time.values, utc=True).tz_convert(None)
+                mask = times.notna()
+                if start is not None:
+                    mask &= times >= start
+                if end is not None:
+                    mask &= times <= end
+                dataset = dataset.isel(time=mask)
             dataset = dataset.load()
     except Exception as exc:
         raise RuntimeError(f"Failed to read SXR data from {path}: {exc}") from exc
