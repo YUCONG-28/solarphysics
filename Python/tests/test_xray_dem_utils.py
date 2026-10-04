@@ -174,3 +174,74 @@ def test_sxr_example_main_accepts_one_sided_window(tmp_path, option, first, last
     assert loaded[0]["obs_time"].iloc[-1] == pd.Timestamp(f"2000-01-01T{last}")
     assert (output / "synthetic_sxr.csv").is_file()
     assert (output / "sxr_example.png").stat().st_size > 0
+
+
+def _filesystem_snapshot(root):
+    snapshot = {}
+    for path in root.rglob("*"):
+        if path.is_symlink():
+            value = ("symlink", str(path.readlink()))
+        elif path.is_file():
+            value = ("file", path.read_bytes())
+        else:
+            value = ("directory", None)
+        snapshot[path.relative_to(root).as_posix()] = value
+    return snapshot
+
+
+def _sxr_example_main_for_repo(repo):
+    script = Path(__file__).resolve().parents[1] / "examples/sxr/sxr_example.py"
+    main = runpy.run_path(str(script))["main"]
+    main.__globals__["__file__"] = str(repo / "Python/examples/sxr/sxr_example.py")
+    return main
+
+
+@pytest.mark.parametrize("target_name", ["sxr_example.png", "synthetic_sxr.csv"])
+def test_sxr_example_rejects_derived_output_symlinks_before_any_write(
+    tmp_path, target_name
+):
+    repo = tmp_path / "workspace"
+    public = repo / "Python"
+    public.mkdir(parents=True)
+    protected = public / "protected.py"
+    protected.write_bytes(b"unchanged synthetic source\n")
+    output = tmp_path / "private_output"
+    output.mkdir()
+    try:
+        (output / target_name).symlink_to(protected)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"File symlinks are unavailable: {exc}")
+    before = _filesystem_snapshot(tmp_path)
+
+    with pytest.raises(SystemExit) as exc:
+        _sxr_example_main_for_repo(repo)(["--output-dir", str(output)])
+
+    assert exc.value.code == 2
+    assert _filesystem_snapshot(tmp_path) == before
+
+
+def test_sxr_example_rejects_local_alias_to_public_before_mkdir(tmp_path):
+    repo = tmp_path / "workspace"
+    public = repo / "Python"
+    public.mkdir(parents=True)
+    try:
+        (repo / "Local").symlink_to(public, target_is_directory=True)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"Directory symlinks are unavailable: {exc}")
+    before = _filesystem_snapshot(tmp_path)
+
+    with pytest.raises(SystemExit) as exc:
+        _sxr_example_main_for_repo(repo)(
+            ["--output-dir", str(repo / "Local/new_output")]
+        )
+
+    assert exc.value.code == 2
+    assert _filesystem_snapshot(tmp_path) == before
+
+
+def test_sxr_example_allows_new_output_under_lexical_local_root(tmp_path):
+    repo = tmp_path / "workspace"
+    output = repo / "Local/new_output"
+    assert _sxr_example_main_for_repo(repo)(["--output-dir", str(output)]) == 0
+    assert (output / "synthetic_sxr.csv").is_file()
+    assert (output / "sxr_example.png").stat().st_size > 0

@@ -514,6 +514,14 @@ ignored and must not be published:
 - credentials, cookies, tokens, authentication files, and private email;
 - historical inventory/manifests and legacy source or test trees.
 
+Runtime destinations resolve to `Local/` or a directory outside the repository.
+`SOLAR_APPS_LOCAL_ROOT` and synthetic-example output directories are checked
+before creating files, including resolved symbolic-link destinations.
+Commit hooks, quick-save, CI and distribution checks share the repository's
+public-source policy. Application package resources are explicitly listed;
+adding a required resource also requires updating that list and its boundary
+checks. Generated data and session files must stay in the private runtime.
+
 The Apps distribution contains separately scoped components: general Apps
 source is licensed under [MIT](LICENSE), the App 1.0 source under
 [GPL-3.0-only](solar_apps/frontends/app_v1/LICENSE.md), and the bundled

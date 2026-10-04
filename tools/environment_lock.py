@@ -9,7 +9,10 @@ The lock separates two kinds of evidence deliberately:
 ``capture`` is intentionally an explicit write operation.  It observes an
 already-installed environment; it never installs, upgrades, or solves a
 dependency.  ``check`` is entirely offline and validates both lock structure
-and freshness against the tracked source specifications.
+and freshness against the tracked source specifications.  ``refresh-sources``
+validates existing evidence and current dependency constraints before updating
+only pyproject and tool source hashes; Conda source changes require ``capture``.
+It does not capture or replay an environment.
 """
 
 from __future__ import annotations
@@ -555,12 +558,16 @@ def _capture(args: argparse.Namespace) -> int:
     return 0
 
 
-def _check_target(target: str) -> dict[str, Any]:
+def _check_target(
+    target: str, *, require_current_sources: bool = True
+) -> dict[str, Any]:
     directory = LOCK_ROOT / target
     receipt_path = directory / "lock-receipt.json"
     if not receipt_path.is_file():
         raise LockError(f"missing receipt: {receipt_path.relative_to(REPO_ROOT)}")
     receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    if not isinstance(receipt, dict):
+        raise LockError(f"invalid receipt for {target}")
     if receipt.get("schema") != SCHEMA:
         raise LockError(f"unsupported receipt schema for {target}")
     if receipt.get("target") != target:
@@ -579,9 +586,25 @@ def _check_target(target: str) -> dict[str, Any]:
     }
     if receipt.get("profiles") != expected_profiles:
         raise LockError(f"dependency profiles disagree with policy for {target}")
+    if receipt.get("implementation") != "CPython":
+        raise LockError(f"unsupported Python implementation for {target}")
+    if receipt.get("capture_mode") != "read-only-observation-of-installed-environment":
+        raise LockError(f"unsupported capture mode for {target}")
+    if receipt.get("local_source_install") != "editable-no-deps-no-build-isolation":
+        raise LockError(f"unsupported local source installation mode for {target}")
 
     current_sources = _source_hashes()
-    if receipt.get("source_files") != current_sources:
+    recorded_sources = receipt.get("source_files")
+    if (
+        not isinstance(recorded_sources, dict)
+        or set(recorded_sources) != set(current_sources)
+        or any(
+            not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{64}", value)
+            for value in recorded_sources.values()
+        )
+    ):
+        raise LockError(f"invalid source hash map for {target}")
+    if require_current_sources and recorded_sources != current_sources:
         raise LockError(f"{target} lock is stale relative to source environment files")
 
     lock_files = receipt.get("lock_files")
@@ -638,6 +661,12 @@ def _check_target(target: str) -> dict[str, Any]:
         raise LockError(f"invalid marker environment for {target}")
     if marker_environment.get("python_full_version") != python_full_version:
         raise LockError(f"marker environment Python and receipt disagree for {target}")
+    if (
+        marker_environment.get("python_version")
+        != ".".join(python_full_version.split(".")[:2])
+        or marker_environment.get("implementation_version") != python_full_version
+    ):
+        raise LockError(f"marker environment Python versions disagree for {target}")
     _validate_marker_target(platform_name, marker_environment)
 
     pins = _parse_pins((directory / "pip-pins.txt").read_text(encoding="utf-8"), target)
@@ -833,9 +862,9 @@ def _seal_pip(args: argparse.Namespace) -> int:
     return 0
 
 
-def _check(args: argparse.Namespace) -> int:
-    if args.target:
-        targets = [args.target]
+def _lock_targets(target: str | None) -> list[str]:
+    if target:
+        targets = [target]
     else:
         targets = (
             sorted(path.name for path in LOCK_ROOT.iterdir() if path.is_dir())
@@ -844,7 +873,47 @@ def _check(args: argparse.Namespace) -> int:
         )
     if not targets:
         raise LockError("no committed platform locks found")
-    for target in targets:
+    return targets
+
+
+def _refresh_sources(args: argparse.Namespace) -> int:
+    sources = _source_hashes()
+    updates: list[tuple[str, dict[str, Any]]] = []
+    for target in _lock_targets(args.target):
+        receipt = _check_target(target, require_current_sources=False)
+        conda_source = "Apps/environment.miniforge.yml"
+        if receipt["source_files"][conda_source] != sources[conda_source]:
+            raise LockError(
+                f"Conda source specification changed for {target}; "
+                "use capture to record the matching environment instead of "
+                "refresh-sources"
+            )
+        if receipt["source_files"] == sources:
+            continue
+        updated = {**receipt, "source_files": sources}
+        updated["environment_lock_sha256"] = _environment_lock_sha(updated)
+        updates.append((target, updated))
+    if _source_hashes() != sources:
+        raise LockError("source environment files changed during validation")
+
+    # Every selected target passes validation before any receipt is changed.
+    for target, updated in updates:
+        if args.apply:
+            _atomic_write(
+                LOCK_ROOT / target / "lock-receipt.json", _canonical_json(updated)
+            )
+        action = "refreshed" if args.apply else "would refresh"
+        print(f"{action} {target}: {updated['environment_lock_sha256']}")
+    if not updates:
+        print("source hashes already current; existing lock evidence validated")
+    elif not args.apply:
+        print("preview only; add --apply to update source hash bindings")
+    print("existing artifacts preserved; no environment capture or replay performed")
+    return 0
+
+
+def _check(args: argparse.Namespace) -> int:
+    for target in _lock_targets(args.target):
         receipt = _check_target(target)
         if args.require_artifact_hashes and not receipt["pip_artifacts_sha256"]:
             raise LockError(
@@ -961,6 +1030,14 @@ def _parser() -> argparse.ArgumentParser:
     check.add_argument("--target")
     check.add_argument("--require-artifact-hashes", action="store_true")
     check.set_defaults(handler=_check)
+
+    refresh = subparsers.add_parser(
+        "refresh-sources",
+        help="validate existing locks and rebind source hashes without capture or replay",
+    )
+    refresh.add_argument("--target")
+    refresh.add_argument("--apply", action="store_true")
+    refresh.set_defaults(handler=_refresh_sources)
 
     capture = subparsers.add_parser(
         "capture", help="observe an installed environment and render its lock"

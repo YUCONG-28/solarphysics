@@ -85,7 +85,10 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -e ".[dev]"
-          python -m pip install ruff==0.15.12
+          python -m pip install xarray netCDF4
+
+      - name: Check committed public source
+        run: python ../tools/public_source_policy.py
 
       - name: Verify installed dependencies
         run: python -m pip check
@@ -94,7 +97,9 @@ jobs:
         run: python -m compileall -q solar_toolkit tests examples/public_api examples/radio examples/sxr
 
       - name: Run Ruff
-        run: python -m ruff check solar_toolkit tests examples/public_api examples/radio examples/sxr
+        run: |
+          python -m ruff check solar_toolkit tests examples/public_api examples/radio examples/sxr
+          python -m ruff check ../tools/public_source_policy.py ../tools/build_distributions.py ../tools/installed_library_smoke.py
 
       - name: Run public Python tests
         run: python -m pytest tests -ra --junitxml "$RUNNER_TEMP/python-tests.xml"
@@ -106,72 +111,16 @@ jobs:
           python examples/radio/synthetic_radio.py --output-dir "$RUNNER_TEMP/radio-example"
           python examples/sxr/sxr_example.py --output-dir "$RUNNER_TEMP/sxr-example"
 
-      - name: Build wheel
-        run: python -m build --wheel --outdir dist
+      - name: Validate wheel and source distribution roundtrip
+        run: python ../tools/build_distributions.py --project . --output-dir "$RUNNER_TEMP/library-distributions"
 
-      - name: Validate wheel boundary
-        shell: bash -el {0}
+      - name: Install rebuilt wheel in an independent Miniforge environment
         run: |
-          python - <<'PY'
-          from configparser import ConfigParser
-          from glob import glob
-          from io import StringIO
-          from zipfile import ZipFile
-
-          wheels = sorted(glob("dist/*.whl"))
-          if len(wheels) != 1:
-              raise SystemExit(f"expected one wheel, found {wheels}")
-
-          blocked_prefixes = (
-              "solar_toolkit/webapp/",
-              "solar_toolkit/visualization/image_web_viewer/",
-              "solar_toolkit/visualization/_media_assets/",
-              "solar_toolkit/visualization/media_assets/",
-              "solar_toolkit/radio/configs/",
-              "scripts/",
-              "legacy/",
-              "Local/",
-          )
-          blocked_suffixes = (".html", ".css", ".js")
-
-          with ZipFile(wheels[0]) as archive:
-              names = archive.namelist()
-              forbidden = [
-                  name
-                  for name in names
-                  if name.startswith(blocked_prefixes)
-                  or (
-                      name.startswith("solar_toolkit/")
-                      and name.lower().endswith(blocked_suffixes)
-                  )
-              ]
-              if forbidden:
-                  raise SystemExit(f"local application content in wheel: {forbidden}")
-
-              entry_points = [
-                  name for name in names if name.endswith(".dist-info/entry_points.txt")
-              ]
-              for entry_point in entry_points:
-                  parser = ConfigParser()
-                  parser.read_file(
-                      StringIO(archive.read(entry_point).decode("utf-8"))
-                  )
-                  if parser.has_section("console_scripts"):
-                      raise SystemExit(
-                          f"public console scripts remain: {dict(parser['console_scripts'])}"
-                      )
-
-          print(f"wheel boundary ok: {wheels[0]}")
-          PY
-
-          wheel_env="${RUNNER_TEMP}/solarphysics-wheel-smoke"
-          python -m venv --system-site-packages "$wheel_env"
-          "$wheel_env/bin/python" -m pip install --force-reinstall --no-deps dist/*.whl
-          (
-            cd "${RUNNER_TEMP}"
-            "$wheel_env/bin/python" -I -c \
-              "from pathlib import Path; import sys; import solar_toolkit; import solar_toolkit.radio; assert Path(solar_toolkit.__file__).is_relative_to(Path(sys.prefix)); print(solar_toolkit.__version__)"
-          )
+          conda create --yes --prefix "$RUNNER_TEMP/library-install" --override-channels -c conda-forge python=${{ matrix.python-version }} pip
+          conda run --no-capture-output --prefix "$RUNNER_TEMP/library-install" python -m pip install "$RUNNER_TEMP"/library-distributions/rebuilt/*.whl
+          conda run --no-capture-output --prefix "$RUNNER_TEMP/library-install" python -m pip check
+          cd "$RUNNER_TEMP"
+          conda run --no-capture-output --prefix "$RUNNER_TEMP/library-install" python -I "$GITHUB_WORKSPACE/tools/installed_library_smoke.py" --examples "$GITHUB_WORKSPACE/Python/examples" --output-dir "$RUNNER_TEMP/installed-examples"
 
   apps-miniforge:
     name: Apps (Windows Miniforge)
@@ -268,71 +217,12 @@ jobs:
             }
           }
 
-      - name: Build and validate Apps wheel boundary
+      - name: Validate Apps wheel and source distribution roundtrip
         run: |
           conda run --no-capture-output -n solarphysics_env_latest `
-            python -m build --wheel --outdir Apps\dist Apps
-          @'
-          from pathlib import Path
-          from zipfile import ZipFile
-
-          wheels = sorted(Path("Apps/dist").glob("*.whl"))
-          if len(wheels) != 1:
-              raise SystemExit(f"expected one Apps wheel, found {wheels}")
-
-          blocked_parts = {
-              "Local",
-              "Local-migration-backup",
-              "scripts",
-              "legacy",
-              "legacy_tests",
-              "history",
-              "outputs",
-              "logs",
-          }
-          blocked_suffixes = {
-              ".avi", ".csv", ".db", ".fit", ".fits", ".gif", ".h5",
-              ".hdf5", ".jpg", ".json", ".jsonl", ".mkv", ".mov", ".mp4",
-              ".nc", ".npy", ".npz", ".parquet", ".pdf", ".pkl", ".png",
-              ".sqlite", ".tsv", ".webp", ".xls", ".xlsx",
-          }
-          required_suffixes = (
-              ".html",
-              ".css",
-              ".js",
-              "licenses/LICENSE",
-              "licenses/LICENSES/GPL-3.0-only.txt",
-              "licenses/solar_apps/frontends/app_v1/LICENSE.md",
-              "mediabunny-1.50.8.cjs",
-              "mediabunny-MPL-2.0.txt",
-              "NOTICE.txt",
-          )
-
-          with ZipFile(wheels[0]) as archive:
-              names = archive.namelist()
-              metadata_name = next(
-                  name for name in names if name.endswith(".dist-info/METADATA")
-              )
-              metadata = archive.read(metadata_name).decode("utf-8")
-          forbidden = [
-              name
-              for name in names
-              if blocked_parts.intersection(Path(name).parts)
-              or Path(name).suffix.casefold() in blocked_suffixes
-          ]
-          if forbidden:
-              raise SystemExit(f"private or legacy content in Apps wheel: {forbidden}")
-          missing = [
-              suffix
-              for suffix in required_suffixes
-              if not any(name.endswith(suffix) for name in names)
-          ]
-          if missing:
-              raise SystemExit(f"required frontend assets missing from wheel: {missing}")
-          if "License-Expression: MIT AND GPL-3.0-only AND MPL-2.0" not in metadata:
-              raise SystemExit("Apps wheel has incorrect License-Expression")
-          print(f"Apps wheel boundary ok: {wheels[0]}")
-          '@ | conda run --no-capture-output -n solarphysics_env_latest python -
+            python tools/public_source_policy.py
+          conda run --no-capture-output -n solarphysics_env_latest `
+            python tools/build_distributions.py --project Apps --output-dir "$env:RUNNER_TEMP/apps-distributions"
 
   apps-macos-miniforge:
     name: Apps (macOS arm64 Miniforge)
@@ -416,7 +306,9 @@ jobs:
               ./Apps/run.sh frontend "$frontend" --help
           done
 
-      - name: Build Apps wheel
+      - name: Validate Apps wheel and source distribution roundtrip
         run: |
           conda run --no-capture-output -n solarphysics_env_latest \
-            python -m build --wheel --outdir Apps/dist Apps
+            python tools/public_source_policy.py
+          conda run --no-capture-output -n solarphysics_env_latest \
+            python tools/build_distributions.py --project Apps --output-dir "$RUNNER_TEMP/apps-distributions"

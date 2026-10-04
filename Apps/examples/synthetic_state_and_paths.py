@@ -8,17 +8,9 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
-from solar_apps.platform.layout import RuntimeLayout
+from solar_apps.platform.layout import RuntimeLayout, validate_private_output_path
 from solar_apps.platform.paths.memory import PathMemoryContext, RecentPathMemory
 from solar_apps.platform.state import StateStore
-
-
-def _inside(path: Path, root: Path) -> bool:
-    try:
-        path.relative_to(root)
-    except ValueError:
-        return False
-    return True
 
 
 def _safe_output_dir(
@@ -32,10 +24,7 @@ def _safe_output_dir(
         candidate = Path(requested).expanduser()
         if not candidate.is_absolute():
             candidate = Path.cwd() / candidate
-    resolved = candidate.resolve(strict=False)
-    if _inside(resolved, layout.apps_root.resolve(strict=False)):
-        raise ValueError("Example outputs must not be written inside Apps/")
-    return resolved
+    return validate_private_output_path(candidate, repo_root=layout.repo_root)
 
 
 def run_demo(
@@ -45,12 +34,22 @@ def run_demo(
 ) -> dict[str, Any]:
     """Persist latest synthetic values and prove they survive new readers."""
 
-    selected_layout = (layout or RuntimeLayout.discover()).ensure()
+    selected_layout = layout or RuntimeLayout.discover()
     destination = _safe_output_dir(output_dir, layout=selected_layout)
-    synthetic_input = destination / "synthetic-input"
+    synthetic_input, state_path, recent_path, summary_path = (
+        validate_private_output_path(
+            destination / name, repo_root=selected_layout.repo_root
+        )
+        for name in (
+            "synthetic-input",
+            "ui_state.json",
+            "recent_paths.json",
+            "summary.json",
+        )
+    )
+    selected_layout.ensure()
     synthetic_input.mkdir(parents=True, exist_ok=True)
 
-    state_path = destination / "ui_state.json"
     state_store = StateStore(
         state_path,
         "synthetic_example",
@@ -63,7 +62,6 @@ def run_demo(
         }
     )
 
-    recent_path = destination / "recent_paths.json"
     path_store = StateStore(
         recent_path,
         "recent_paths",
@@ -101,7 +99,6 @@ def run_demo(
     if restored_directory != str(synthetic_input):
         raise RuntimeError("RecentPathMemory did not restore the selected directory")
 
-    summary_path = destination / "summary.json"
     summary = {
         "synthetic": True,
         "restored_state": restored_state,

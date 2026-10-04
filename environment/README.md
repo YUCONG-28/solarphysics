@@ -122,6 +122,16 @@ Never hand-edit hashes or invent a result for a package that was not present.
 If any step fails, leave the exact-environment gate red, correct the candidate
 or source specification, and start the capture again.
 
+## Rebind unchanged artifacts to compatible source requirements
+
+For packaging or dependency-metadata edits that remain compatible with every
+existing pin, run `tools/environment_lock.py refresh-sources` through the
+selected Miniforge interpreter. The default is a preview; add `--apply` to
+update the source hash bindings after all selected locks pass validation.
+This preserves artifact hashes and capture metadata. It does not record a new
+environment capture or replay. A changed Conda environment definition is
+rejected and requires the capture workflow above.
+
 ## Recreate from a sealed lock
 
 The following is the fresh-environment path after the target directory exists
