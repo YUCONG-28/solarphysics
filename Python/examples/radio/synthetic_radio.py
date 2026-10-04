@@ -27,9 +27,8 @@ def run_example(output: Path) -> dict:
     private_root = repository / "Local"
     output = output.expanduser().resolve()
     if (
-        output.is_relative_to(repository)
-        and not output.is_relative_to(private_root.resolve())
-    ) or output == private_root.resolve():
+        output.is_relative_to(repository) and not output.is_relative_to(private_root)
+    ) or output == private_root:
         raise ValueError(
             "Output must be outside the source tree or below its ignored Local directory"
         )
