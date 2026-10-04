@@ -40,7 +40,7 @@ solar_apps/platform  -X-> frontends or workflows
 
 `Apps/` is public, reviewable source. It contains no observation data, personal
 paths, saved UI state, logs, model artifacts, generated figures, or migration
-evidence. The only committed configuration is the fail-closed example at
+evidence. The only committed machine-path configuration template is the fail-closed example at
 `Apps/configs/examples/paths.example.yaml`.
 
 `Local/` is ignored in full. `Apps/run.ps1 admin init` creates its runtime
@@ -51,13 +51,16 @@ Local/
 |-- configs/paths.local.yaml
 |-- state/
 |-- workspaces/
+|-- observations/
 |-- outputs/
 |-- logs/
 `-- tmp/
 ```
 
 Allowed roots are revalidated whenever they cross an application boundary.
-Remembered paths are convenience state, never authorization. Scientific data
+Remembered paths are convenience state, never authorization. Runtime outputs
+must resolve under `Local/` or outside the repository; allowed roots do not
+authorize writes into public source. Scientific data
 and year-based observation folders stay outside Git.
 
 ## Runtime boundary

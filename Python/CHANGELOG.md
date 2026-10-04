@@ -1,26 +1,28 @@
 # Changelog
 
-## 0.3.0
-
-- Moved CLI, Web/GUI, browser, event configuration and orchestration code out
-  of the reusable library into `solar_apps`. The application now lives in the
-  public, versioned `Apps/` partition; only its `Local/` runtime is ignored.
-- Removed public console scripts and implicit workstation path/event discovery.
-- Added pure radio computation modules for reprojection, CSO processing and
-  physical diagnostics.
-- Re-rooted the package under the unified `solarphysics` monorepository.
-
 ## Unreleased
 
-- Unified the repository version into a single source (`_version.py`) read by
-  both the `solar-physics-toolkit` and `solarphysics-apps` distributions.
+- Kept the library and application `_version.py` files synchronized through
+  the repository release tool.
 - Added the `tools release` command (version bump, changelog rewrite, tag,
   push, and GitHub release; dry-run by default).
 - Added the `tools quick` command family (`check`/`save`/`push`/`update`) for
   fast verify, commit, push, and Pull-Request workflow.
-- Updated contributor and architecture documentation for `solarphysics_env`
+- Updated contributor and architecture documentation for `solarphysics_env_latest`
   setup, standalone `pre-commit` usage, verification environment variables, and
   public-surface documentation sync rules.
+- Consolidated library guidance around explicit inputs, dependency profiles and
+  existing examples; corrected citation affiliation fields.
+
+## 0.3.0
+
+- Moved CLI, Web/GUI, browser and orchestration code out of the reusable library
+  into `solar_apps`. Scientific configuration types remain public; real event
+  parameters and machine paths are caller-supplied private inputs.
+- Removed public console scripts and implicit workstation path/event discovery.
+- Added pure radio computation modules for reprojection, CSO processing and
+  physical diagnostics.
+- Re-rooted the package under the unified `solarphysics` monorepository.
 
 ## 0.2.0
 
