@@ -12,31 +12,27 @@ import pandas as pd
 import pytest
 from astropy.io import fits
 from PIL import Image
-
-from solar_apps.frontends.radio.aia_radio_composite.adapters import (
-    AiaSelection,
-    RadioGaussianSelection,
-    fit_radio_gaussian_selection,
-    load_aia_selection,
-    select_radio_frame,
-)
-from solar_apps.frontends.radio.aia_radio_composite.adapters import (
-    aia_adapter,
-    radio_adapter,
-)
-from solar_apps.frontends.radio.aia_radio_composite import application
-from solar_apps.frontends.radio.aia_radio_composite import app as composite_app
-from solar_apps.frontends.radio.aia_radio_composite.models import CompositeRequest
-from solar_apps.frontends.radio.aia_radio_composite.rendering import (
-    TopPanelArtifact,
-    render_top_panel,
-)
-from solar_apps.frontends.radio.aia_radio_composite.rendering import (
-    composite_renderer,
-)
 from solar_toolkit.aia.background import AiaBackground
 from solar_toolkit.radio.centers import POL_LCP, POL_RCP, POL_SUM, RadioImage
 from solar_toolkit.radio.gaussian import GaussianFitResult
+
+from solar_apps.frontends.radio.aia_radio_composite import app as composite_app
+from solar_apps.frontends.radio.aia_radio_composite import application
+from solar_apps.frontends.radio.aia_radio_composite.adapters import (
+    AiaSelection,
+    RadioGaussianSelection,
+    aia_adapter,
+    fit_radio_gaussian_selection,
+    load_aia_selection,
+    radio_adapter,
+    select_radio_frame,
+)
+from solar_apps.frontends.radio.aia_radio_composite.models import CompositeRequest
+from solar_apps.frontends.radio.aia_radio_composite.rendering import (
+    TopPanelArtifact,
+    composite_renderer,
+    render_top_panel,
+)
 
 
 def _request(tmp_path: Path, **overrides: object) -> CompositeRequest:
@@ -109,6 +105,16 @@ def _radio_image(
         freq_mhz=frequency_mhz,
         obs_time=observed or datetime(2000, 1, 1, 4, 48, 32),
     )
+
+
+def _write_radio_fixture(image):
+    header = image.header.copy()
+    header["DATE-OBS"] = image.obs_time.isoformat()
+    header["FREQ"] = image.freq_mhz
+    header["POLARIZA"] = image.pol
+    header["POLAR"] = image.pol
+    header["BUNIT"] = "K"
+    fits.writeto(image.path, image.image, header)
 
 
 def _fit(*, sigma: float = 1.0, quality_flag: str = "ok") -> GaussianFitResult:
@@ -261,6 +267,8 @@ def test_radio_adapter_uses_nearest_existing_radio_plane(
         observed=datetime(2000, 1, 1, 4, 48, 31, 900000),
     )
     images = {early.path: early, near.path: near}
+    for image in images.values():
+        _write_radio_fixture(image)
     monkeypatch.setattr(
         radio_adapter,
         "select_radio_files",
@@ -298,17 +306,21 @@ def test_radio_candidate_index_loads_only_the_selected_image(
         for path, second in zip(paths, (30, 32, 34), strict=True)
     }
     reads: list[Path] = []
+    for image in images.values():
+        _write_radio_fixture(image)
     monkeypatch.setattr(
         radio_adapter,
         "select_radio_files",
         lambda *_args, **_kwargs: paths,
     )
 
-    def fake_iter(path: str | Path, **_kwargs: object):
-        reads.append(Path(path))
-        return iter([images[Path(path)]])
+    original_reader = radio_adapter.materialize_radio_frame
 
-    monkeypatch.setattr(radio_adapter, "iter_radio_images", fake_iter)
+    def track_pixels(frame):
+        reads.append(Path(frame.payload["path"]))
+        return original_reader(frame)
+
+    monkeypatch.setattr(radio_adapter, "materialize_radio_frame", track_pixels)
 
     selected, count, delta = select_radio_frame(_request(tmp_path))
 
@@ -322,7 +334,7 @@ def test_radio_adapter_reuses_existing_rr_ll_sum(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """RR+LL selection is synthesized by ``maybe_make_sum_images``."""
+    """RR+LL selection uses one strict compatible pair and its exact pixels."""
 
     observed = datetime(2000, 1, 1, 4, 48, 32)
     left = _radio_image(
@@ -338,6 +350,8 @@ def test_radio_adapter_reuses_existing_rr_ll_sum(
         value=3.0,
     )
     images = {left.path: left, right.path: right}
+    for image in images.values():
+        _write_radio_fixture(image)
     monkeypatch.setattr(
         radio_adapter,
         "select_radio_files",
@@ -781,7 +795,9 @@ def test_application_build_top_panel_orchestrates_adapters(
     monkeypatch.setattr(
         application,
         "scan_aia_catalog",
-        lambda request: pd.DataFrame(),
+        lambda request: pd.DataFrame(
+            [{"path": "aia.fits", "obs_time": aia.matched_time_utc, "wavelength": 171}]
+        ),
     )
     monkeypatch.setattr(
         application,
@@ -806,20 +822,28 @@ def test_application_build_top_panel_orchestrates_adapters(
         dpi=120,
     )
 
-    assert result is expected
+    assert result.image_png == expected.image_png
+    assert result.metadata["time_match"]["sources"]["aia:171"]["frame_id"]
     assert [name for name, _ in calls] == [
         "radio_candidates",
         "radio_fit",
         "aia",
         "render",
     ]
-    assert calls[0][1] == {"pair_time_tolerance_sec": 0.1}
+    assert calls[0][1] == {
+        "pair_time_tolerance_sec": 0.1,
+        "time_start": None,
+        "time_end": None,
+    }
     assert calls[2][1]["max_dt_seconds"] == 10.0
     assert calls[2][1]["max_pixels"] == 512
     assert calls[3][1] == {
         "dpi": 120,
         "display_extent_arcsec": (-200.0, 200.0, -150.0, 150.0),
         "extended_canvas_color": "black",
+        "anchor_time_utc": radio.frame.obs_time.replace(tzinfo=UTC),
+        "allow_missing_radio": True,
+        "time_match": result.metadata["time_match"],
     }
 
 
@@ -871,7 +895,8 @@ def test_application_build_top_panel_fits_every_selected_frequency_once(
         radio_frequencies_mhz=(149.0, 164.0, 190.0),
     )
 
-    assert result is expected
+    assert result.image_png == expected.image_png
+    assert result.metadata["time_match"]["sources"]["aia:171"]["status"] == "missing"
     assert fitted == [149.0, 164.0, 190.0]
     assert len(rendered) == 1
     assert [item.frame.freq_mhz for item in rendered[0]] == [
@@ -905,3 +930,22 @@ def test_top_panel_renders_selected_aia_waves_in_order_as_grid() -> None:
     assert artifact.metadata["reference_radio_time_utc"].startswith(
         "2000-01-01T04:48:32"
     )
+
+
+def test_top_panel_distinguishes_actual_radio_time_from_output_clock():
+    from datetime import timedelta
+
+    radio = _radio_selection(_fit())
+    output = radio.frame.obs_time.replace(tzinfo=UTC) + timedelta(milliseconds=100)
+    artifact = render_top_panel(
+        _aia_selection(),
+        radio,
+        dpi=60,
+        anchor_time_utc=output,
+        time_match={"output_frame_id": "radio238-output"},
+    )
+    assert pd.Timestamp(artifact.metadata["reference_radio_time_utc"]).replace(
+        tzinfo=UTC
+    ) == radio.frame.obs_time.replace(tzinfo=UTC)
+    assert pd.Timestamp(artifact.metadata["output_time_utc"]) == output
+    assert artifact.metadata["output_frame_id"] == "radio238-output"

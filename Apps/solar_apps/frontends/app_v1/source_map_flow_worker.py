@@ -7,6 +7,7 @@ import argparse
 import json
 import os
 import tempfile
+import sys
 from pathlib import Path
 
 from .source_map_worker import main as source_map_worker_main
@@ -25,6 +26,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--polarization", default="RR+LL")
     parser.add_argument("--start-idx", type=int, default=0)
     parser.add_argument("--end-idx", type=int)
+    parser.add_argument("--image-time-start")
+    parser.add_argument("--image-time-end")
     parser.add_argument("--cmap", default="hot")
     parser.add_argument(
         "--color-range-mode",
@@ -48,7 +51,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
+    arguments = list(sys.argv[1:] if argv is None else argv)
+    args = build_parser().parse_args(arguments)
     output = Path(args.output_dir).expanduser().resolve(strict=False)
     output.mkdir(parents=True, exist_ok=True)
     source = Path(args.source_path).expanduser().resolve(strict=True)
@@ -73,6 +77,9 @@ def main(argv: list[str] | None = None) -> int:
             "polarization": args.polarization,
             "start_idx": args.start_idx,
             "end_idx": args.end_idx,
+            "image_time_start": args.image_time_start,
+            "image_time_end": args.image_time_end,
+            "image_window_use_indices": any(value.split("=", 1)[0] in {"--start-idx", "--end-idx"} for value in arguments),
             "cmap": args.cmap,
             "color_range_mode": args.color_range_mode,
             "fixed_vmin": args.fixed_vmin,

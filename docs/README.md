@@ -11,6 +11,7 @@ Detailed technical guides have one canonical version linked below.
 | Run deterministic API examples | [Public API examples](../Python/examples/public_api/README.md) |
 | Read local EUVI FITS files | [STEREO example](../Python/examples/stereo/README.md) |
 | Read, match and display synthetic radio data | [Radio example](../Python/examples/radio/README.md) |
+| Match complete chronological image sequences | [Time matching](time_matching.md) |
 | Plot a supplied SXR dataset | [SXR example](../Python/examples/sxr/README.md) |
 | Run the application demonstration | [Application guide](../Apps/README.md) |
 | Develop application adapters | [Apps development](../Apps/docs/development.md) |

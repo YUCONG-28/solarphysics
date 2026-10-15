@@ -316,8 +316,15 @@ class SyncSelection(JsonContract):
     base_source_id: str
     current_time_utc: datetime
     matched_locators: dict[str, str | None]
+    output_source_id: str | None = None
 
     def __post_init__(self) -> None:
+        if self.output_source_id is not None:
+            object.__setattr__(
+                self,
+                "output_source_id",
+                validate_identifier(self.output_source_id, label="output_source_id"),
+            )
         object.__setattr__(
             self,
             "base_source_id",

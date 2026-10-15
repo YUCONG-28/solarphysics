@@ -14,7 +14,11 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import TypeVar
 
-from solar_toolkit.time import extract_time_from_filename
+from solar_toolkit.time import (
+    extract_time_from_filename,
+    filter_by_time_range,
+    nearest_by_time,
+)
 
 from .sorting import natural_key
 
@@ -114,14 +118,12 @@ def find_closest_file_by_time(
 ) -> tuple[PathT, dt.datetime] | None:
     """Return the file nearest ``target_time`` within the maximum difference."""
 
-    if not file_list:
-        return None
-    closest_file = min(
+    return nearest_by_time(
+        target_time,
         file_list,
-        key=lambda item: abs((item[1] - target_time).total_seconds()),
+        key=lambda item: item[1],
+        max_diff_seconds=max_diff_seconds,
     )
-    time_diff = abs((closest_file[1] - target_time).total_seconds())
-    return None if time_diff > max_diff_seconds else closest_file
 
 
 def filter_files_by_time_range(
@@ -131,11 +133,9 @@ def filter_files_by_time_range(
 ) -> list[tuple[PathT, dt.datetime]]:
     """Return file/time pairs inside an inclusive time range."""
 
-    return [
-        (path, file_time)
-        for path, file_time in file_list
-        if start_time <= file_time <= end_time
-    ]
+    return filter_by_time_range(
+        file_list, start_time, end_time, key=lambda item: item[1]
+    )
 
 
 __all__ = [

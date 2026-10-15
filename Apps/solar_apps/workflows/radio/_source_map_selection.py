@@ -7,16 +7,11 @@ import hashlib
 import json
 import os
 import re
-import warnings
 from pathlib import Path
 
 from ._source_map_helpers import (
-    _require_study_mode,
     _raw_quality_filter_enabled,
-    _nearest_time_entry_index,
-    _build_slots_by_position,
-    _candidate_slot_index,
-    get_time_from_header,
+    _require_study_mode,
 )
 
 
@@ -477,168 +472,105 @@ def create_time_parser(cfg=None):
 def _check_time_alignment(
     rr_header, ll_header, rr_path, ll_path, tolerance_seconds=1.0
 ):
-    """检查RR和LL文件的时间对齐情况。
-
-    优先从文件名解析精确时间戳（毫秒级），
-    次之从FITS header解析，最后退回字符串比较。
-    """
-    tolerance_ms = tolerance_seconds * 1000
-
-    # ── 1. 优先用文件名时间戳（更精确、更可靠） ──────────────────
-    rr_parsed = _parse_time_from_filename(os.path.basename(rr_path))
-    ll_parsed = _parse_time_from_filename(os.path.basename(ll_path))
-
-    if rr_parsed is not None and ll_parsed is not None:
-        rr_date, rr_ms = rr_parsed
-        ll_date, ll_ms = ll_parsed
-        if rr_date != ll_date:
-            print(
-                f"警告: RR/LL文件日期不一致 (RR={rr_date}, LL={ll_date})\n"
-                f"  RR: {os.path.basename(rr_path)}\n"
-                f"  LL: {os.path.basename(ll_path)}"
-            )
-            return False
-        diff_ms = abs(rr_ms - ll_ms)
-        if diff_ms > tolerance_ms:
-            print(
-                f"警告: RR和LL文件时间差 {diff_ms:.1f} ms 超过容差 {tolerance_ms:.1f} ms\n"
-                f"  RR: {os.path.basename(rr_path)}\n"
-                f"  LL: {os.path.basename(ll_path)}"
-            )
-            return False
-        return True
-
-    # ── 2. 降级：从FITS header解析 ───────────────────────────────
-    from astropy.time import Time
-
-    rr_time_str = get_time_from_header(rr_header)
-    ll_time_str = get_time_from_header(ll_header)
-
-    if rr_time_str == "Unknown" or ll_time_str == "Unknown":
-        # 无法从任何来源获取时间，假设对齐
-        return True
+    """Check complete UTC observation times without assuming missing times align."""
+    from solar_toolkit.radio.time_matching import observation_stamp
+    from solar_toolkit.time import seconds_to_ns
 
     try:
-        rr_time = Time(rr_time_str, format="isot", scale="utc")
-        ll_time = Time(ll_time_str, format="isot", scale="utc")
-        time_diff_s = abs((rr_time - ll_time).sec)
-        if time_diff_s > tolerance_seconds:
-            print(
-                f"警告: RR和LL文件时间差 {time_diff_s:.3f} 秒超过容差 {tolerance_seconds} 秒\n"
-                f"  RR: {rr_time_str}\n"
-                f"  LL: {ll_time_str}"
-            )
-            return False
-        return True
-    except Exception as e:
-        print(f"时间解析失败: {e}，使用字符串比较")
-        return rr_time_str == ll_time_str
+        left = observation_stamp(
+            rr_header, path=rr_path, fallback_parser=_radio_stamp_from_filename
+        )
+        right = observation_stamp(
+            ll_header, path=ll_path, fallback_parser=_radio_stamp_from_filename
+        )
+        return abs(right.tai_ns - left.tai_ns) <= seconds_to_ns(tolerance_seconds)
+    except ValueError, TypeError:
+        return False
 
 
 def _match_rr_ll_by_time(
-    rr_files: list, ll_files: list, tolerance_ms: float = 10.0, cfg=None
+    rr_files: list,
+    ll_files: list,
+    tolerance_ms: float = 10.0,
+    cfg=None,
+    *,
+    frequency_mhz=None,
 ):
-    """根据文件名时间戳将RR与LL文件逐一配对（毫秒级精度）。
+    """Strict maximum monotone one-to-one RR/LL pairs using FITS UTC and grid checks."""
+    from solar_toolkit.radio.time_matching import index_radio_frames, pair_radio_frames
 
-    参数:
-    ----------
-    rr_files      : RR文件路径列表（已排序）
-    ll_files      : LL文件路径列表（已排序）
-    tolerance_ms  : 时间匹配容差（毫秒），默认10ms
-    cfg          : 配置字典，用于时间解析
+    def fallback(path):
+        return _radio_stamp_from_filename(path, cfg)
 
-    返回:
-    -------
-    matched_pairs : list of (rr_path, ll_path)
-    """
-    # 创建时间解析器
-    parser = create_time_parser(cfg)
-
-    # 构建LL时间索引: {(date_key, total_ms): ll_path}
-    ll_index: dict = {}
-    ll_no_parse: list = []
-    for ll_path in ll_files:
-        parsed = parser.parse_time_from_filename(os.path.basename(ll_path))
-        if parsed is None:
-            ll_no_parse.append(ll_path)
-        else:
-            key = parsed  # (date_key, total_ms)
-            if key in ll_index:
-                # 重复时间戳：保留先出现的（有序列表中索引更小的）
-                pass
-            else:
-                ll_index[key] = ll_path
-
-    if ll_no_parse:
-        warnings.warn(
-            f"有 {len(ll_no_parse)} 个LL文件无法从文件名解析时间，将被跳过。",
-            stacklevel=2,
-        )
-
-    matched_pairs: list = []
-    unmatched_rr: list = []
-
-    # 将LL索引按日期分组，加速搜索
-    from collections import defaultdict
-
-    ll_by_date: dict = defaultdict(list)  # {date_key: [(total_ms, ll_path), ...]}
-    for (date_key, total_ms), ll_path in ll_index.items():
-        ll_by_date[date_key].append((total_ms, ll_path))
-    # 每个日期内按ms排序
-    for date_key in ll_by_date:
-        ll_by_date[date_key].sort(key=lambda x: x[0])
-
-    for rr_path in rr_files:
-        parsed = parser.parse_time_from_filename(os.path.basename(rr_path))
-        if parsed is None:
-            unmatched_rr.append(rr_path)
-            warnings.warn(
-                f"RR文件 {os.path.basename(rr_path)} 无法解析时间，跳过。", stacklevel=2
-            )
-            continue
-
-        rr_date_key, rr_ms = parsed
-
-        # ① 精确匹配
-        if (rr_date_key, rr_ms) in ll_index:
-            matched_pairs.append((rr_path, ll_index[(rr_date_key, rr_ms)]))
-            continue
-
-        # ② 容差范围内最近邻匹配
-        candidates = ll_by_date.get(rr_date_key, [])
-        best_ll_path = None
-        best_diff = float("inf")
-        for ll_ms, ll_path in candidates:
-            diff = abs(rr_ms - ll_ms)
-            if diff < best_diff:
-                best_diff = diff
-                best_ll_path = ll_path
-
-        if best_ll_path is not None and best_diff <= tolerance_ms:
-            matched_pairs.append((rr_path, best_ll_path))
-        else:
-            unmatched_rr.append(rr_path)
-            if best_diff != float("inf"):
-                warnings.warn(
-                    f"RR文件 {os.path.basename(rr_path)} 找不到时间匹配的LL文件 "
-                    f"(最近差值={best_diff:.1f}ms > 容差={tolerance_ms:.1f}ms)，跳过。",
-                    stacklevel=2,
-                )
-            else:
-                warnings.warn(
-                    f"RR文件 {os.path.basename(rr_path)} 在LL目录中找不到同日期文件，跳过。",
-                    stacklevel=2,
-                )
-
-    if unmatched_rr:
-        print(
-            f"  时间匹配结果: 成功 {len(matched_pairs)} 对，"
-            f"RR未匹配 {len(unmatched_rr)} 个。"
+    left = index_radio_frames(
+        rr_files,
+        frequency_mhz=frequency_mhz,
+        polarization="RR",
+        fallback_parser=fallback,
+    )
+    right = index_radio_frames(
+        ll_files,
+        frequency_mhz=frequency_mhz,
+        polarization="LL",
+        fallback_parser=fallback,
+    )
+    window = _image_time_window(cfg, [*rr_files, *ll_files])
+    if frequency_mhz is not None:
+        paired = pair_radio_frames(
+            left, right, tolerance_seconds=float(tolerance_ms) / 1000, **window
         )
     else:
-        print(f"  时间匹配结果: 全部 {len(matched_pairs)} 对成功匹配。")
-
-    return matched_pairs
+        # Distinct observing frequencies are independent physical streams.
+        # Equal-time HDUs may have different storage orders in the two files.
+        groups = []
+        for frame in left:
+            frequency = frame.payload.get("frequency_mhz")
+            if frequency is None:
+                continue
+            bucket = next(
+                (
+                    values
+                    for freq, values in groups
+                    if _workflow().np.isclose(freq, frequency, rtol=1e-5, atol=1e-6)
+                ),
+                None,
+            )
+            if bucket is None:
+                bucket = []
+                groups.append((frequency, bucket))
+            bucket.append(frame)
+        paired = []
+        peer_groups = [[] for _ in groups]
+        for frame in right:
+            frequency = frame.payload.get("frequency_mhz")
+            if frequency is None:
+                continue
+            eligible = [
+                index
+                for index, (value, _) in enumerate(groups)
+                if _workflow().np.isclose(value, frequency, rtol=1e-5, atol=1e-6)
+            ]
+            if eligible:
+                bucket = min(
+                    eligible,
+                    key=lambda index: (abs(groups[index][0] - frequency), index),
+                )
+                peer_groups[bucket].append(frame)
+        for (frequency, members), peers in zip(groups, peer_groups):
+            paired.extend(
+                pair_radio_frames(
+                    members,
+                    peers,
+                    tolerance_seconds=float(tolerance_ms) / 1000,
+                    **window,
+                )
+            )
+        paired.sort(key=lambda frame: (frame.time.tai_ns, frame.frame_id))
+    pairs = [_item_from_logical_frame(frame) for frame in paired]
+    print(
+        f"  时间匹配结果: 成功 {len(pairs)} 对，RR未匹配 {len(left) - len(pairs)} 个逻辑图像。"
+    )
+    return pairs
 
 
 def _radio_item_time_key(item, parser):
@@ -647,64 +579,89 @@ def _radio_item_time_key(item, parser):
 
 
 def _build_slots_by_common_time(per_band: list, cfg: dict) -> list | None:
-    """Build multi-band slots by matching nearest parsed times across all bands."""
-    parser = create_time_parser(cfg)
-    per_band_entries = []
-    for band_items in per_band:
-        entries = []
-        for item in band_items:
-            key = _radio_item_time_key(item, parser)
-            if key is None:
-                return None
-            entries.append((key, item))
-        per_band_entries.append(entries)
+    """Keep every longest-stream frame; cover other streams monotonically with reuse."""
+    from solar_toolkit.radio.time_matching import selection_metadata
+    from solar_toolkit.time import TimeFrame, TimeStream, build_sequence_match_plan
 
-    if not per_band_entries:
-        return []
-    if any(not entries for entries in per_band_entries):
-        return []
-
-    tolerance_ms = float(cfg.get("multi_band_time_tolerance_seconds", 0.1)) * 1000.0
-    reference_index = min(
-        range(len(per_band_entries)), key=lambda index: len(per_band_entries[index])
-    )
-    reference_entries = sorted(
-        per_band_entries[reference_index], key=lambda entry: (entry[0][0], entry[0][1])
-    )
-    used_by_band = [set() for _entries in per_band_entries]
-    slots = []
-    for ref_key, _ref_item in reference_entries:
-        slot = []
-        matched_indices = []
-        for band_index, entries in enumerate(per_band_entries):
-            match_index = _nearest_time_entry_index(
-                entries, ref_key, used_by_band[band_index], tolerance_ms
-            )
-            if match_index is None:
-                slot = []
-                matched_indices = []
-                break
-            matched_indices.append(match_index)
-            slot.append(entries[match_index][1])
-        if slot:
-            slot_times = [
-                per_band_entries[band_index][match_index][0][1]
-                for band_index, match_index in enumerate(matched_indices)
+    streams = []
+    source_ids = []
+    try:
+        for index, items in enumerate(per_band):
+            source_id = f"band:{index:04d}"
+            source_ids.append(source_id)
+            logical_items = []
+            for item in items:
+                if getattr(item, "logical_frame", None) is not None:
+                    logical_items.append(item)
+                elif isinstance(item, (tuple, list)):
+                    if len(item) != 2:
+                        raise ValueError(
+                            "A source-map polarization pair requires two exact members"
+                        )
+                    logical_items.extend(
+                        _match_rr_ll_by_time(
+                            [item[0]],
+                            [item[1]],
+                            float(cfg.get("time_tolerance_seconds", 1.0)) * 1000,
+                            cfg,
+                        )
+                    )
+                else:
+                    logical_items.extend(
+                        _index_source_items([item], cfg, apply_window=False)
+                    )
+            frames = [
+                TimeFrame(item.logical_frame.frame_id, item.logical_frame.time, item)
+                for item in logical_items
             ]
-            if max(slot_times) - min(slot_times) > tolerance_ms:
-                continue
-            for band_index, match_index in enumerate(matched_indices):
-                used_by_band[band_index].add(match_index)
-            slots.append(slot)
-
-    used_count = sum(len(used) for used in used_by_band)
-    total_count = sum(len(entries) for entries in per_band_entries)
-    dropped = total_count - used_count
-    if dropped:
-        print(
-            "Dropped "
-            f"{dropped} band-time entries because not every band has a usable match."
-        )
+            streams.append(
+                TimeStream(
+                    source_id,
+                    frames,
+                    tolerance_seconds=float(
+                        cfg.get("multi_band_time_tolerance_seconds", 0.1)
+                    ),
+                )
+            )
+    except ValueError as exc:
+        if any(
+            marker in str(exc)
+            for marker in ("Expected one image observation", "Unsupported", "Ambiguous")
+        ):
+            raise ValueError(
+                "Unsupported source-map logical image layout: " + str(exc)
+            ) from exc
+        return None
+    except OSError, TypeError:
+        return None
+    if not any(stream.frames for stream in streams):
+        return []
+    plan = build_sequence_match_plan(streams, **_image_time_window(cfg))
+    cfg["_radio_time_match_plan"] = plan.to_dict()
+    slots = []
+    for row in plan.rows:
+        inputs = [
+            row.selections[source_id].frame.payload
+            for source_id in source_ids
+            if row.selections[source_id].frame is not None
+        ]
+        metadata = selection_metadata(row, plan=plan)
+        metadata["window"] = plan.to_dict()["window"]
+        metadata["master_source_id"] = plan.master_source_id
+        item_index = 0
+        for source_id in source_ids:
+            selection = row.selections[source_id]
+            if selection.frame is not None:
+                value = selection.frame.payload
+                metadata["selections"][source_id]["paths"] = (
+                    list(value) if isinstance(value, (tuple, list)) else [str(value)]
+                )
+                metadata["selections"][source_id]["locator"] = _logical_locator(
+                    value.logical_frame
+                )
+                metadata["selections"][source_id]["slot_item_index"] = item_index
+                item_index += 1
+        slots.append(RadioTimeSlot(inputs, time_match=metadata))
     return slots
 
 
@@ -712,15 +669,13 @@ def _build_multi_band_slots(cfg: dict) -> list:
     """
     Build multi-band synthesis time slots (each slot contains files of each band at the same time).
 
-    【Optimization】Inner time slot construction changed to zip(*per_band),
-    eliminating nested for loops, slightly faster and more concise code.
+    Slots retain the longest valid stream and monotonically reuse the other bands.
     """
     root = cfg["multi_band_root"]
     freqs = cfg["multi_band_freqs"]
     pattern = cfg["band_dir_pattern"]
     polarization = cfg["polarization"]
-    start_idx = cfg.get("start_idx", 0)
-    end_idx = cfg.get("end_idx", None)
+    start_idx, end_idx = _image_file_slice(cfg)
 
     # 检查是否启用左右旋数据加和
     combine_polarizations = cfg.get("combine_polarizations", False)
@@ -730,10 +685,10 @@ def _build_multi_band_slots(cfg: dict) -> list:
     for freq in freqs:
         if combine_polarizations and polarization == "RR+LL":
             # 左右旋数据加和模式：需要读取RR和LL两个目录的文件
-            rr_dir = os.path.join(
+            rr_dir = _workflow().os.path.join(
                 root, pattern.format(freq=freq, polar=cfg["rr_dir_suffix"])
             )
-            ll_dir = os.path.join(
+            ll_dir = _workflow().os.path.join(
                 root, pattern.format(freq=freq, polar=cfg["ll_dir_suffix"])
             )
 
@@ -757,36 +712,51 @@ def _build_multi_band_slots(cfg: dict) -> list:
                 f"LL={len(ll_files)} 文件，开始时间匹配 (容差={tolerance_ms:.1f}ms)..."
             )
             # 传递cfg给匹配函数，以便使用正确的时间解析配置
-            combined_files = _match_rr_ll_by_time(rr_files, ll_files, tolerance_ms, cfg)
-
-            if not combined_files:
-                raise ValueError(
-                    f"频率 {freq}MHz: RR和LL文件时间匹配失败，没有找到任何匹配对"
+            try:
+                combined_files = _match_rr_ll_by_time(
+                    rr_files, ll_files, tolerance_ms, cfg, frequency_mhz=float(freq)
                 )
+            except (OSError, ValueError, TypeError) as exc:
+                if str(cfg.get("study_mode", "")).casefold() == "confirmatory":
+                    raise ValueError(
+                        "Cannot index frozen radio observations; positional fallback is forbidden: "
+                        + str(exc)
+                    ) from exc
+                raise
 
             per_band.append(combined_files)
         else:
             # 普通模式：只读取指定偏振的文件
-            band_dir = os.path.join(root, pattern.format(freq=freq, polar=polarization))
+            band_dir = _workflow().os.path.join(
+                root, pattern.format(freq=freq, polar=polarization)
+            )
             files = _workflow()._sorted_fits_for_band(
                 band_dir, start_idx, end_idx, study_mode=cfg.get("study_mode")
             )
             files = _filter_bad_radio_files(files, freq, polarization, cfg)
-            per_band.append(files)
+            try:
+                indexed = _index_source_items(
+                    files,
+                    cfg,
+                    frequency_mhz=float(freq),
+                    polarization=polarization,
+                    apply_window=False,
+                )
+            except (OSError, ValueError, TypeError) as exc:
+                if str(cfg.get("study_mode", "")).casefold() == "confirmatory":
+                    raise ValueError(
+                        "Cannot index frozen radio observations; positional fallback is forbidden: "
+                        + str(exc)
+                    ) from exc
+                raise
+            per_band.append(indexed)
 
-    # ★ 优化：zip 直接转置二维列表，替代双层 for 循环
+    # Freeze the complete longest-stream UTC plan before rendering.
     slots = _build_slots_by_common_time(per_band, cfg)
     if slots is None:
-        if _require_study_mode(cfg.get("study_mode")) == "confirmatory":
-            raise ValueError(
-                "Confirmatory multi-band selection requires parseable UTC times; "
-                "positional fallback is forbidden"
-            )
-        print(
-            "Warning: could not parse all radio times; "
-            "falling back to positional slots."
+        raise ValueError(
+            "Multi-band selection requires parseable UTC times; positional fallback is forbidden"
         )
-        slots = _build_slots_by_position(per_band)
 
     print(f"Built {len(slots)} time slots, each slot contains {len(freqs)} bands")
     print(f"Polarization: {polarization}")
@@ -860,7 +830,7 @@ def _selected_workspace_slot_items(
     selected: list[tuple[int, list]] = []
     seen_indices: set[int] = set()
     for item in selection["items"]:
-        slot_index = _candidate_slot_index(item)
+        slot_index = _workflow()._candidate_slot_index(item)
         if slot_index < 0 or slot_index >= len(slots):
             raise ValueError(
                 "Selected source-map slot is no longer available. Preview again."
@@ -880,7 +850,33 @@ def _selected_workspace_slot_items(
                 "Selected source-map slot no longer matches the current input "
                 "folder. Preview again."
             )
-        selected.append((slot_index, slots[slot_index]))
+        expected_time = item.get("time_match")
+        if expected_time:
+            actual_time = getattr(slots[slot_index], "time_match", {})
+            expected_frames = {
+                source: value.get("frame_id")
+                for source, value in expected_time.get("selections", {}).items()
+            }
+            actual_frames = {
+                source: value.get("frame_id")
+                for source, value in actual_time.get("selections", {}).items()
+            }
+            if (
+                expected_time.get("algorithm_version") != 3
+                or expected_time.get("window") != actual_time.get("window")
+                or expected_time.get("output_frame_id")
+                != actual_time.get("output_frame_id")
+                or expected_time.get("master_frame_id")
+                != actual_time.get("master_frame_id")
+                or expected_frames != actual_frames
+            ):
+                raise ValueError(
+                    "Selected source-map logical images changed. Preview again."
+                )
+            chosen_slot = _restore_source_map_slot(slots[slot_index], expected_time)
+        else:
+            chosen_slot = slots[slot_index]
+        selected.append((slot_index, chosen_slot))
         seen_indices.add(slot_index)
     if not selected:
         raise ValueError("No source-map slots were selected.")
@@ -903,7 +899,7 @@ def _selected_workspace_files(selection: dict, cfg: dict) -> list[str]:
             raise ValueError(
                 "Selected source-map file is missing its run path. Preview again."
             )
-        if not os.path.isfile(run_path):
+        if not _workflow().os.path.isfile(run_path):
             raise FileNotFoundError(
                 f"Selected source-map FITS file does not exist: {run_path}"
             )
@@ -912,13 +908,485 @@ def _selected_workspace_files(selection: dict, cfg: dict) -> list[str]:
                 raise ValueError(
                     "RR+LL source-map run requires a matched RR/LL preview selection."
                 )
-            missing = [path for path in paths if not os.path.isfile(os.fspath(path))]
+            missing = [
+                path
+                for path in paths
+                if not _workflow().os.path.isfile(_workflow().os.fspath(path))
+            ]
             if missing:
                 raise FileNotFoundError(
                     "RR+LL source-map run is missing matched polarization file(s): "
                     + ", ".join(map(str, missing))
                 )
-        selected.append(run_path)
+        expected_time = item.get("time_match")
+        if expected_time:
+            from solar_toolkit.time import build_sequence_match_plan
+
+            current_window = build_sequence_match_plan(
+                [], **_image_time_window(cfg, paths or [run_path])
+            ).to_dict()["window"]
+            expected_window = expected_time.get("window")
+            if (expected_window is not None and expected_window != current_window) or (
+                expected_window is None
+                and (current_window["start_utc"] or current_window["end_utc"])
+            ):
+                raise ValueError(
+                    "Selected source-map image UTC interval changed. Preview again."
+                )
+            selected.append(
+                _restore_source_map_slot(
+                    [paths if combine else run_path], expected_time, cfg=cfg
+                )[0]
+            )
+        else:
+            selected.append(run_path)
     if not selected:
         raise ValueError("No source-map files were selected.")
     return selected
+
+
+def _radio_stamp_from_filename(path, cfg=None):
+    """Resolve the configured radio calendar and retain the full filename fraction."""
+    import re
+
+    from solar_toolkit.time import normalize_time
+
+    if not path:
+        return None
+    path = str(path).split("|")[0]
+    name = _workflow().os.path.basename(path)
+    match = re.search(r"_(\d{6,8})_(\d{6})(?:_(\d{1,9}))?(?!\d)", name)
+    if match is None:
+        from solar_toolkit.time import extract_timestamp_from_filename
+
+        return extract_timestamp_from_filename(name)
+    date_part, clock, fraction = match.groups()
+    base_date = _workflow()._parse_radio_date_part(date_part, path, cfg)
+    if base_date is None:
+        return None
+    if fraction and len(fraction) <= 3:
+        fraction = f"{int(fraction):03d}"
+    text = f"{base_date.isoformat()}T{clock[:2]}:{clock[2:4]}:{clock[4:6]}"
+    if fraction:
+        text += "." + fraction
+    scale = "tai" if name.upper().find("_TAI") >= 0 else "utc"
+    try:
+        return normalize_time(text, source="filename", scale=scale)
+    except ValueError, TypeError:
+        return None
+
+
+def _logical_item_header(item):
+    """Return selected-layer metadata without reading its pixels."""
+    frame = item.logical_frame
+    payload = frame.payload
+    if payload.get("pair_members"):
+        payload = payload["pair_members"][0]
+    header = _workflow().fits.Header(list(payload["header_cards"]))
+    if payload.get("frequency_mhz") is not None:
+        header["FREQ"] = payload["frequency_mhz"]
+        header["FREQUNIT"] = "MHz"
+    header["POLAR"] = payload["polarization"]
+    header["DATE-OBS"] = frame.time.utc
+    header["TIMESYS"] = "UTC"
+    return header
+
+
+class RadioFramePath(str):
+    """Path-compatible exact image locator, including HDU and cube plane."""
+
+    def __new__(cls, path, logical_frame=None):
+        value = super().__new__(cls, str(path))
+        value.logical_frame = logical_frame
+        return value
+
+    def __getnewargs__(self):
+        return str(self), self.logical_frame
+
+
+class RadioFramePair(tuple):
+    """Tuple-compatible verified RR/LL pair with exact member locators."""
+
+    def __new__(cls, paths, logical_frame=None):
+        value = super().__new__(cls, paths)
+        value.logical_frame = logical_frame
+        return value
+
+    def __getnewargs__(self):
+        return tuple(self), self.logical_frame
+
+
+def _pair_member_frame(member, tai_ns):
+    from solar_toolkit.radio.time_matching import observation_stamp
+    from solar_toolkit.time import TimeFrame, TimeStamp
+
+    try:
+        stamp = observation_stamp(member["header"])
+        if stamp.tai_ns != int(tai_ns):
+            raise ValueError("Member observation timestamp differs from its exact pair")
+    except ValueError:
+        stamp = TimeStamp.from_tai_ns(int(tai_ns), source=member.get("time_source"))
+    return TimeFrame(member["frame_id"], stamp, member)
+
+
+def _item_from_logical_frame(frame):
+    payload = frame.payload
+    if payload.get("pair_members"):
+        members = [
+            _pair_member_frame(member, stamp)
+            for member, stamp in zip(
+                payload["pair_members"], payload["actual_times_tai_ns"]
+            )
+        ]
+        return RadioFramePair(
+            [RadioFramePath(member.payload["path"], member) for member in members],
+            frame,
+        )
+    return RadioFramePath(payload["path"], frame)
+
+
+def _image_time_window(cfg=None, paths=()):
+    """Resolve image bounds independently of spectrogram display settings."""
+    cfg = cfg or {}
+    start, end = cfg.get("image_time_start"), cfg.get("image_time_end")
+    if start is not None or end is not None:
+        return {"time_start": start, "time_end": end}
+    roots = [
+        cfg.get(key) for key in ("multi_band_root", "data_dir", "single_file_path")
+    ]
+    roots.extend(paths)
+    for value in roots:
+        if value is None:
+            continue
+        directory = _workflow().Path(value)
+        if directory.is_file():
+            directory = directory.parent
+        for parent in (directory, *directory.parents):
+            manifest = parent / ".frozen-collection-v1.json"
+            if manifest.is_file():
+                payload = _workflow().json.loads(manifest.read_text(encoding="utf-8"))
+                if (
+                    not isinstance(payload, dict)
+                    or payload.get("schema") != "solar-radio-frozen-collection-v1"
+                ):
+                    raise ValueError("Unsupported frozen collection image window")
+                selection = payload.get("selection")
+                if (
+                    not isinstance(selection, dict)
+                    or not selection.get("start_utc")
+                    or not selection.get("end_utc")
+                ):
+                    raise ValueError(
+                        "Frozen collection requires an explicit image UTC interval"
+                    )
+                window = {
+                    "time_start": selection["start_utc"],
+                    "time_end": selection["end_utc"],
+                }
+                from solar_toolkit.time import filter_time_frames
+
+                filter_time_frames([], **window)
+                return window
+    return {"time_start": None, "time_end": None}
+
+
+def _index_source_items(
+    paths, cfg, *, frequency_mhz=None, polarization=None, apply_window=True
+):
+    from solar_toolkit.radio.time_matching import index_radio_frames
+    from solar_toolkit.time import filter_time_frames
+
+    paths = list(paths)
+    frames = index_radio_frames(
+        paths,
+        frequency_mhz=frequency_mhz,
+        polarization=polarization,
+        fallback_parser=lambda path: _radio_stamp_from_filename(path, cfg),
+    )
+    if apply_window:
+        frames = filter_time_frames(frames, **_image_time_window(cfg, paths))
+    return [_item_from_logical_frame(frame) for frame in frames]
+
+
+def _image_file_slice(cfg):
+    window = _image_time_window(cfg)
+    if any(value is not None for value in window.values()) and not cfg.get(
+        "image_window_use_indices", False
+    ):
+        return 0, None
+    return cfg.get("start_idx", 0), cfg.get("end_idx")
+
+
+def _logical_locator(frame):
+    """Compact JSON snapshot; reconstruction reads this exact HDU, never rematches."""
+    payload = frame.payload
+    result = {
+        key: payload.get(key)
+        for key in (
+            "path",
+            "paths",
+            "hdu_index",
+            "plane_index",
+            "plane_indices",
+            "shape",
+            "frequency_mhz",
+            "polarization",
+            "size_bytes",
+            "mtime_ns",
+        )
+    }
+    result.update(
+        frame_id=frame.frame_id,
+        time_tai_ns=frame.time.tai_ns,
+        time_utc=frame.time.utc + "Z",
+        time_raw=frame.time.raw,
+        time_scale=frame.time.scale,
+        time_source=frame.time.source,
+    )
+    if payload.get("pair_members"):
+        result["pair_members"] = [
+            _logical_locator(_pair_member_frame(member, stamp))
+            for member, stamp in zip(
+                payload["pair_members"], payload["actual_times_tai_ns"]
+            )
+        ]
+        result["pair_delta_ns"] = payload["pair_delta_ns"]
+    return result
+
+
+def _logical_frame_from_locator(locator):
+    from solar_toolkit.time import TimeFrame, TimeStamp
+
+    payload = dict(locator)
+    stamp = TimeStamp.from_tai_ns(
+        int(locator["time_tai_ns"]),
+        source=locator.get("time_source"),
+        raw=locator.get("time_raw"),
+    )
+    from dataclasses import replace
+
+    stamp = replace(stamp, scale=locator.get("time_scale", stamp.scale))
+    if locator.get("pair_members"):
+        members = [
+            _logical_frame_from_locator(member) for member in locator["pair_members"]
+        ]
+        payload.update(
+            pair_members=tuple(member.payload for member in members),
+            actual_times_tai_ns=tuple(member.time.tai_ns for member in members),
+            actual_times_utc=tuple(member.time.utc for member in members),
+        )
+    else:
+        path = _workflow().Path(locator["path"])
+        stat = path.stat()
+        if (
+            stat.st_size != locator["size_bytes"]
+            or stat.st_mtime_ns != locator["mtime_ns"]
+        ):
+            raise ValueError(f"Planned radio source changed: {path}")
+        with _workflow().fits.open(path, memmap=True, lazy_load_hdus=True) as hdus:
+            header = hdus[0].header.copy()
+            if int(locator["hdu_index"]) != 0:
+                header.update(hdus[int(locator["hdu_index"])].header)
+        payload["header_cards"] = tuple(
+            (card.keyword, card.value, card.comment) for card in header.cards
+        )
+        payload["header"] = {
+            key: list(header[key]) if key in {"COMMENT", "HISTORY"} else header[key]
+            for key in header
+        }
+    return TimeFrame(locator["frame_id"], stamp, payload)
+
+
+def _restore_source_map_slot(items, time_match, *, cfg=None):
+    """Restore frozen JSON candidates without rediscovering image planes or pairs."""
+    selections = (time_match or {}).get("selections", {})
+    if selections and (time_match or {}).get("algorithm_version") != 3:
+        raise ValueError(
+            "Legacy source-map matching plan requires a new hierarchy preview"
+        )
+    explicit_config = cfg is not None
+    cfg = cfg or _workflow().CONFIG
+    output = []
+    for index, item in enumerate(items):
+        exact = [
+            selection
+            for selection in selections.values()
+            if selection.get("locator") and selection.get("slot_item_index", 0) == index
+        ]
+        if len(exact) > 1:
+            raise ValueError("Ambiguous source-map logical image locator")
+        if exact:
+            paths = item if isinstance(item, (tuple, list)) else [item]
+            locator_paths = exact[0]["locator"].get("paths") or [
+                exact[0]["locator"]["path"]
+            ]
+            if tuple(map(_normalized_selection_path, paths)) != tuple(
+                map(_normalized_selection_path, locator_paths)
+            ):
+                raise ValueError(
+                    "Source-map locator does not match the selected source paths"
+                )
+            restored = _item_from_logical_frame(
+                _logical_frame_from_locator(exact[0]["locator"])
+            )
+        elif getattr(item, "logical_frame", None) is not None:
+            restored = item
+        elif isinstance(item, (list, tuple)):
+            matches = _match_rr_ll_by_time(
+                [item[0]],
+                [item[1]],
+                float(cfg.get("time_tolerance_seconds", 0.001)) * 1000,
+                cfg,
+            )
+            if len(matches) != 1:
+                raise ValueError(
+                    "A frozen source-map pair requires one exact logical image per member"
+                )
+            restored = matches[0]
+        else:
+            indexed = _index_source_items([item], cfg)
+            if len(indexed) != 1:
+                raise ValueError(
+                    "A frozen source-map slot requires an exact locator for multiple logical images"
+                )
+            restored = indexed[0]
+        output.append(restored)
+    if explicit_config:
+        from solar_toolkit.time import build_sequence_match_plan, filter_time_frames
+
+        paths = [
+            str(path)
+            for item in items
+            for path in (item if isinstance(item, (list, tuple)) else [item])
+        ]
+        window = _image_time_window(cfg, paths)
+        current_window = build_sequence_match_plan([], **window).to_dict()["window"]
+        expected_window = (time_match or {}).get("window")
+        if (expected_window is not None and expected_window != current_window) or (
+            expected_window is None
+            and (current_window["start_utc"] or current_window["end_utc"])
+        ):
+            raise ValueError("Source-map image UTC interval changed. Preview again.")
+        frames = [item.logical_frame for item in output]
+        if len(filter_time_frames(frames, **window)) != len(frames):
+            raise ValueError(
+                "Planned source-map observation is outside the image UTC interval. Preview again."
+            )
+    return RadioTimeSlot(output, time_match=time_match)
+
+
+def _strict_single_band_pairs(files, cfg):
+    """Pre-pair selected single-band observations instead of guessing same filenames."""
+    grouped = {}
+    for path in files:
+        parent = _workflow().Path(path).parent
+        if parent.name not in {
+            cfg.get("rr_dir_suffix", "RR"),
+            cfg.get("ll_dir_suffix", "LL"),
+        }:
+            grouped.setdefault(None, []).append(str(path))
+        else:
+            grouped.setdefault(parent.parent, []).append(str(path))
+    output = []
+    for root, selected in grouped.items():
+        if root is None:
+            output.extend(
+                _match_rr_ll_by_time(
+                    selected,
+                    selected,
+                    float(cfg.get("time_tolerance_seconds", 0.001)) * 1000,
+                    cfg,
+                )
+            )
+            continue
+        rr_dir = root / cfg.get("rr_dir_suffix", "RR")
+        ll_dir = root / cfg.get("ll_dir_suffix", "LL")
+        selected_rr = [
+            path for path in selected if _workflow().Path(path).parent == rr_dir
+        ]
+        selected_ll = [
+            path for path in selected if _workflow().Path(path).parent == ll_dir
+        ]
+        rr = selected_rr or sorted(str(path) for path in rr_dir.glob("*.fits"))
+        ll = selected_ll or sorted(str(path) for path in ll_dir.glob("*.fits"))
+        output.extend(
+            _match_rr_ll_by_time(
+                rr, ll, float(cfg.get("time_tolerance_seconds", 0.001)) * 1000, cfg
+            )
+        )
+    return output
+
+
+def _prepare_single_band_inputs(files, cfg):
+    """Enumerate exact planes and freeze RR/LL pairs once before batch rendering."""
+    if cfg.get("combine_polarizations"):
+        pairs = [item for item in files if isinstance(item, RadioFramePair)]
+        plain = [item for item in files if not isinstance(item, RadioFramePair)]
+        pairs.extend(_strict_single_band_pairs(plain, cfg) if plain else [])
+        from solar_toolkit.time import filter_time_frames
+
+        retained = {
+            frame.frame_id
+            for frame in filter_time_frames(
+                [pair.logical_frame for pair in pairs], **_image_time_window(cfg)
+            )
+        }
+        pairs = [pair for pair in pairs if pair.logical_frame.frame_id in retained]
+        cfg["_single_band_pair_map"] = {
+            pair[0].logical_frame.frame_id: pair for pair in pairs
+        }
+        return [pair[0] for pair in pairs]
+    output = []
+    for item in files:
+        output.extend(
+            [item]
+            if getattr(item, "logical_frame", None) is not None
+            else _index_source_items([item], cfg, polarization=cfg.get("polarization"))
+        )
+    from solar_toolkit.time import filter_time_frames
+
+    retained = {
+        frame.frame_id
+        for frame in filter_time_frames(
+            [item.logical_frame for item in output], **_image_time_window(cfg)
+        )
+    }
+    return [item for item in output if item.logical_frame.frame_id in retained]
+
+
+def _pair_time_metadata(pair, cfg):
+    from solar_toolkit.radio.time_matching import frame_for_item, selection_metadata
+    from solar_toolkit.time import TimeStream, build_sequence_match_plan
+
+    frame = getattr(pair, "logical_frame", None) or frame_for_item(
+        pair, fallback_parser=lambda path: _radio_stamp_from_filename(path, cfg)
+    )
+    source_id = "radio:RR+LL" if isinstance(pair, (tuple, list)) else "radio:single"
+    plan = build_sequence_match_plan(
+        [TimeStream(source_id, [frame])], **_image_time_window(cfg)
+    )
+    if not plan.rows:
+        raise ValueError(
+            "Source-map observation is outside the selected image UTC interval"
+        )
+    result = selection_metadata(plan.rows[0], plan=plan)
+    result["window"] = plan.to_dict()["window"]
+    result["master_source_id"] = plan.master_source_id
+    selected = result["selections"][source_id]
+    if getattr(pair, "logical_frame", None) is not None:
+        selected.update(
+            locator=_logical_locator(frame),
+            slot_item_index=0,
+            paths=list(map(str, pair))
+            if isinstance(pair, (tuple, list))
+            else [str(pair)],
+        )
+    return result
+
+
+class RadioTimeSlot(list):
+    """List-compatible inputs with the actual master UTC and display provenance."""
+
+    def __init__(self, items=(), *, time_match=None):
+        super().__init__(items)
+        self.time_match = time_match or {}

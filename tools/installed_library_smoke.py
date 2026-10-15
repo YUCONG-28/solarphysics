@@ -37,6 +37,7 @@ def main() -> None:
     assert nearest_index([0.0, 2.0, 4.0], 2.1, 0.5) == 1
     examples = (
         ("public_api/time_matching_example.py", []),
+        ("public_api/sequence_matching_example.py", []),
         ("public_api/gaussian_model_example.py", []),
         ("radio/synthetic_radio.py", ["--output-dir", str(args.output_dir / "radio")]),
         ("sxr/sxr_example.py", ["--output-dir", str(args.output_dir / "sxr")]),

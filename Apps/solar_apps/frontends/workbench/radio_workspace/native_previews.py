@@ -65,8 +65,9 @@ def _build_source_map_selection_preview(
 ) -> dict[str, Any]:
     """Scan source-map inputs, persist an explicit selection, and render one PNG."""
 
-    from solar_apps.workflows.radio import source_map_workflow as workflow
     from solar_toolkit.radio.config import load_radio_user_config
+
+    from solar_apps.workflows.radio import source_map_workflow as workflow
     from solar_apps.workflows.radio.entrypoint_utils import load_json_config
 
     config_name = form.get("config_file") or form.get("config")
@@ -174,15 +175,34 @@ def _source_map_single_band_candidates(
     path = _validated_path(raw_path, validate_path=validate_path)
     if not path.is_file():
         raise FileNotFoundError(f"Source-map FITS file does not exist: {path}")
+    from solar_apps.workflows.radio import _source_map_input as inputs
+
+    if cfg.get("combine_polarizations"):
+        for folder in (
+            path.parent.parent / cfg.get("rr_dir_suffix", "RR"),
+            path.parent.parent / cfg.get("ll_dir_suffix", "LL"),
+        ):
+            if path.parent.name in {
+                cfg.get("rr_dir_suffix", "RR"),
+                cfg.get("ll_dir_suffix", "LL"),
+            }:
+                _validated_path(folder, validate_path=validate_path)
+        items = inputs._strict_single_band_pairs([str(path)], cfg)
+    else:
+        items = inputs._index_source_items(
+            [str(path)], cfg, polarization=cfg.get("polarization")
+        )
     return [
         _source_map_file_candidate(
-            path,
-            number=1,
+            item[0] if isinstance(item, tuple) else item,
+            number=index + 1,
             cfg=cfg,
             workflow=workflow,
             root=path.parent,
             validate_path=validate_path,
+            logical_item=item,
         )
+        for index, item in enumerate(items)
     ]
 
 
@@ -195,13 +215,19 @@ def _source_map_multi_band_candidates(
     cfg["multi_band_root"] = str(root)
     _validate_source_map_band_dirs(cfg, validate_path=validate_path)
     slots = workflow._build_multi_band_slots(cfg)
+    from solar_apps.workflows.radio import _source_map_input as inputs
+
     candidates: list[dict[str, Any]] = []
     for index, slot in enumerate(slots):
         paths = _source_map_slot_paths(slot)
         validated = [
             _validated_path(path, validate_path=validate_path) for path in paths
         ]
-        header = _source_map_header(validated[0])
+        header = (
+            inputs._logical_item_header(slot[0])
+            if getattr(slot[0], "logical_frame", None) is not None
+            else _source_map_header(validated[0])
+        )
         observed = workflow.radio_datetime_from_header_or_path(
             header, str(validated[0]), cfg
         )
@@ -221,6 +247,7 @@ def _source_map_multi_band_candidates(
             slot_index=index,
             run_path=None,
             paths=[str(path) for path in validated],
+            time_match=getattr(slot, "time_match", {}),
         )
         candidates.append(
             {
@@ -233,7 +260,12 @@ def _source_map_multi_band_candidates(
                 "entries": entries,
                 "relative_path": "; ".join(item["relative_path"] for item in entries),
                 "frequency_mhz": _finite_float_or_none(freq),
-                "observation_time": _iso_or_none(observed),
+                "observation_time": getattr(slot, "time_match", {}).get(
+                    "output_time_utc"
+                )
+                or getattr(slot, "time_match", {}).get("master_time_utc")
+                or _iso_or_none(observed),
+                "time_match": getattr(slot, "time_match", {}),
                 "polarization": str(cfg.get("polarization") or ""),
                 "pairing_status": (
                     "RR+LL matched"
@@ -274,16 +306,31 @@ def _source_map_file_candidate(
     workflow: Any,
     root: Path,
     validate_path: PathValidator,
+    logical_item=None,
 ) -> dict[str, Any]:
-    header = _source_map_header(path)
+    from solar_apps.workflows.radio import _source_map_input as inputs
+
+    header = (
+        inputs._logical_item_header(path)
+        if getattr(path, "logical_frame", None) is not None
+        else _source_map_header(path)
+    )
     observed = workflow.radio_datetime_from_header_or_path(header, str(path), cfg)
     freq = workflow.get_freq_from_header(header)
     paths = [str(path)]
     pairing_status = "single polarization"
     if cfg.get("combine_polarizations") and cfg.get("polarization") == "RR+LL":
-        counterpart = _source_map_counterpart(path, cfg, validate_path=validate_path)
-        paths.append(str(counterpart))
-        pairing_status = f"RR+LL matched with {counterpart.parent.name}"
+        if logical_item is None:
+            pairs = inputs._strict_single_band_pairs([str(path)], cfg)
+            if len(pairs) != 1:
+                raise ValueError("Preview requires an exact logical RR/LL candidate")
+            logical_item = pairs[0]
+        paths = [
+            str(_validated_path(member, validate_path=validate_path))
+            for member in logical_item
+        ]
+        pairing_status = "RR+LL matched"
+    time_match = inputs._pair_time_metadata(logical_item or path, cfg)
     candidate_id = f"file-{number:04d}"
     selection = _source_map_selection_payload(
         mode="single_band",
@@ -292,6 +339,7 @@ def _source_map_file_candidate(
         slot_index=None,
         run_path=str(path),
         paths=paths,
+        time_match=time_match,
     )
     return {
         "id": candidate_id,
@@ -300,9 +348,12 @@ def _source_map_file_candidate(
         "title": f"Source Map File #{number}",
         "run_path": str(path),
         "paths": paths,
-        "relative_path": _relative_text(path, root),
+        "relative_path": _relative_text(Path(path), root),
         "frequency_mhz": _finite_float_or_none(freq),
-        "observation_time": _iso_or_none(observed),
+        "observation_time": time_match.get("output_time_utc")
+        or time_match.get("master_time_utc")
+        or _iso_or_none(observed),
+        "time_match": time_match,
         "polarization": str(cfg.get("polarization") or ""),
         "pairing_status": pairing_status,
         "selection": selection,
@@ -360,6 +411,7 @@ def _source_map_selection_payload(
     slot_index: int | None,
     run_path: str | None,
     paths: list[str],
+    time_match: dict | None = None,
 ) -> dict[str, Any]:
     item: dict[str, Any] = {
         "candidate_id": candidate_id,
@@ -369,6 +421,8 @@ def _source_map_selection_payload(
         item["slot_index"] = int(slot_index)
     if run_path:
         item["run_path"] = run_path
+    if time_match:
+        item["time_match"] = copy.deepcopy(time_match)
     return {
         "schema_version": 1,
         "mode": mode,
@@ -415,9 +469,13 @@ def _render_source_map_candidate(
     cfg["save_plot"] = True
     cfg["_interactive"] = False
     cfg["enable_spectrogram_panel"] = False
+    cfg["_time_match"] = candidate.get("time_match") or {}
+    from solar_apps.workflows.radio import _source_map_input as inputs
+
     with tempfile.TemporaryDirectory(prefix="radio-source-map-preview-") as tmp:
         cfg["output_dir"] = tmp
         if candidate["mode"] == "multi_band":
+            cfg["_time_match"] = candidate.get("time_match") or {}
             slot = _source_map_slot_from_candidate(
                 candidate, validate_path=validate_path
             )
@@ -426,9 +484,14 @@ def _render_source_map_candidate(
             )
         else:
             path = _validated_path(candidate["run_path"], validate_path=validate_path)
-            output = workflow.plot_single_band(
-                str(path), tmp, cfg, vmin=None, vmax=None
-            )
+            item = inputs._restore_source_map_slot(
+                [candidate["paths"] if cfg.get("combine_polarizations") else str(path)],
+                cfg["_time_match"],
+            )[0]
+            if isinstance(item, tuple):
+                cfg["_selected_polarization_pair"] = item
+                item = item[0]
+            output = workflow.plot_single_band(item, tmp, cfg, vmin=None, vmax=None)
         output_path = Path(output)
         mime_type = mimetypes.guess_type(output_path.name)[0] or "image/png"
         return f"data:{mime_type};base64," + base64.b64encode(
@@ -512,7 +575,6 @@ def _build_spectrogram_coverage_preview(
     # Deliberately lazy: no FITS, NumPy, Matplotlib, or Plotly dependency is
     # loaded merely by enabling or expanding the owning workspace module.
     import numpy as np
-
     from solar_toolkit.radio import spectrogram
 
     from .figure_time import merge_coverage_segments
@@ -733,9 +795,9 @@ def _build_roi_selection_preview(
 
     # Deliberately lazy: importing these modules loads NumPy, Astropy, and Plotly.
     import numpy as np
-
     from solar_toolkit.radio.centers import iter_radio_images, select_radio_files
     from solar_toolkit.radio.roi_lightcurve import RadioRoi, build_radio_roi_mask
+
     from solar_apps.frontends.radio.roi_lightcurve.roi_lightcurve_app import (
         build_reference_figure,
     )
@@ -779,7 +841,7 @@ def _build_roi_selection_preview(
                         (1, 1),
                         compatibility_probe,
                     )
-                except (TypeError, ValueError, RuntimeError):
+                except TypeError, ValueError, RuntimeError:
                     continue
                 compatible_item = item
                 candidates.append(
@@ -913,7 +975,6 @@ def _load_roi_candidate_image(
     """Reload one selected candidate without retaining all scanned FITS arrays."""
 
     import numpy as np
-
     from solar_toolkit.radio.centers import iter_radio_images
     from solar_toolkit.radio.roi_lightcurve import build_radio_roi_mask
 
@@ -1038,16 +1099,16 @@ def _build_trajectory_preview(
 
     # Deliberately lazy: table readers and Plotly are only needed for this adapter.
     import pandas as pd
-
     from solar_toolkit.aia.background import scan_aia_folder
-    from solar_apps.frontends.radio.source_trajectory.source_app import (
-        build_preloaded_playback_payload,
-    )
     from solar_toolkit.radio.trajectory import (
         filter_centers,
         frame_times,
         load_centers_table,
         select_visible_centers,
+    )
+
+    from solar_apps.frontends.radio.source_trajectory.source_app import (
+        build_preloaded_playback_payload,
     )
     from solar_apps.workflows.visualization.radio_source_trajectory import (
         build_trajectory_figure,
@@ -1398,7 +1459,7 @@ def _relative_text(path: Path, root: Path) -> str:
 def _finite_float_or_none(value: Any) -> float | None:
     try:
         number = float(value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
     return number if math.isfinite(number) else None
 

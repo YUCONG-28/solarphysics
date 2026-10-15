@@ -101,9 +101,10 @@ def parse_request_config(
 ) -> dict[str, Any]:
     """Build one frozen source-map config from validated frontend controls."""
 
-    from solar_apps.workflows.radio.entrypoint_utils import load_json_config
-    from solar_apps.workflows.radio import source_map_workflow as workflow
     from solar_toolkit.radio.config import load_radio_user_config
+
+    from solar_apps.workflows.radio import source_map_workflow as workflow
+    from solar_apps.workflows.radio.entrypoint_utils import load_json_config
 
     config_file = payload.get("config_file")
     config_name = str(payload.get("config") or "").strip()
@@ -174,6 +175,18 @@ def parse_request_config(
         cfg["start_idx"] = _nonnegative_int(payload.get("start_idx"), default=0)
     if "end_idx" in payload:
         cfg["end_idx"] = _optional_end_index(payload.get("end_idx"))
+    for key in ("image_time_start", "image_time_end"):
+        if key in payload:
+            cfg[key] = payload[key] or None
+    if "image_window_use_indices" in payload:
+        cfg["image_window_use_indices"] = _bool(
+            payload["image_window_use_indices"], default=False
+        )
+    from solar_toolkit.time import filter_time_frames
+
+    filter_time_frames(
+        [], time_start=cfg.get("image_time_start"), time_end=cfg.get("image_time_end")
+    )
     cfg["cmap"] = cfg["radio_cmap"]
     if cfg["end_idx"] is not None and cfg["end_idx"] < cfg["start_idx"]:
         raise ValueError("end_idx cannot precede start_idx")
@@ -243,7 +256,11 @@ def parse_request_config(
     cfg["radio_background_workflow"] = (
         "display_and_fit"
         if apply_display and apply_fit
-        else "display_only" if apply_display else "fit_only" if apply_fit else "off"
+        else "display_only"
+        if apply_display
+        else "fit_only"
+        if apply_fit
+        else "off"
     )
     return cfg
 
@@ -284,6 +301,7 @@ def discover_candidates(
                     cfg,
                     slot_index=index,
                     slot=frozen_slot,
+                    time_match=getattr(slot, "time_match", None),
                 )
             )
         return candidates
@@ -302,20 +320,49 @@ def discover_candidates(
             for path in directory.iterdir()
             if path.is_file() and path.suffix.casefold() in FITS_SUFFIXES
         )
-        start = int(cfg.get("start_idx", 0) or 0)
-        end = cfg.get("end_idx")
+        from solar_apps.workflows.radio import _source_map_selection as inputs
+
+        start, end = inputs._image_file_slice(cfg)
+        start = int(start or 0)
         files = files[start : int(end) if end is not None else None]
 
+    from solar_apps.workflows.radio import _source_map_selection as inputs
+
     candidates = []
-    for index, source_file in enumerate(files):
-        paths = [policy.resolve(source_file, must_exist=True, kind="file")]
-        if cfg["polarization"] == "RR+LL":
-            paths.append(_polarization_counterpart(paths[0], cfg, policy=policy))
-        candidates.append(
-            _candidate_record(
-                f"file-{index:04d}", "single_band", paths, cfg, run_path=str(paths[0])
+    if cfg["polarization"] == "RR+LL":
+        from solar_apps.workflows.radio import _source_map_selection as inputs
+
+        pairs = inputs._strict_single_band_pairs(files, cfg)
+        for index, pair in enumerate(pairs):
+            paths = [
+                policy.resolve(path, must_exist=True, kind="file") for path in pair
+            ]
+            candidates.append(
+                _candidate_record(
+                    f"file-{index:04d}",
+                    "single_band",
+                    paths,
+                    cfg,
+                    run_path=str(paths[0]),
+                    time_match=inputs._pair_time_metadata(pair, cfg),
+                )
             )
+    else:
+        items = inputs._index_source_items(
+            files, cfg, polarization=cfg.get("polarization")
         )
+        for index, item in enumerate(items):
+            paths = [policy.resolve(item, must_exist=True, kind="file")]
+            candidates.append(
+                _candidate_record(
+                    f"file-{index:04d}",
+                    "single_band",
+                    paths,
+                    cfg,
+                    run_path=str(paths[0]),
+                    time_match=inputs._pair_time_metadata(item, cfg),
+                )
+            )
     return candidates
 
 
@@ -364,19 +411,54 @@ def _candidate_record(
     slot_index: int | None = None,
     slot: list[Any] | None = None,
     run_path: str | None = None,
+    time_match: dict | None = None,
 ) -> dict[str, Any]:
     from astropy.io import fits
+
+    from solar_apps.workflows.radio import _source_map_selection as inputs
     from solar_apps.workflows.radio import source_map_workflow as workflow
 
-    with fits.open(paths[0], memmap=True) as hdul:
-        header = (
-            hdul[1].header.copy()
-            if len(hdul) > 1 and isinstance(hdul[1], fits.ImageHDU)
-            else hdul[0].header.copy()
-        )
+    locators = [
+        selection["locator"]
+        for selection in (time_match or {}).get("selections", {}).values()
+        if selection.get("locator")
+    ]
+    if locators:
+        payload = inputs._logical_frame_from_locator(locators[0]).payload
+        if payload.get("pair_members"):
+            payload = payload["pair_members"][0]
+        header = fits.Header(list(payload["header_cards"]))
+    else:
+        with fits.open(paths[0], memmap=True) as hdul:
+            header = (
+                hdul[1].header.copy()
+                if len(hdul) > 1 and isinstance(hdul[1], fits.ImageHDU)
+                else hdul[0].header.copy()
+            )
     observed = workflow.radio_datetime_from_header_or_path(header, str(paths[0]), cfg)
-    frequencies = []
-    for path in paths[::2] if cfg.get("polarization") == "RR+LL" else paths:
+    from solar_toolkit.radio.time_matching import observation_stamp
+
+    try:
+        stamp = observation_stamp(
+            header,
+            path=paths[0],
+            fallback_parser=lambda value: workflow.radio_datetime_from_header_or_path(
+                None, value, cfg
+            ),
+        )
+        observed_utc = stamp.utc + "Z"
+        observed_ns = stamp.tai_ns
+    except ValueError, TypeError:
+        observed_utc = observed.isoformat() if observed is not None else None
+        observed_ns = None
+    frequencies = [
+        float(locator["frequency_mhz"])
+        for locator in locators
+        if locator.get("frequency_mhz") is not None
+    ]
+    for path in (
+        [] if locators else paths[::2] if cfg.get("polarization") == "RR+LL" else paths
+    ):
         with fits.open(path, memmap=True) as hdul:
             item_header = (
                 hdul[1].header
@@ -395,7 +477,17 @@ def _candidate_record(
             else f"Source Map {paths[0].name}"
         ),
         "paths": [str(path) for path in paths],
-        "observation_time": observed.isoformat() if observed is not None else None,
+        "observation_time": (
+            time_match.get("output_time_utc") or time_match.get("master_time_utc")
+        )
+        if time_match
+        else observed_utc,
+        "observation_time_tai_ns": (
+            time_match.get("output_time_tai_ns") or time_match.get("master_time_tai_ns")
+        )
+        if time_match
+        else observed_ns,
+        "time_match": copy.deepcopy(time_match),
         "frequencies_mhz": frequencies,
         "polarization": str(cfg.get("polarization")),
         "pairing_status": (

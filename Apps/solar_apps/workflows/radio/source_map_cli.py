@@ -9,16 +9,17 @@ from pathlib import Path
 from typing import Any
 
 from solar_toolkit.radio.config import load_radio_user_config
+from solar_toolkit.radio.provenance import (
+    resolve_provenance_output_dir,
+    write_radio_provenance,
+)
+
 from .configs import DEFAULT_CONFIG_NAME
 from .entrypoint_utils import (
     apply_output_overrides,
     build_common_parser,
-    resolve_config_source,
     config_source_label,
-)
-from solar_toolkit.radio.provenance import (
-    resolve_provenance_output_dir,
-    write_radio_provenance,
+    resolve_config_source,
 )
 
 __all__ = ["build_parser", "main"]
@@ -27,11 +28,18 @@ __all__ = ["build_parser", "main"]
 def build_parser():
     """Build the source-map command parser without importing plotting code."""
 
-    return build_common_parser(
+    parser = build_common_parser(
         "Run radio source maps with Gaussian overlay.",
         prog="solar-apps workflow radio source-map",
         default_config=DEFAULT_CONFIG_NAME,
     )
+    parser.add_argument(
+        "--image-time-start", help="Inclusive observation UTC for every image source."
+    )
+    parser.add_argument(
+        "--image-time-end", help="Exclusive observation UTC for every image source."
+    )
+    return parser
 
 
 def main(
@@ -45,6 +53,9 @@ def main(
 
     user_config, newkirk_config = load_radio_user_config(resolve_config_source(args))
     resolved_config = apply_output_overrides(user_config, args)
+    for key in ("image_time_start", "image_time_end"):
+        if getattr(args, key) is not None:
+            resolved_config[key] = getattr(args, key)
     if runner is None:
         from .source_map_workflow import run_source_map
 

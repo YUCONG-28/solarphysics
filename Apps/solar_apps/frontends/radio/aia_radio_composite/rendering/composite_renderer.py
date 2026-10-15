@@ -14,7 +14,6 @@ from typing import Any
 import numpy as np
 import pandas as pd
 from PIL import Image
-
 from solar_toolkit.aia.config import AIA_CONFIG
 from solar_toolkit.modeling.gaussian import elliptical_gaussian_2d
 from solar_toolkit.radio.centers import RadioImage
@@ -73,7 +72,7 @@ def render_composite_result(
     """Render AIA/radio, ROI lightcurve, and spectrum on synchronized UTC axes."""
 
     from matplotlib.backends.backend_agg import FigureCanvasAgg
-    from matplotlib.dates import AutoDateLocator, ConciseDateFormatter
+    from matplotlib.dates import AutoDateLocator, ConciseDateFormatter, date2num
     from matplotlib.figure import Figure
 
     if not isinstance(result, CompositeResult):
@@ -307,7 +306,22 @@ def render_composite_result(
 
         time_start -= timedelta(seconds=1)
         time_end += timedelta(seconds=1)
-    spectrum_axis.set_xlim(time_start, time_end)
+    axis_start, axis_end = time_start, time_end
+    axis_time_padding = bool(date2num(time_start) == date2num(time_end))
+    if axis_time_padding:
+        # Matplotlib's floating day coordinates cannot resolve nanoseconds.
+        # Pad the visible axis only, preserving the exact requested UTC range.
+        axis_start = pd.Timestamp(time_start) - pd.Timedelta(milliseconds=1)
+        axis_end = pd.Timestamp(time_end) + pd.Timedelta(milliseconds=1)
+        spectrum_axis.text(
+            0.01,
+            0.98,
+            "Display time axis expanded by 1 ms",
+            transform=spectrum_axis.transAxes,
+            va="top",
+            fontsize=7,
+        )
+    spectrum_axis.set_xlim(axis_start, axis_end)
     figure.align_ylabels((*curve_axes, spectrum_axis))
     figure.subplots_adjust(left=0.09, right=0.94, top=0.97, bottom=0.06)
     figure.canvas.draw()
@@ -368,6 +382,11 @@ def render_composite_result(
             "shared_time_range_utc": [
                 time_start.isoformat(),
                 time_end.isoformat(),
+            ],
+            "axis_time_padding_applied": axis_time_padding,
+            "axis_display_time_range_utc": [
+                axis_start.isoformat(),
+                axis_end.isoformat(),
             ],
             "quality_flagged_rows": flagged_count,
             "untimed_quality_rows": untimed_quality_rows,
@@ -618,6 +637,9 @@ def render_top_panel(
     figure_size: tuple[float, float] = (9.0, 7.5),
     display_extent_arcsec: tuple[float, float, float, float] | None = None,
     extended_canvas_color: str = "black",
+    anchor_time_utc: datetime | None = None,
+    allow_missing_radio: bool = False,
+    time_match: Mapping[str, Any] | None = None,
 ) -> TopPanelArtifact:
     """Render one or more AIA bands plus matched radio Gaussian overlays."""
 
@@ -630,7 +652,7 @@ def render_top_panel(
         raise ValueError("figure_size must contain two positive values")
 
     aias = _normalized_aia_selections(aia)
-    radios = _normalized_radio_selections(radio)
+    radios = _normalized_radio_selections(radio, allow_empty=allow_missing_radio)
     canvas_color = _normalized_canvas_color(extended_canvas_color)
     ncols = min(3, len(aias))
     nrows = int(np.ceil(len(aias) / ncols))
@@ -687,18 +709,55 @@ def render_top_panel(
             ]
         )
         axes.append(axis)
-    reference_frequency = float(radios[0].frame.freq_mhz)
-    reference_time = radios[0].matched_time_utc
-    figure.suptitle(
-        f"{reference_frequency:g} MHz — {_format_utc_z(reference_time)}",
-        fontsize=12,
+    reference_frequency = float(radios[0].frame.freq_mhz) if radios else None
+    reference_time = anchor_time_utc or (
+        radios[0].matched_time_utc if radios else aias[0].requested_time_utc
     )
+    reference_observed_utc = None
+    if radios:
+        from solar_toolkit.time import normalize_time
+
+        source_info = (
+            (time_match or {})
+            .get("sources", {})
+            .get(f"radio:{reference_frequency:g}", {})
+        )
+        reference_observed_utc = (
+            source_info.get("actual_time_utc")
+            or normalize_time(radios[0].frame.obs_time).utc + "Z"
+        )
+    radio_label = (
+        f"Radio {reference_frequency:g} MHz — {reference_observed_utc}"
+        if radios
+        else "NO RADIO DATA"
+    )
+    title = (
+        f"Output UTC {_format_utc_z(reference_time)}\n{radio_label}"
+        if anchor_time_utc is not None
+        else radio_label
+    )
+    figure.suptitle(title, fontsize=12)
     overlay_colors = ("white", "cyan", "magenta", "lime", "yellow", "orange")
     panels: list[dict[str, Any]] = []
     all_extended_frequencies: set[float] = set()
     aia_extents: list[list[float]] = []
     display_extents: list[list[float]] = []
     canvas_extended = False
+    radio_notes = []
+    if time_match is not None:
+        for source, info in sorted(time_match.get("sources", {}).items()):
+            if not source.startswith("radio:"):
+                continue
+            label = f"{source.split(':', 1)[1]} MHz"
+            if info.get("status") == "missing":
+                radio_notes.append(f"{label}: NO RADIO DATA")
+            else:
+                note = f"{label}: UTC {info.get('actual_time_utc', '')} | Δt={int(info['delta_ns']) / 1e9:+.9f}s"
+                if not info.get("within_tolerance", True):
+                    note += " | OUTSIDE TIME TOLERANCE"
+                if info.get("reused"):
+                    note += " | reused"
+                radio_notes.append(note)
     for panel_index, (aia_selection, axis) in enumerate(zip(aias, axes, strict=False)):
         rendered = _draw_aia_radio_axis(
             axis,
@@ -739,6 +798,31 @@ def render_top_panel(
             fontsize=9,
             bbox={"facecolor": "black", "alpha": 0.45, "edgecolor": "none"},
         )
+        notes = []
+        if aia_selection.match_metadata is not None:
+            info = aia_selection.match_metadata
+            if info.get("status") == "missing":
+                notes.append("NO AIA DATA")
+            else:
+                notes.append(
+                    f"actual UTC {info.get('actual_time_utc')} | Δt={int(info.get('delta_ns') or 0) / 1e9:+.9f}s"
+                )
+                if not info.get("within_tolerance", True):
+                    notes.append("OUTSIDE TIME TOLERANCE")
+                if info.get("reused"):
+                    notes.append("AIA reused")
+        notes.extend(radio_notes)
+        if notes:
+            axis.text(
+                0.02,
+                0.02,
+                "\n".join(notes),
+                transform=axis.transAxes,
+                va="bottom",
+                color="white",
+                fontsize=7,
+                bbox={"facecolor": "black", "alpha": 0.6, "edgecolor": "none"},
+            )
     figure.canvas.draw()
     for panel_index, (aia_selection, axis) in enumerate(zip(aias, axes, strict=False)):
         position = axis.get_position()
@@ -781,10 +865,14 @@ def render_top_panel(
         "panels": panels,
         "aia": aias[0].to_metadata_dict(),
         "aias": [item.to_metadata_dict() for item in aias],
-        "radio": radios[0].to_metadata_dict(),
+        "radio": radios[0].to_metadata_dict() if radios else None,
         "radios": [item.to_metadata_dict() for item in radios],
+        "time_match": dict(time_match) if time_match is not None else None,
+        "time_quality_annotations": radio_notes,
         "reference_radio_frequency_mhz": reference_frequency,
-        "reference_radio_time_utc": reference_time.isoformat(),
+        "reference_radio_time_utc": reference_observed_utc,
+        "output_time_utc": reference_time.isoformat(),
+        "output_frame_id": (time_match or {}).get("output_frame_id"),
         "render": {
             "dpi": int(dpi),
             "figure_size_inches": [float(value) for value in resolved_size],
@@ -826,7 +914,7 @@ def render_top_panel(
     return TopPanelArtifact(
         image_png=image_png,
         metadata=metadata,
-        radio_frame=radios[0].frame,
+        radio_frame=radios[0].frame if radios else None,
         radio_frames=tuple(item.frame for item in radios),
     )
 
@@ -1016,15 +1104,16 @@ def _aia_extent_arcsec(
 
 def _format_utc_z(value: datetime) -> str:
     utc = value.astimezone(UTC)
-    timespec = "seconds" if utc.microsecond == 0 else "milliseconds"
-    return utc.isoformat(timespec=timespec).replace("+00:00", "Z")
+    return utc.isoformat().replace("+00:00", "Z")
 
 
 def _normalized_radio_selections(
     value: RadioGaussianSelection | Sequence[RadioGaussianSelection],
+    *,
+    allow_empty: bool = False,
 ) -> tuple[RadioGaussianSelection, ...]:
     radios = (value,) if isinstance(value, RadioGaussianSelection) else tuple(value)
-    if not radios:
+    if not radios and not allow_empty:
         raise ValueError("radio selections must not be empty")
     if any(not isinstance(item, RadioGaussianSelection) for item in radios):
         raise TypeError("radio must be a RadioGaussianSelection or a sequence of them")
@@ -1164,7 +1253,7 @@ def _optional_numeric_range(
 def _aia_colormap(aia: AiaSelection) -> str:
     try:
         wavelength = int(float(aia.background.wavelength))
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return "gray"
     configured = str(AIA_CONFIG.get(wavelength, {}).get("cmap", "gray"))
     try:
@@ -1172,22 +1261,16 @@ def _aia_colormap(aia: AiaSelection) -> str:
         from matplotlib import colormaps
 
         colormaps[configured]
-    except (ImportError, KeyError, RuntimeError, ValueError):
+    except ImportError, KeyError, RuntimeError, ValueError:
         return "gray"
     return configured
 
 
 def _utc_datetime(value: datetime | str) -> datetime:
-    if isinstance(value, datetime):
-        parsed = value
-    else:
-        text = str(value).strip()
-        if text.endswith(("Z", "z")):
-            text = f"{text[:-1]}+00:00"
-        parsed = datetime.fromisoformat(text)
-    if parsed.tzinfo is None:
-        return parsed.replace(tzinfo=UTC)
-    return parsed.astimezone(UTC)
+    parsed = pd.Timestamp(value)
+    return (
+        parsed.tz_localize("UTC") if parsed.tzinfo is None else parsed.tz_convert("UTC")
+    )
 
 
 def _available_stem(directory: Path, raw_stem: str) -> str:

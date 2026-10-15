@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import json
+import warnings
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -12,8 +13,10 @@ import numpy as np
 import pandas as pd
 import pytest
 from PIL import Image
+from solar_toolkit.aia.background import AiaBackground
 
 from solar_apps.frontends.radio.aia_radio_composite import application
+from solar_apps.frontends.radio.aia_radio_composite.adapters import AiaSelection
 from solar_apps.frontends.radio.aia_radio_composite.models import (
     CompositeResult,
     SpectrumBand,
@@ -23,6 +26,7 @@ from solar_apps.frontends.radio.aia_radio_composite.models import (
 )
 from solar_apps.frontends.radio.aia_radio_composite.rendering import (
     render_composite_result,
+    render_top_panel,
     write_composite_artifacts,
 )
 
@@ -370,7 +374,105 @@ def test_renderer_uses_explicit_display_window_without_sample_expansion() -> Non
     ]
 
 
-def test_dynamic_video_uses_real_primary_times_and_skips_incomplete_matches(
+def test_renderer_preserves_a_display_window_three_nanoseconds_wide() -> None:
+    result, _ = _result()
+    start = "2025-01-24T04:48:30.000000001Z"
+    marker = "2025-01-24T04:48:30.000000002Z"
+    end = "2025-01-24T04:48:30.000000004Z"
+
+    with warnings.catch_warnings(record=True) as recorded:
+        warnings.simplefilter("always")
+        artifact = render_composite_result(
+            result,
+            map_time=marker,
+            display_time_range_utc=(start, end),
+            dpi=40,
+        )
+
+    assert artifact.image_png.startswith(b"\x89PNG\r\n\x1a\n")
+    assert not any(
+        "identical low and high xlims" in str(item.message) for item in recorded
+    )
+    bounds = [
+        pd.Timestamp(value)
+        for value in artifact.metadata["render"]["shared_time_range_utc"]
+    ]
+    assert bounds[1].value - bounds[0].value == 3
+    assert (
+        pd.Timestamp(artifact.metadata["render"]["map_time_utc"]).value
+        - bounds[0].value
+        == 1
+    )
+    assert artifact.metadata["render"]["axis_time_padding_applied"] is True
+    axis = [
+        pd.Timestamp(value)
+        for value in artifact.metadata["render"]["axis_display_time_range_utc"]
+    ]
+    assert axis[0] < bounds[0] < bounds[1] < axis[1]
+
+
+def test_top_panel_draws_radio_match_quality_and_actual_utc(monkeypatch) -> None:
+    from matplotlib.text import Text
+
+    observed = pd.Timestamp("2025-01-24T04:48:30.000000007Z")
+    background = AiaBackground(
+        "aia.fits",
+        np.ones((3, 3)),
+        np.array([-1.0, 0.0, 1.0]),
+        np.array([-1.0, 0.0, 1.0]),
+        "AIA 171",
+        observed,
+        "171",
+    )
+    aia = AiaSelection(background, observed, observed, 0.0, 1)
+    actual = "2025-01-24T04:48:28.750000007"
+    matching = {
+        "master_time_utc": observed.isoformat(),
+        "sources": {
+            "radio:149": {
+                "actual_time_utc": actual,
+                "delta_ns": -1_250_000_000,
+                "within_tolerance": False,
+                "reused": True,
+                "status": "outside_tolerance",
+            },
+            "radio:164": {
+                "actual_time_utc": None,
+                "delta_ns": None,
+                "within_tolerance": None,
+                "reused": False,
+                "status": "missing",
+            },
+        },
+    }
+    drawn = []
+    original_draw = Text.draw
+
+    def capture_draw(self, renderer):
+        if self.get_visible():
+            drawn.append(self.get_text())
+        return original_draw(self, renderer)
+
+    monkeypatch.setattr(Text, "draw", capture_draw)
+    artifact = render_top_panel(
+        aia,
+        (),
+        allow_missing_radio=True,
+        time_match=matching,
+        anchor_time_utc=observed,
+        dpi=40,
+    )
+    labels = "\n".join(drawn)
+    assert artifact.image_png.startswith(b"\x89PNG\r\n\x1a\n")
+    assert artifact.metadata["time_match"] == matching
+    assert actual in labels
+    assert "149" in labels and "-1.250" in labels
+    assert "164" in labels and ("NO RADIO DATA" in labels or "MISSING" in labels)
+    assert "OVER" in labels or "OUTSIDE" in labels
+    assert "reus" in labels.lower()
+
+
+def test_dynamic_video_preserves_real_times_with_empty_secondary_sources(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -412,8 +514,7 @@ def test_dynamic_video_uses_real_primary_times_and_skips_incomplete_matches(
     )
 
     def fake_top(_request, *, primary_frame, **_kwargs):
-        if primary_frame.obs_time == primary_times[1]:
-            raise application._FrameMatchError("AIA 193 Å", "missing")
+        assert _kwargs["plan_row"].selections["aia:193"].frame is None
         return SimpleNamespace(
             image_png=_top_png(),
             metadata={"anchor": primary_frame.obs_time.isoformat()},
@@ -429,7 +530,7 @@ def test_dynamic_video_uses_real_primary_times_and_skips_incomplete_matches(
         return SimpleNamespace(image_png=_top_png())
 
     def fake_encode(paths: list[str], output_path: str, **_kwargs) -> bool:
-        assert len(paths) == 3
+        assert len(paths) == 4
         Path(output_path).write_bytes(b"dynamic-mp4")
         return True
 
@@ -448,12 +549,14 @@ def test_dynamic_video_uses_real_primary_times_and_skips_incomplete_matches(
     )
 
     assert rendered_times == [
-        primary_times[index].replace(tzinfo=UTC) for index in (0, 2, 3)
+        primary_times[index].replace(tzinfo=UTC) for index in (0, 1, 2, 3)
     ]
-    assert video.metadata["frame_count"] == 3
-    assert video.metadata["skipped_frame_count"] == 1
-    assert video.metadata["skipped_frames"][0]["missing_sources"] == ["AIA 193 Å"]
+    assert video.metadata["frame_count"] == 4
+    assert video.metadata["skipped_frame_count"] == 0
+    assert (
+        video.metadata["match_plan_summary"]["sources"]["aia:193"]["missing_count"] == 4
+    )
     assert video.metadata["aia_waves"] == [171, 193]
     assert video.metadata["timeline_mode"] == (
-        "primary_radio_observations_no_interpolation"
+        "monotone_full_coverage_no_interpolation"
     )

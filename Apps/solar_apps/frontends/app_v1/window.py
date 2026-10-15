@@ -41,6 +41,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from solar_apps.frontends.image_composer.matching import in_window_records
 from solar_apps.platform.layout import RuntimeLayout
 from solar_apps.platform.paths import AllowedRootPolicyError, configured_allowed_roots
 from solar_apps.platform.processes import selected_python_executable
@@ -67,7 +68,7 @@ from .shell_pages import RadioWorkspaceNativePanel, WorkbenchNativePanel
 from .source_map_page import SourceMapNativePanel
 from .tasks import TaskQueueController, TaskRecord
 from .theme import AppV1ThemeController
-from .timeline import SQLiteTimelineIndex, TimeCoordinator
+from .timeline import SQLiteTimelineIndex, TimeCoordinator, TimelineSample
 from .time_sync_ui import TimeSyncPanel
 from .workflow_builder import WorkflowBuilder
 
@@ -284,9 +285,13 @@ class ModulePage(QWidget):
             detail = f"{matched}/{len(relevant)} local source(s) matched"
         else:
             detail = "current time broadcast received"
-        self.time_status.setText(f"UTC sync: {current} — {detail}")
+        self.time_status.setText(
+            f"UTC sync: {current} — {detail}; root {selection.base_source_id}; output {selection.output_source_id or selection.base_source_id}"
+        )
         if self.phase4_panel is not None:
-            self.phase4_panel.set_current_time(selection.current_time_utc)
+            self.phase4_panel.set_current_time(
+                selection.current_time_utc, matched_locators=selection.matched_locators
+            )
         for panel in self.native_panels:
             if isinstance(panel, PFSSPanel):
                 panel.set_current_time(selection.current_time_utc)
@@ -333,6 +338,7 @@ class AppV1MainWindow(QMainWindow):
         self.runtime_paths = AppV1RuntimePaths.from_layout(layout)
         self.timeline_index = SQLiteTimelineIndex(self.runtime_paths.time_index_path)
         self.time_coordinator = TimeCoordinator(self.timeline_index)
+        self._composer_timeline_source_ids: set[str] = set()
         self.project_store = AppV1ProjectStore(self.runtime_paths)
         self.project_parameters: dict[str, dict[str, object]] = {}
         self._parameter_module_id: str | None = None
@@ -385,6 +391,7 @@ class AppV1MainWindow(QMainWindow):
         )
         QTimer.singleShot(0, self._constrain_bottom_docks)
         self._connect_signals()
+        self._sync_composer_timeline_sources()
         self.select_module(initial_module)
         if self.timeline_load_warning:
             self.log_output.appendPlainText(self.timeline_load_warning)
@@ -402,7 +409,7 @@ class AppV1MainWindow(QMainWindow):
         self._select_module(module_id)
 
     def load_composer_project(self, path: str | Path) -> bool:
-        """Load a schema-1 Composer project and select its native page."""
+        """Load a Composer project, migrate schema 1, and register actual sources."""
 
         page = self.module_pages["image-composer"]
         if page.phase4_panel is None:
@@ -549,6 +556,7 @@ class AppV1MainWindow(QMainWindow):
             if isinstance(value, dict)
         }
         self.time_coordinator.load_dict(project.timeline)
+        self._sync_composer_timeline_sources()
         self.time_sync_panel.refresh_sources()
         geometry = project.layout.get("geometry_base64")
         dock_state = project.layout.get("dock_state_base64")
@@ -571,7 +579,7 @@ class AppV1MainWindow(QMainWindow):
         for reference in project.artifact_manifests:
             self.output_list.addItem(f"Project artifact: {reference}")
         if self.time_coordinator.current_time_utc is not None:
-            self.time_coordinator.select(self.time_coordinator.current_time_utc)
+            self.time_coordinator.step(0)
         self.project_panel.status.setText(f"Opened {project.project_id}.spapp.json")
         return project
 
@@ -931,6 +939,10 @@ class AppV1MainWindow(QMainWindow):
             lambda: self._project_action(self.load_current_preset)
         )
         for page in self.module_pages.values():
+            if page.phase4_panel is not None:
+                page.phase4_panel.timeline_sources_changed.connect(
+                    self._sync_composer_timeline_sources
+                )
             page.launch_demo_requested.connect(self.confirm_and_enqueue_demo)
             page.task_launch_requested.connect(self._enqueue_launch)
             page.legacy_interface_requested.connect(self._open_legacy_interface)
@@ -953,6 +965,7 @@ class AppV1MainWindow(QMainWindow):
             lambda: self.statusBar().showMessage("Task queue idle")
         )
         self.time_sync_panel.selection_changed.connect(self._timeline_selection_changed)
+        self.time_sync_panel.plan_changed.connect(self._timeline_plan_changed)
         self.workflow_builder.artifact_ready.connect(
             lambda path: self.output_list.addItem(f"Workflow: {path}")
         )
@@ -1147,6 +1160,66 @@ class AppV1MainWindow(QMainWindow):
             message = f"Could not start legacy {descriptor.title}"
             self.log_output.appendPlainText(f"[legacy:{descriptor.title}] {message}")
             self.statusBar().showMessage(message)
+
+    def _sync_composer_timeline_sources(self) -> None:
+        page = self.module_pages.get("image-composer")
+        if page is None or page.phase4_panel is None:
+            return
+        project = page.phase4_panel.project
+        self._composer_timeline_source_ids.update(
+            source.source_id
+            for source in self.time_coordinator.sources
+            if source.source_id.startswith("composer-")
+        )
+        used = {slot.folder_id for slot in project.slots}
+        desired = {
+            "composer-" + folder.id.replace("_", "-")
+            for folder in project.folders
+            if folder.id in used
+        }
+        for source_id in self._composer_timeline_source_ids - desired:
+            self.time_coordinator.unregister_source(source_id)
+            self.timeline_index.invalidate_source(source_id)
+        for folder in project.folders:
+            if folder.id not in used:
+                continue
+            source_id = "composer-" + folder.id.replace("_", "-")
+            self.timeline_index.rebuild_source(
+                source_id=source_id,
+                module_id="image-composer",
+                local_source=folder.path,
+                samples=[
+                    TimelineSample(
+                        str(record.path.resolve()),
+                        record.timestamp,
+                        status="available" if record.readable else "unreadable",
+                        raw_time_utc=record.timestamp_text
+                        or record.timestamp.isoformat(),
+                    )
+                    for record in in_window_records(project, folder)
+                ],
+            )
+            self.time_coordinator.register_source(
+                source_id,
+                module_id="image-composer",
+                offset_seconds=folder.offset_seconds,
+                tolerance_seconds=project.matching.tolerance_seconds,
+            )
+        self._composer_timeline_source_ids = desired
+        self.time_sync_panel.refresh_sources()
+
+    def _timeline_plan_changed(self, plan) -> None:  # type: ignore[no-untyped-def]
+        if plan is not None and not plan.rows:
+            for page in self.module_pages.values():
+                if page.time_status is not None:
+                    page.time_status.setText(
+                        "UTC sync: no data inside the image window"
+                    )
+                if page.phase4_panel is not None:
+                    page.phase4_panel.clear_sync_selection()
+            self.statusBar().showMessage(
+                "No data inside the image window; no images can be exported"
+            )
 
     def _timeline_selection_changed(self, selection) -> None:  # type: ignore[no-untyped-def]
         source_modules = {

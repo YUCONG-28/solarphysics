@@ -17,14 +17,14 @@ from typing import Any
 import numpy as np
 import pandas as pd
 from PIL import Image, ImageDraw, ImageFont
-
-from solar_apps.frontends.radio.source_map.artifacts import data_to_image_pixel
-from solar_apps.workflows.common.image_naming import build_scientific_image_filename
 from solar_toolkit.radio.dart_spectrogram import (
     DartNarrowbandResult,
     DartSpectrogramWindow,
 )
 from solar_toolkit.radio.roi_lightcurve import RadioRoi
+
+from solar_apps.frontends.radio.source_map.artifacts import data_to_image_pixel
+from solar_apps.workflows.common.image_naming import build_scientific_image_filename
 
 COMPOSITE_SCHEMA_VERSION = "radio-composite-v1"
 MAP_TIME_COLOR = "#c2410c"
@@ -137,7 +137,7 @@ def build_centered_frequency_bands(
                 matches = math.isclose(
                     float(raw_key), frequency, rel_tol=0.0, abs_tol=1e-6
                 )
-            except (TypeError, ValueError):
+            except TypeError, ValueError:
                 continue
             if matches:
                 width = float(raw_width)
@@ -617,9 +617,9 @@ def build_composite_figure(
 ):
     """Create the publication-style three-row composite with shared UTC axes."""
 
+    import matplotlib.dates as mdates
     from matplotlib.backends.backend_agg import FigureCanvasAgg
     from matplotlib.figure import Figure
-    import matplotlib.dates as mdates
 
     start = _utc_datetime(time_start)
     end = _utc_datetime(time_end)
@@ -978,7 +978,9 @@ def render_cached_composite_frame(
     resized = map_image.resize(target_size, resample=resample)
     frame = Image.fromarray(template.base_rgb.copy(), mode="RGB").convert("RGBA")
     frame.alpha_composite(resized, dest=(left, top))
-    fraction = (marker - start).total_seconds() / (end - start).total_seconds()
+    fraction = (pd.Timestamp(marker).value - pd.Timestamp(start).value) / (
+        pd.Timestamp(end).value - pd.Timestamp(start).value
+    )
     marker_pixels: dict[str, int] = {}
     overlay = Image.new("RGBA", frame.size, (0, 0, 0, 0))
     draw = ImageDraw.Draw(overlay)
@@ -1289,21 +1291,18 @@ def _sample_indices(size: int, *, target: int) -> np.ndarray:
     return np.unique(np.linspace(0, size - 1, count).round().astype(int))
 
 
-def _utc_datetime(value: datetime | str) -> datetime:
-    if isinstance(value, datetime):
-        parsed = value
-    else:
-        text = str(value).strip()
-        if not text:
-            raise ValueError("UTC datetime value must not be blank")
-        normalized = text[:-1] + "+00:00" if text.upper().endswith("Z") else text
-        try:
-            parsed = datetime.fromisoformat(normalized)
-        except ValueError as exc:
-            raise ValueError(f"Invalid UTC datetime: {value!r}") from exc
-    if parsed.tzinfo is None:
-        return parsed.replace(tzinfo=UTC)
-    return parsed.astimezone(UTC)
+def _utc_datetime(value: datetime | str) -> pd.Timestamp:
+    if isinstance(value, str) and not value.strip():
+        raise ValueError("UTC datetime value must not be blank")
+    try:
+        parsed = pd.Timestamp(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"Invalid UTC datetime: {value!r}") from exc
+    if pd.isna(parsed):
+        raise ValueError(f"Invalid UTC datetime: {value!r}")
+    return (
+        parsed.tz_localize("UTC") if parsed.tzinfo is None else parsed.tz_convert("UTC")
+    )
 
 
 def _event_get(value: Any, key: str) -> Any:

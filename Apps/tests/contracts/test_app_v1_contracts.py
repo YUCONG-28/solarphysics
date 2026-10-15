@@ -183,6 +183,15 @@ def test_versioned_contracts_are_utc_and_json_compatible() -> None:
     assert request.to_dict()["requested_at_utc"].endswith("Z")
     assert manifest.to_dict()["products"][0]["relative_path"] == "images/map.png"
     assert selection.to_dict()["current_time_utc"] == "2000-01-01T04:48:00Z"
+    assert selection.to_dict()["output_source_id"] is None
+    hierarchical = SyncSelection(
+        "root-source",
+        observed,
+        {"root-source": "root", "output-source": "output"},
+        output_source_id="output-source",
+    )
+    assert hierarchical.to_dict()["base_source_id"] == "root-source"
+    assert hierarchical.to_dict()["output_source_id"] == "output-source"
     assert project.to_dict()["schema_version"] == 1
 
 

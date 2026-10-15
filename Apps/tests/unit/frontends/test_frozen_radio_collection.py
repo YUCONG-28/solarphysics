@@ -6,10 +6,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
+from tools.freeze_radio_collection import build
 
 from solar_apps.workflows.radio import source_map_workflow
 from solar_apps.workflows.radio.source_map_workflow import _sorted_fits_for_band
-from tools.freeze_radio_collection import build
 
 
 def _record(
@@ -209,4 +209,8 @@ def test_confirmatory_multi_band_forbids_positional_time_fallback(
     }
 
     with pytest.raises(ValueError, match="positional fallback is forbidden"):
+        source_map_workflow._build_multi_band_slots(cfg)
+
+    cfg["study_mode"] = "exploratory"
+    with pytest.raises(FileNotFoundError):
         source_map_workflow._build_multi_band_slots(cfg)

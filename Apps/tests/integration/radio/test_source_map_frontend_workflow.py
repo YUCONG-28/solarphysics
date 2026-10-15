@@ -1,16 +1,16 @@
 from __future__ import annotations
 
-from pathlib import Path
 import time
+from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
 from astropy.io import fits
 
-from solar_apps.workflows.radio import source_map_workflow as workflow
-from solar_apps.workflows.radio.artifacts import validate_source_map_artifact
 from solar_apps.frontends.radio.source_map.jobs import ArtifactRegistry, JobRegistry
 from solar_apps.frontends.radio.source_map.service import PathPolicy
+from solar_apps.workflows.radio import source_map_workflow as workflow
+from solar_apps.workflows.radio.artifacts import validate_source_map_artifact
 
 
 def _write_map(
@@ -81,6 +81,60 @@ def test_single_band_workflow_emits_linear_unit_sidecar(tmp_path: Path) -> None:
     assert metadata["panels"][0]["colorbar_label"] == "Intensity [K]"
     assert metadata["panels"][0]["tick_notation"] == "scientific_offset"
     assert metadata["panels"][0]["unit"]["source"] == "fits_bunit"
+
+
+def test_source_map_json_worker_materializes_each_exact_hdu(tmp_path, monkeypatch):
+    import json
+
+    from solar_apps.frontends.radio.source_map import worker
+    from solar_apps.frontends.radio.source_map.service import discover_candidates
+    from solar_apps.workflows.radio import _source_map_workflow_core as inputs
+
+    source = tmp_path / "RR" / "multi.fits"
+    _write_map(source, frequency=149.0)
+    with fits.open(source) as hdus:
+        primary = fits.PrimaryHDU(hdus[0].data.copy(), hdus[0].header.copy())
+    second_header = primary.header.copy()
+    second_header["FREQ"] = 164.0
+    fits.HDUList([primary, fits.ImageHDU(primary.data * 3, second_header)]).writeto(
+        source, overwrite=True
+    )
+    cfg = dict(
+        _config(),
+        mode="single_band",
+        single_file_path=str(source),
+        output_dir=str(tmp_path / "output"),
+    )
+    candidates = discover_candidates(cfg, policy=PathPolicy([tmp_path]))
+    assert len(candidates) == 2
+    observed_pixels = []
+    original_read = inputs.read_fits
+
+    def capture_exact_read(item):
+        result = original_read(item)
+        if getattr(item, "logical_frame", None) is not None:
+            observed_pixels.append(
+                (item.logical_frame.payload["hdu_index"], result[0].max())
+            )
+        return result
+
+    monkeypatch.setattr(inputs, "read_fits", capture_exact_read)
+    result = worker.run_job(
+        json.loads(json.dumps({"config": cfg, "candidates": candidates}))
+    )
+    assert len(result["artifacts"]) == 2
+    metadata = [
+        validate_source_map_artifact(artifact["image_path"])
+        for artifact in result["artifacts"]
+    ]
+    assert [value["panels"][0]["frequency_mhz"] for value in metadata] == [149.0, 164.0]
+    assert [
+        next(iter(value["time_match"]["selections"].values()))["locator"]["hdu_index"]
+        for value in metadata
+    ] == [0, 1]
+    assert {index for index, _ in observed_pixels} == {0, 1}
+    maxima = {index: maximum for index, maximum in observed_pixels}
+    assert np.isclose(maxima[1], maxima[0] * 3)
 
 
 def test_sequence_single_band_layout_is_fixed_across_titles_and_color_scales(
@@ -178,6 +232,47 @@ def test_multi_band_fixed_range_is_converted_to_log10() -> None:
 
     assert lows == [1.0, 1.0]
     assert highs == [5.0, 5.0]
+
+
+def test_multi_band_artifact_uses_explicit_master_clock_and_keeps_match_flags(tmp_path):
+    from solar_toolkit.time import normalize_time
+
+    from solar_apps.workflows.radio import _source_map_selection
+
+    first = tmp_path / "149MHz" / "RR" / "frame.fits"
+    second = tmp_path / "164MHz" / "RR" / "frame.fits"
+    _write_map(first, frequency=149.0)
+    _write_map(second, frequency=164.0)
+    fits.setval(second, "DATE-OBS", value="2025-01-24T04:48:32.123456789")
+    cfg = _config()
+    metadata = {
+        "algorithm_version": 3,
+        "output_time_utc": "2025-01-24T04:48:32.123456789Z",
+        "master_time_utc": "2025-01-24T04:48:30.000000000Z",
+        "master_source_id": "band:0000",
+        "master_time_tai_ns": normalize_time("2025-01-24T04:48:30Z").tai_ns,
+        "output_source_id": "band:0001",
+        "output_time_tai_ns": normalize_time("2025-01-24T04:48:32.123456789Z").tai_ns,
+        "selections": {
+            "band:0000": {
+                "frame_id": str(first),
+                "actual_time_utc": "2025-01-24T04:48:30.000000000Z",
+                "delta_ns": -2123456789,
+                "reused": True,
+                "within_tolerance": False,
+            }
+        },
+    }
+    slot = _source_map_selection.RadioTimeSlot(
+        [str(first), str(second)], time_match=metadata
+    )
+    output = workflow.plot_multi_band_slot(
+        0, slot, str(tmp_path / "output"), cfg, write_sidecar=True
+    )
+    saved = validate_source_map_artifact(output)
+    assert "044832" in Path(output).name
+    assert saved["time_match"] == metadata
+    assert saved["panels"][0]["time_match"]["reused"] is True
 
 
 def test_multi_band_global_range_is_shared_across_panels() -> None:

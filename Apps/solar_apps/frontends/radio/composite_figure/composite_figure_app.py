@@ -8,12 +8,25 @@ import hashlib
 import json
 import math
 from collections.abc import Mapping
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 import pandas as pd
+from solar_toolkit.radio.dart_spectrogram import (
+    DartNarrowbandCurve,
+    DartNarrowbandResult,
+    DartSpectrogramWindow,
+    discover_dart_spectrogram_files,
+    extract_dart_narrowband_lightcurves,
+    read_dart_spectrogram_window,
+)
+from solar_toolkit.radio.roi_lightcurve import (
+    RadioRoi,
+    extract_radio_roi_lightcurve,
+    radio_roi_from_json,
+)
 
 from solar_apps.frontends.radio.composite_figure.composite_figure_application import (
     CompositeArtifactBundle,
@@ -30,27 +43,29 @@ from solar_apps.frontends.radio.composite_figure.composite_figure_application im
     select_dart_time_overlap,
 )
 from solar_apps.frontends.radio.composite_figure.composite_sequence import (
-    CompositeSequenceBundle,
-    CompositeSequenceJobRegistry,
     DEFAULT_SEQUENCE_FPS,
     DEFAULT_SEQUENCE_STRIDE,
     LARGE_SEQUENCE_WARNING_FRAMES,
+    CompositeSequenceBundle,
+    CompositeSequenceJobRegistry,
     SequenceExportOptions,
     candidate_contains_frequency,
     candidate_frequency_paths,
     common_candidate_time_coverage,
     export_composite_sequences,
     group_candidates_by_frequency,
-    prepare_single_panel_render as _prepare_sequence_single_panel_render,
     render_source_map_candidate,
     resolve_single_band_frequency_source,
     roi_intersects_source_map,
     sequence_frame_counts,
 )
+from solar_apps.frontends.radio.composite_figure.composite_sequence import (
+    prepare_single_panel_render as _prepare_sequence_single_panel_render,
+)
 from solar_apps.frontends.radio.roi_lightcurve.roi_lightcurve_app import (
+    _roi_import_document_from_uploaded_or_path,
     _RoiImportChoice,
     _RoiImportDocument,
-    _roi_import_document_from_uploaded_or_path,
     build_file_manifest,
     discover_frequency_options,
     selection_to_radio_roi,
@@ -78,19 +93,6 @@ from solar_apps.ui.streamlit_paths import (
 )
 from solar_apps.ui.theme import apply_plotly_chrome, render_streamlit_theme
 from solar_apps.workflows.radio.spatial_display import SpatialRadioDisplay
-from solar_toolkit.radio.dart_spectrogram import (
-    DartNarrowbandCurve,
-    DartNarrowbandResult,
-    DartSpectrogramWindow,
-    discover_dart_spectrogram_files,
-    extract_dart_narrowband_lightcurves,
-    read_dart_spectrogram_window,
-)
-from solar_toolkit.radio.roi_lightcurve import (
-    RadioRoi,
-    extract_radio_roi_lightcurve,
-    radio_roi_from_json,
-)
 
 FRONTEND_ID = "radio-composite"
 DEFAULT_OUTPUT_RELATIVE = "outputs/radio_composite"
@@ -1389,7 +1391,7 @@ def _render_dart_band_step(
         legacy_high = st.session_state.get("dart_band_high")
         try:
             legacy_width = float(legacy_high) - float(legacy_low)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             legacy_width = default_width
         default_width = _valid_bandwidth_or_default(
             legacy_width,
@@ -1411,7 +1413,7 @@ def _render_dart_band_step(
     try:
         active_raw_value = float(active_raw)
         active_frequency = _nearest_frequency(selected_frequencies, active_raw_value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         active_raw_value = selected_frequencies[0]
         active_frequency = selected_frequencies[0]
     if not math.isclose(active_raw_value, active_frequency, rel_tol=0.0, abs_tol=1e-6):
@@ -2420,7 +2422,7 @@ def _frequency_mapping_value(mapping: dict | Mapping, frequency: float):
         try:
             if math.isclose(float(key), float(frequency), rel_tol=0.0, abs_tol=1e-6):
                 return value
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             continue
     raise ValueError(f"Missing data for {float(frequency):g} MHz")
 
@@ -2555,7 +2557,7 @@ def _valid_bandwidth_or_default(
 ) -> float:
     try:
         width = float(value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         width = float(default)
     if not math.isfinite(width) or width <= 0 or width > float(maximum):
         width = float(default)
@@ -2593,7 +2595,7 @@ def _dart_band_overrides(
         try:
             frequency = _nearest_frequency(selected, float(raw_frequency))
             width = float(raw_width)
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             continue
         if not math.isclose(frequency, float(raw_frequency), rel_tol=0.0, abs_tol=1e-6):
             continue
@@ -2744,7 +2746,7 @@ def _apply_pending_band(st: Any) -> None:
         raw = st.session_state.get("dart_band_overrides_json", "{}")
         try:
             decoded = json.loads(raw) if isinstance(raw, str) else dict(raw)
-        except (json.JSONDecodeError, TypeError, ValueError):
+        except json.JSONDecodeError, TypeError, ValueError:
             decoded = {}
         decoded[f"{frequency:.9g}"] = bandwidth
         st.session_state["dart_band_overrides_json"] = json.dumps(
@@ -2871,7 +2873,7 @@ def _invalidate_sequence(st: Any) -> None:
     if isinstance(job_id, str) and hasattr(st, "cache_resource"):
         try:
             st.cache_resource(_create_sequence_job_registry)().cancel(job_id)
-        except (KeyError, RuntimeError):
+        except KeyError, RuntimeError:
             pass
     for key in (
         "sequence_signature",
@@ -2920,21 +2922,18 @@ def _download(
         )
 
 
-def _utc_datetime(value: datetime | str | None) -> datetime:
+def _utc_datetime(value: datetime | str | None) -> pd.Timestamp:
     if value is None:
         raise ValueError("UTC datetime value is missing")
-    if isinstance(value, datetime):
-        parsed = value
-    else:
-        text = str(value).strip()
-        normalized = text[:-1] + "+00:00" if text.upper().endswith("Z") else text
-        try:
-            parsed = datetime.fromisoformat(normalized)
-        except ValueError as exc:
-            raise ValueError(f"Invalid UTC datetime: {value!r}") from exc
-    if parsed.tzinfo is None:
-        return parsed.replace(tzinfo=UTC)
-    return parsed.astimezone(UTC)
+    try:
+        parsed = pd.Timestamp(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"Invalid UTC datetime: {value!r}") from exc
+    if pd.isna(parsed):
+        raise ValueError(f"Invalid UTC datetime: {value!r}")
+    return (
+        parsed.tz_localize("UTC") if parsed.tzinfo is None else parsed.tz_convert("UTC")
+    )
 
 
 if __name__ == "__main__":

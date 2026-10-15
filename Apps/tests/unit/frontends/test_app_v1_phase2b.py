@@ -192,7 +192,7 @@ def test_composite_candidate_contract_uses_manifest_mhz_and_time(
     assert candidates[0]["observation_time"] == "2000-01-01T00:00:01.100Z"
 
 
-def test_composite_clips_broader_radio_coverage_to_dart_observation() -> None:
+def test_composite_preserves_image_coverage_outside_native_dart_sampling() -> None:
     radio_start = datetime(2000, 1, 1, 4, 37, tzinfo=UTC)
     radio_end = datetime(2000, 1, 1, 5, 1, tzinfo=UTC)
     dart_start = datetime(2000, 1, 1, 4, 45, tzinfo=UTC)
@@ -216,10 +216,10 @@ def test_composite_clips_broader_radio_coverage_to_dart_observation() -> None:
     )
     clipped = _clip_dart_result(
         result,
-        start=start + timedelta(seconds=1),
-        end=end,
+        start=dart_start + timedelta(seconds=1),
+        end=dart_end,
     )
 
-    assert (start, end) == (dart_start, dart_end)
+    assert (start, end) == (radio_start, radio_end)
     assert clipped.time_utc == times[1:]
     assert clipped.curves[0].stokes_i_db.tolist() == [2.0, 3.0, 4.0]

@@ -27,14 +27,16 @@ def build_parser() -> argparse.ArgumentParser:
 def _render_candidate(
     cfg: dict[str, Any], candidate: dict[str, Any], *, sequence: int
 ) -> dict[str, Any]:
+    from solar_apps.workflows.radio import _source_map_selection as inputs
     from solar_apps.workflows.radio import source_map_workflow as workflow
 
     output_dir = str(cfg["output_dir"])
+    cfg["_time_match"] = candidate.get("time_match") or {}
+    if candidate.get("polarization") == "RR+LL":
+        cfg["_selected_polarization_pair"] = tuple(candidate["paths"])
     if candidate["mode"] == "multi_band":
-        slot = [
-            tuple(item) if isinstance(item, list) else item
-            for item in candidate["slot"]
-        ]
+        cfg["_time_match"] = candidate.get("time_match") or {}
+        slot = inputs._restore_source_map_slot(candidate["slot"], cfg["_time_match"])
         image_path = workflow.plot_multi_band_slot(
             int(candidate["slot_index"]),
             slot,
@@ -46,8 +48,29 @@ def _render_candidate(
             write_sidecar=True,
         )
     else:
+        paths = (
+            candidate["paths"]
+            if candidate.get("polarization") == "RR+LL"
+            else candidate["run_path"]
+        )
+        has_locators = any(
+            selection.get("locator")
+            for selection in cfg["_time_match"].get("selections", {}).values()
+        )
+        item = (
+            inputs._restore_source_map_slot([paths], cfg["_time_match"])[0]
+            if has_locators
+            else tuple(paths)
+            if isinstance(paths, list)
+            else paths
+        )
+        if isinstance(item, tuple):
+            cfg["_selected_polarization_pair"] = item
+            run_item = item[0]
+        else:
+            run_item = item
         image_path = workflow.plot_single_band(
-            str(candidate["run_path"]),
+            run_item,
             output_dir,
             cfg,
             vmin=None,

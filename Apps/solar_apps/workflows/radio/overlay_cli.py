@@ -40,8 +40,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--overlay-section",
         default="aia_radio_hmi",
         help=(
-            "EVENT_CONFIG section to run. Defaults to the stable "
-            "aia_radio_hmi overlay."
+            "EVENT_CONFIG section to run. Defaults to the stable aia_radio_hmi overlay."
         ),
     )
     parser.add_argument(
@@ -61,6 +60,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--aia-file-end-idx",
         type=int,
         help="Override the exclusive AIA selection end index.",
+    )
+    parser.add_argument(
+        "--image-time-start", help="Inclusive observation UTC for every image source."
+    )
+    parser.add_argument(
+        "--image-time-end", help="Exclusive observation UTC for every image source."
     )
     return parser
 
@@ -87,6 +92,13 @@ def _apply_cli_overrides(user_config: dict, args: argparse.Namespace) -> dict:
         resolved.setdefault("aia", {})["aia_file_start_idx"] = args.aia_file_start_idx
     if args.aia_file_end_idx is not None:
         resolved.setdefault("aia", {})["aia_file_end_idx"] = args.aia_file_end_idx
+    if args.aia_file_start_idx is not None or args.aia_file_end_idx is not None:
+        resolved["image_index_sources"] = sorted(
+            set(resolved.get("image_index_sources") or []) | {"aia"}
+        )
+    for key in ("image_time_start", "image_time_end"):
+        if getattr(args, key, None) is not None:
+            resolved[key] = getattr(args, key)
     return resolved
 
 

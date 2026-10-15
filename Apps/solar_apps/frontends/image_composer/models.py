@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import uuid4
 
@@ -19,12 +19,24 @@ def new_id(prefix: str) -> str:
 
 @dataclass(slots=True, frozen=True)
 class ImageRecord:
-    """One naturally ordered image and its uncorrected local timestamp."""
+    """One naturally ordered image with an explicitly UTC observation time."""
 
     ordinal: int
     path: Path
     timestamp: datetime
     time_source: str
+    timestamp_text: str | None = None
+    readable: bool = True
+
+    def __post_init__(self) -> None:
+        timestamp = (
+            datetime.fromisoformat(self.timestamp_text.replace("Z", "+00:00"))
+            if self.timestamp_text
+            else self.timestamp
+        )
+        if timestamp.tzinfo is None:
+            timestamp = timestamp.replace(tzinfo=UTC)
+        object.__setattr__(self, "timestamp", timestamp.astimezone(UTC))
 
 
 @dataclass(slots=True)
@@ -125,7 +137,11 @@ class MatchSettings:
     master_folder_id: str = ""
     mode: str = "time"
     tolerance_seconds: float = 1.0
-    strict: bool = True
+    strict: bool = False
+    master_policy: str = "auto_min_frames_hierarchical"
+    overflow_policy: str = "keep_flagged"
+    time_start: str | None = None
+    time_end: str | None = None
 
 
 @dataclass(slots=True)
@@ -138,12 +154,15 @@ class ExportSettings:
 
 @dataclass(slots=True)
 class ComposerProject:
-    schema_version: int = 1
+    schema_version: int = 2
     canvas: CanvasSettings = field(default_factory=CanvasSettings)
     folders: list[FolderSource] = field(default_factory=list)
     slots: list[LayoutSlot] = field(default_factory=list)
     matching: MatchSettings = field(default_factory=MatchSettings)
     export: ExportSettings = field(default_factory=ExportSettings)
+    sequence_plan: dict | None = None
+    migration_note: str = ""
+    _match_plan_cache: object = field(default=None, repr=False, compare=False)
 
     def folder_map(self) -> dict[str, FolderSource]:
         return {folder.id: folder for folder in self.folders}

@@ -11,9 +11,15 @@ from types import SimpleNamespace
 import numpy as np
 import pandas as pd
 from PIL import Image
+from solar_toolkit.radio.cso import CSOSpectrogram
+from solar_toolkit.radio.dart_spectrogram import (
+    DartSpectrogramFiles,
+    DartSpectrogramWindow,
+)
+from solar_toolkit.radio.roi_lightcurve import RadioRoi
 
-from solar_apps.frontends.radio.aia_radio_composite import application
 from solar_apps.frontends.radio.aia_radio_composite import app as composite_app
+from solar_apps.frontends.radio.aia_radio_composite import application
 from solar_apps.frontends.radio.aia_radio_composite.adapters import (
     spectrum_adapter,
 )
@@ -26,12 +32,6 @@ from solar_apps.frontends.radio.aia_radio_composite.rendering import (
     TopPanelArtifact,
     render_composite_result,
 )
-from solar_toolkit.radio.cso import CSOSpectrogram
-from solar_toolkit.radio.dart_spectrogram import (
-    DartSpectrogramFiles,
-    DartSpectrogramWindow,
-)
-from solar_toolkit.radio.roi_lightcurve import RadioRoi
 
 
 def _request(tmp_path: Path, spectrum_type: str = "dart") -> CompositeRequest:
@@ -103,7 +103,7 @@ def test_mock_aia_build_top_panel(
     )
 
     def fake_render(left, right, **kwargs):
-        assert left == (aia,)
+        assert left[0].match_metadata["status"] == "missing"
         return TopPanelArtifact(_png(), {"radio": {"matched_time_utc": "mock"}})
 
     monkeypatch.setattr(application, "render_top_panel", fake_render)

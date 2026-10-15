@@ -9,6 +9,9 @@ import cv2
 from PIL import Image
 
 from solar_apps.frontends.image_composer.catalog import scan_folder
+from solar_apps.frontends.image_composer.matching import (
+    freeze_match_plan,
+)
 from solar_apps.frontends.image_composer.models import (
     CanvasSettings,
     ComposerProject,
@@ -19,7 +22,6 @@ from solar_apps.frontends.image_composer.models import (
 )
 from solar_apps.frontends.image_composer.rendering import (
     ExportCancelled,
-    ExportError,
     compose_frame,
     export_project,
     load_oriented_rgba,
@@ -226,7 +228,7 @@ def test_sequence_same_folder_slots_keep_shared_time_matching(tmp_path: Path) ->
             assert image.getpixel((30, 10)) == color
 
 
-def test_all_strict_frames_skipped_publishes_csv_only(tmp_path: Path) -> None:
+def test_timing_gaps_preserve_the_full_video_and_publish_flags(tmp_path: Path) -> None:
     master = _folder("master", tmp_path / "master", [(255, 0, 0)])
     other = _folder("other", tmp_path / "other", [(0, 0, 255)])
     other.offset_seconds = 10
@@ -234,7 +236,10 @@ def test_all_strict_frames_skipped_publishes_csv_only(tmp_path: Path) -> None:
     project = ComposerProject(
         canvas=CanvasSettings(width=64, height=48),
         folders=[master, other],
-        slots=[LayoutSlot.create("other", 1, x=0, y=0, width=64, height=48)],
+        slots=[
+            LayoutSlot.create("master", 1, x=0, y=0, width=64, height=48),
+            LayoutSlot.create("other", 1, x=0, y=0, width=64, height=48),
+        ],
         matching=MatchSettings(
             master_folder_id="master", tolerance_seconds=1.0, strict=True
         ),
@@ -243,9 +248,13 @@ def test_all_strict_frames_skipped_publishes_csv_only(tmp_path: Path) -> None:
 
     result = export_project(project)
 
-    assert result.status == "no_frames"
-    assert not output.exists()
+    assert result.status == "saved"
+    assert output.exists()
+    assert result.emitted_frames == result.attempted_frames == 1
     assert result.csv_path.exists()
+    with result.csv_path.open(encoding="utf-8-sig", newline="") as stream:
+        rows = list(csv.DictReader(stream))
+    assert any(row["over_tolerance"] == "True" for row in rows)
 
 
 def test_bad_image_preserves_existing_output_and_cleans_partials(
@@ -274,8 +283,9 @@ def test_bad_image_preserves_existing_output_and_cleans_partials(
         export=ExportSettings(output_path=str(output), output_format="mp4"),
     )
 
-    with pytest.raises(ExportError, match="Could not decode"):
-        export_project(project)
+    result = export_project(project)
+    assert result.status == "no_frames"
+    assert result.emitted_frames == 0
 
     assert output.read_bytes() == b"existing output"
     assert not list(tmp_path.glob("*.partial*"))
@@ -300,3 +310,60 @@ def test_cancelled_export_preserves_existing_output_and_cleans_partials(
 
     assert output.read_bytes() == b"existing output"
     assert not list(tmp_path.glob("*.partial*"))
+
+
+def test_window_export_uses_fixed_plan_and_shows_empty_secondary(
+    tmp_path: Path,
+) -> None:
+    master = _folder("master", tmp_path / "master", [(255, 0, 0), (0, 255, 0)])
+    empty = _folder("empty", tmp_path / "empty", [(0, 0, 255)])
+    project = ComposerProject(
+        canvas=CanvasSettings(width=128, height=48),
+        folders=[master, empty],
+        slots=[
+            LayoutSlot.create("master", 1, x=0, y=0, width=64, height=48),
+            LayoutSlot.create("empty", 1, x=64, y=0, width=64, height=48),
+        ],
+        matching=MatchSettings(
+            time_start="2026-07-17T12:00:01Z", time_end="2026-07-17T12:00:02Z"
+        ),
+        export=ExportSettings(
+            output_path=str(tmp_path / "window.avi"),
+            output_format="avi",
+            save_png_frames=True,
+        ),
+    )
+    plan = freeze_match_plan(project)
+    expected = compose_frame(
+        project, {key: value.record for key, value in plan[0].matches.items()}
+    )
+    assert expected.getpixel((32, 24)) == (0, 255, 0)
+    assert expected.getpixel((70, 5)) == (40, 44, 52)
+    exported = export_project(project)
+    assert exported.emitted_frames == 1
+    with Image.open(exported.frames_path / "frame_000001.png") as actual:
+        assert actual.tobytes() == expected.tobytes()
+    with exported.csv_path.open(encoding="utf-8-sig", newline="") as stream:
+        rows = list(csv.DictReader(stream))
+    assert rows[1]["missing_data"] == "True"
+    assert rows[1]["source_file"] == ""
+    assert rows[0]["source_file"] == str(master.records[1].path)
+
+
+def test_all_empty_window_does_not_create_video(tmp_path: Path) -> None:
+    folder = _folder("camera", tmp_path / "camera", [(255, 0, 0)])
+    output = tmp_path / "empty.mp4"
+    project = ComposerProject(
+        canvas=CanvasSettings(width=64, height=48),
+        folders=[folder],
+        slots=[LayoutSlot.create("camera", 1, x=0, y=0, width=64, height=48)],
+        matching=MatchSettings(time_start="2026-07-18T00:00:00Z"),
+        export=ExportSettings(output_path=str(output)),
+    )
+    messages = []
+    exported = export_project(
+        project, progress=lambda _current, _total, message: messages.append(message)
+    )
+    assert exported.status == "no_frames" and exported.emitted_frames == 0
+    assert not output.exists()
+    assert "selected UTC time window" in messages[-1]

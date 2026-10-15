@@ -19,10 +19,10 @@ from astropy.io import fits
 
 from solar_toolkit.radio.centers import (
     FITS_SUFFIXES,
-    parse_datetime_value,
-    parse_time_from_filename,
     pixel_to_hpc_arcsec,
 )
+from solar_toolkit.radio.time_matching import observation_stamp
+from solar_toolkit.time import extract_timestamp_from_filename
 
 __all__ = [
     "AiaBackground",
@@ -56,6 +56,7 @@ class NearestAIA:
     obs_time: pd.Timestamp | None = None
     delta_seconds: float | None = None
     reason: str = ""
+    hdu_index: int | None = None
 
 
 def scan_aia_folder(
@@ -67,7 +68,20 @@ def scan_aia_folder(
     """Scan an AIA FITS folder and return ``path``, ``obs_time``, ``wavelength``."""
 
     folder = Path(aia_dir).expanduser()
-    columns = ["path", "obs_time", "wavelength"]
+    columns = [
+        "path",
+        "obs_time",
+        "wavelength",
+        "hdu_index",
+        "utc",
+        "tai_ns",
+        "raw_time",
+        "time_source",
+        "quality",
+        "exposure_seconds",
+        "size_bytes",
+        "mtime_ns",
+    ]
     if not str(aia_dir).strip() or not folder.exists():
         return pd.DataFrame(columns=columns)
 
@@ -76,44 +90,62 @@ def scan_aia_folder(
     for path in sorted(files):
         if not path.is_file() or path.suffix.lower() not in FITS_SUFFIXES:
             continue
-        obs_time = None
-        wavelength = ""
         try:
-            with fits.open(path, memmap=False, ignore_missing_end=True) as hdul:
-                for hdu in hdul:
-                    header = hdu.header
-                    if header is None:
+            with fits.open(path, memmap=True, ignore_missing_end=True) as hdul:
+                for hdu_index, hdu in enumerate(hdul):
+                    if (
+                        not isinstance(
+                            hdu, (fits.PrimaryHDU, fits.ImageHDU, fits.CompImageHDU)
+                        )
+                        or int(hdu.header.get("NAXIS", 0)) != 2
+                        or int(hdu.header.get("NAXIS1", 0)) <= 0
+                        or int(hdu.header.get("NAXIS2", 0)) <= 0
+                    ):
                         continue
-                    obs_time = _header_time(header)
-                    wavelength = str(header.get("WAVELNTH", wavelength or ""))
-                    if obs_time is not None:
-                        break
+                    header = hdul[0].header.copy()
+                    header.update(hdu.header)
+                    stamp = _header_timestamp(header)
+                    if stamp is None:
+                        try:
+                            stamp = extract_timestamp_from_filename(str(path))
+                        except ValueError:
+                            continue
+                    rows.append(
+                        {
+                            "path": str(path),
+                            "obs_time": pd.Timestamp(stamp.utc).tz_localize(None),
+                            "wavelength": str(header.get("WAVELNTH", "")),
+                            "hdu_index": hdu_index,
+                            "utc": stamp.utc,
+                            "tai_ns": stamp.tai_ns,
+                            "raw_time": stamp.raw,
+                            "time_source": stamp.source,
+                            "quality": header.get("QUALITY"),
+                            "exposure_seconds": header.get("EXPTIME"),
+                            "size_bytes": path.stat().st_size,
+                            "mtime_ns": path.stat().st_mtime_ns,
+                        }
+                    )
         except Exception:
-            obs_time = None
-        if obs_time is None:
-            obs_time = parse_time_from_filename(path)
-        if obs_time is None:
             continue
-        rows.append(
-            {
-                "path": str(path),
-                "obs_time": pd.Timestamp(obs_time),
-                "wavelength": wavelength,
-            }
-        )
     return (
         pd.DataFrame(rows, columns=columns)
-        .sort_values("obs_time")
+        .sort_values(["obs_time", "path", "hdu_index"], kind="stable")
         .reset_index(drop=True)
     )
 
 
 def _header_time(header: fits.Header) -> pd.Timestamp | None:
-    for key in ("DATE-OBS", "DATE_OBS", "T_OBS", "DATE"):
-        parsed = parse_datetime_value(header.get(key))
-        if parsed is not None:
-            return pd.Timestamp(parsed)
-    return None
+    stamp = _header_timestamp(header)
+    return pd.Timestamp(stamp.utc).tz_localize(None) if stamp is not None else None
+
+
+def _header_timestamp(header: fits.Header):
+    # AIA T_OBS is the observation epoch; DATE-OBS can be exposure start.
+    try:
+        return observation_stamp(header)
+    except (TypeError, ValueError):
+        return None
 
 
 def find_nearest_aia(
@@ -131,7 +163,11 @@ def find_nearest_aia(
             status="invalid_table", reason="AIA table lacks path/obs_time."
         )
     target = pd.Timestamp(frame_time)
-    times = pd.to_datetime(aia_table["obs_time"], errors="coerce")
+    if target.tzinfo is not None:
+        target = target.tz_convert("UTC").tz_localize(None)
+    times = pd.to_datetime(
+        aia_table["obs_time"], errors="coerce", utc=True
+    ).dt.tz_localize(None)
     valid = times.notna()
     if not valid.any():
         return NearestAIA(
@@ -148,12 +184,14 @@ def find_nearest_aia(
             obs_time=pd.Timestamp(row["obs_time"]),
             delta_seconds=best_delta,
             reason="Nearest AIA file exceeds max_dt_seconds.",
+            hdu_index=int(row["hdu_index"]) if "hdu_index" in row else None,
         )
     return NearestAIA(
         status="matched",
         path=str(row["path"]),
         obs_time=pd.Timestamp(row["obs_time"]),
         delta_seconds=best_delta,
+        hdu_index=int(row["hdu_index"]) if "hdu_index" in row else None,
     )
 
 
@@ -164,6 +202,7 @@ def read_aia_background(
     percentile_limits: tuple[float, float] = (1.0, 99.7),
     log_scale: bool = True,
     wcs_mode: str = "header",
+    hdu_index: int | None = None,
 ) -> AiaBackground:
     """Read a downsampled AIA image for Plotly background display.
 
@@ -179,7 +218,7 @@ def read_aia_background(
     if mode == "sunpy":
         _validate_sunpy_map_readable(resolved)
 
-    image, header = _read_first_image_hdu(resolved)
+    image, header = _read_first_image_hdu(resolved, hdu_index=hdu_index)
     image = np.where(np.isfinite(image), image, np.nan)
     ny, nx = image.shape
     step = max(1, int(math.ceil(max(ny, nx) / max(1, int(max_pixels)))))
@@ -196,11 +235,12 @@ def read_aia_background(
         [pixel_to_hpc_arcsec(header, 0.0, float(y))[1] for y in y_pix],
         dtype=float,
     )
-    obs_time = _header_time(header) or (
-        pd.Timestamp(parse_time_from_filename(resolved))
-        if parse_time_from_filename(resolved) is not None
-        else None
-    )
+    obs_time = _header_time(header)
+    if obs_time is None:
+        try:
+            obs_time = pd.Timestamp(extract_timestamp_from_filename(str(resolved)).utc)
+        except ValueError:
+            pass
     wavelength = str(header.get("WAVELNTH", ""))
     label = resolved.name
     if obs_time is not None:
@@ -226,9 +266,12 @@ def _validate_sunpy_map_readable(path: Path) -> None:
     sunpy.map.Map(path)
 
 
-def _read_first_image_hdu(path: Path) -> tuple[np.ndarray, fits.Header]:
+def _read_first_image_hdu(
+    path: Path, *, hdu_index: int | None = None
+) -> tuple[np.ndarray, fits.Header]:
     with fits.open(path, memmap=False, ignore_missing_end=True) as hdul:
-        for hdu in hdul:
+        candidates = [hdul[hdu_index]] if hdu_index is not None else hdul
+        for hdu in candidates:
             if hdu.data is None:
                 continue
             data = np.asarray(hdu.data)
@@ -238,7 +281,9 @@ def _read_first_image_hdu(path: Path) -> tuple[np.ndarray, fits.Header]:
             while data.ndim > 2:
                 data = data[0]
             if data.ndim == 2:
-                return data.astype(float), hdu.header
+                header = hdul[0].header.copy()
+                header.update(hdu.header)
+                return data.astype(float), header
     raise ValueError(f"No 2D image found in AIA FITS file: {path}")
 
 

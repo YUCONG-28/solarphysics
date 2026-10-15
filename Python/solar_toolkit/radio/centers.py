@@ -14,7 +14,7 @@ import re
 import warnings
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 import numpy as np
@@ -239,46 +239,31 @@ def _frequency_to_mhz(value: float, unit: str) -> float:
 
 
 def parse_datetime_value(value: object) -> datetime | None:
-    """Parse common FITS/diagnostic datetime values as naive UTC datetimes."""
+    """Parse config/reference times as naive UTC; observation reads require a clock."""
+    from solar_toolkit.time import normalize_time
 
-    if value is None:
+    if value is None or str(value).strip().lower() in {"", "none", "nan", "nat"}:
         return None
-    if isinstance(value, datetime):
-        return value.replace(tzinfo=None)
-    text = str(value).strip().strip("'")
-    if not text or text.lower() in {"none", "nan", "nat"}:
-        return None
-    text = text.replace("UTC", "").replace("Z", "").strip()
-
-    digits_only = re.fullmatch(r"\d{14,20}", text)
-    if digits_only:
-        base = text[:14]
-        frac = text[14:20].ljust(6, "0")
+    if isinstance(value, date) and not isinstance(value, datetime):
+        return datetime.combine(value, datetime.min.time())
+    if isinstance(value, str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", value.strip()):
         try:
-            return datetime.strptime(base + frac, "%Y%m%d%H%M%S%f")
+            return datetime.strptime(value.strip(), "%Y-%m-%d")
         except ValueError:
             return None
-
-    for fmt in (
-        "%Y-%m-%dT%H:%M:%S.%f",
-        "%Y-%m-%dT%H:%M:%S",
-        "%Y-%m-%d %H:%M:%S.%f",
-        "%Y-%m-%d %H:%M:%S",
-        "%Y/%m/%d %H:%M:%S.%f",
-        "%Y/%m/%d %H:%M:%S",
-        "%Y%m%dT%H%M%S.%f",
-        "%Y%m%dT%H%M%S",
-        "%Y%m%d%H%M%S.%f",
-        "%Y%m%d%H%M%S",
-        "%Y-%m-%d",
-    ):
-        try:
-            return datetime.strptime(text, fmt)
-        except ValueError:
-            continue
+    if isinstance(value, str):
+        text = value.strip()
+        if re.fullmatch(r"\d{14}\.0", text):
+            return None  # Preserve the legacy scalar-wrapper contract.
+        compact_millis = re.fullmatch(r"(\d{14}) +([0-9]{1,3})", text)
+        if compact_millis:
+            value = compact_millis[1] + "." + f"{int(compact_millis[2]):03d}"
     try:
-        return datetime.fromisoformat(text)
-    except ValueError:
+        stamp = normalize_time(value)
+        return datetime.fromisoformat(stamp.utc.replace("Z", "+00:00")).replace(
+            tzinfo=None
+        )
+    except (ValueError, TypeError):
         return None
 
 
@@ -286,6 +271,13 @@ def parse_time_from_filename(path: Path) -> datetime | None:
     """Parse observation time from common radio/AIA-like filename patterns."""
 
     name = path.stem
+    if re.search(r"20\d{2}-\d{2}-\d{2}T|\d{8}[T_-]\d{6}|\d{14}", name):
+        from solar_toolkit.time import extract_time_from_filename
+
+        try:
+            return extract_time_from_filename(name)
+        except ValueError:
+            pass
     match = re.search(
         r"(?P<date>\d{8})[^0-9]?(?P<hms>\d{6})(?:[^0-9]?(?P<frac>\d{1,6}))?",
         name,
@@ -333,13 +325,20 @@ def parse_time_from_filename(path: Path) -> datetime | None:
 
 
 def parse_observation_time(path: Path, header: fits.Header) -> datetime | None:
-    """Infer observation time from FITS headers, falling back to filename text."""
+    """Read an observation timestamp; creation DATE is not an observing time."""
+    from .time_matching import observation_stamp
 
-    for key in ("DATE-OBS", "DATE_OBS", "T_OBS", "TIME-OBS", "DATE"):
-        parsed = parse_datetime_value(header.get(key))
-        if parsed is not None:
-            return parsed
-    return parse_time_from_filename(path)
+    try:
+        stamp = observation_stamp(
+            header,
+            path=path,
+            fallback_parser=lambda value: parse_time_from_filename(Path(value)),
+        )
+        return datetime.fromisoformat(stamp.utc.replace("Z", "+00:00")).replace(
+            tzinfo=None
+        )
+    except (ValueError, TypeError):
+        return None
 
 
 def to_arcsec(value: float, unit: str) -> float:
@@ -779,51 +778,71 @@ def select_radio_files(
 def maybe_make_sum_images(
     items: list[RadioImage], tolerance_sec: float = 0.5
 ) -> list[RadioImage]:
-    """Pair nearby LCP/RCP images and synthesize L+R image planes."""
+    """Synthesize only compatible, monotone one-to-one LCP/RCP observations."""
+    from solar_toolkit.time import TimeFrame, monotone_one_to_one, normalize_time
 
-    l_items = [
-        item
-        for item in items
-        if item.pol == POL_LCP
-        and item.obs_time is not None
-        and np.isfinite(item.freq_mhz)
-    ]
-    r_items = [
-        item
-        for item in items
-        if item.pol == POL_RCP
-        and item.obs_time is not None
-        and np.isfinite(item.freq_mhz)
-    ]
-    sums: list[RadioImage] = []
-    used_r: set[int] = set()
-    for left in l_items:
-        best_index = None
-        best_dt = None
-        for index, right in enumerate(r_items):
-            if index in used_r:
+    from .time_matching import observation_stamp
+
+    def frames(pol):
+        result = []
+        for index, image in enumerate(items):
+            if (
+                image.pol != pol
+                or image.obs_time is None
+                or not np.isfinite(image.freq_mhz)
+            ):
                 continue
-            if not _same_frequency(left.freq_mhz, right.freq_mhz):
-                continue
-            dt = abs((left.obs_time - right.obs_time).total_seconds())
-            if dt <= tolerance_sec and (best_dt is None or dt < best_dt):
-                best_index = index
-                best_dt = dt
-        if best_index is None:
-            continue
-        right = r_items[best_index]
+            try:
+                stamp = observation_stamp(image.header)
+            except ValueError:
+                stamp = normalize_time(image.obs_time)
+            result.append(
+                TimeFrame(
+                    f"{image.path}#hdu={image.hdu_index};item={index}", stamp, image
+                )
+            )
+        return result
+
+    warned = set()
+
+    def compatible(a, b):
+        left, right = a.payload, b.payload
+        if not _same_frequency(left.freq_mhz, right.freq_mhz):
+            return False
         detail = _sum_pair_incompatibility(left, right)
-        if detail:
+        identity = (a.frame_id, b.frame_id)
+        if detail and identity not in warned:
             warnings.warn(
                 f"Skipping incompatible L+R pair ({detail}): "
                 f"{left.path.name}, {right.path.name}",
                 stacklevel=2,
             )
-            continue
-        used_r.add(best_index)
+            warned.add(identity)
+        return not detail
+
+    pairs = monotone_one_to_one(
+        frames(POL_LCP),
+        frames(POL_RCP),
+        tolerance_seconds=tolerance_sec,
+        compatibility=compatible,
+    )
+    sums = []
+    for pair in pairs:
+        left, right = pair.left.payload, pair.right.payload
+        from solar_toolkit.time import TimeStamp
+
+        midpoint = TimeStamp.from_tai_ns(
+            (pair.left.time.tai_ns + pair.right.time.tai_ns) // 2
+        )
+        observed = datetime.fromisoformat(midpoint.utc.replace("Z", "+00:00")).replace(
+            tzinfo=None
+        )
         header = left.header.copy()
         header["POLAR"] = POL_SUM
-        midpoint = left.obs_time + (right.obs_time - left.obs_time) / 2
+        header["DATE-OBS"] = midpoint.utc.rstrip("Z")
+        if "T_OBS" in header:
+            header["T_OBS"] = midpoint.utc
+        header["TIMESYS"] = "UTC"
         sums.append(
             RadioImage(
                 path=left.path,
@@ -833,7 +852,7 @@ def maybe_make_sum_images(
                 header=header,
                 pol=POL_SUM,
                 freq_mhz=left.freq_mhz,
-                obs_time=midpoint,
+                obs_time=observed,
                 source_label="paired_L_plus_R",
             )
         )

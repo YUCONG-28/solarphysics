@@ -18,7 +18,7 @@ from .models import (
     MatchSettings,
 )
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 class ProjectFormatError(ValueError):
@@ -66,7 +66,14 @@ def project_to_dict(project: ComposerProject) -> dict[str, Any]:
             "mode": project.matching.mode,
             "tolerance_seconds": project.matching.tolerance_seconds,
             "strict": project.matching.strict,
+            "master_policy": project.matching.master_policy,
+            "overflow_policy": project.matching.overflow_policy,
+            "algorithm_version": 3,
+            "time_start": project.matching.time_start,
+            "time_end": project.matching.time_end,
         },
+        "sequence_plan": project.sequence_plan,
+        "migration_note": project.migration_note,
         "export": {
             "output_path": project.export.output_path,
             "output_format": project.export.output_format,
@@ -83,7 +90,7 @@ def project_from_dict(payload: dict[str, Any]) -> ComposerProject:
         raise ProjectFormatError(
             "Project schema_version is missing or invalid."
         ) from exc
-    if schema_version != SCHEMA_VERSION:
+    if schema_version not in {1, SCHEMA_VERSION}:
         raise ProjectFormatError(
             f"Unsupported project schema_version {schema_version}; expected {SCHEMA_VERSION}."
         )
@@ -107,7 +114,32 @@ def project_from_dict(payload: dict[str, Any]) -> ComposerProject:
                 master_folder_id=str(matching_data.get("master_folder_id", "")),
                 mode=str(matching_data.get("mode", "time")),
                 tolerance_seconds=float(matching_data.get("tolerance_seconds", 1.0)),
-                strict=bool(matching_data.get("strict", True)),
+                strict=False
+                if schema_version == 1
+                else bool(matching_data.get("strict", False)),
+                master_policy=str(
+                    matching_data.get("master_policy", "auto_min_frames_hierarchical")
+                ),
+                overflow_policy=str(
+                    matching_data.get("overflow_policy", "keep_flagged")
+                ),
+                time_start=(
+                    str(matching_data["time_start"])
+                    if matching_data.get("time_start") is not None
+                    else None
+                ),
+                time_end=(
+                    str(matching_data["time_end"])
+                    if matching_data.get("time_end") is not None
+                    else None
+                ),
+            ),
+            sequence_plan=payload.get("sequence_plan") if schema_version == 2 else None,
+            migration_note=(
+                "Migrated schema 1: UTC chronological matching in time and relative modes; "
+                "fewest-frame root with hierarchical full-coverage parent maps; preserve every output frame and flag gaps."
+                if schema_version == 1
+                else str(payload.get("migration_note", ""))
             ),
             export=ExportSettings(
                 output_path=str(export_data.get("output_path", "")),
@@ -118,16 +150,43 @@ def project_from_dict(payload: dict[str, Any]) -> ComposerProject:
         )
     except (TypeError, ValueError) as exc:
         raise ProjectFormatError(f"Invalid project value: {exc}") from exc
+    if project.sequence_plan is not None and int(
+        project.sequence_plan.get("algorithm_version", 1)
+    ) in {1, 2}:
+        project.sequence_plan = None
+        project.migration_note = (
+            "Migrated strategy 1/2: the saved matching plan was discarded; strategy 3 "
+            "will rebuild hierarchical full-coverage maps from the fewest-frame root inside the selected UTC window."
+        )
+    if project.matching.master_policy == "auto_max_frames":
+        project.matching.master_policy = "auto_min_frames_hierarchical"
+        project.sequence_plan = None
+        project.migration_note = (
+            "Migrated legacy maximum-frame master policy to strategy 3: "
+            "fewest-frame root, successive full-coverage parent maps, and every output frame retained."
+        )
     return project
 
 
 def save_project(path: str | Path, project: ComposerProject) -> Path:
     """Write UTF-8 JSON through a same-directory temporary file and replace."""
 
+    if project.slots and all(
+        project.folder_map().get(slot.folder_id)
+        and project.folder_map()[slot.folder_id].records
+        for slot in project.slots
+    ):
+        from .matching import freeze_match_plan
+
+        freeze_match_plan(project)
     target = _project_path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
     payload = json.dumps(
-        project_to_dict(project), ensure_ascii=False, indent=2, sort_keys=False
+        project_to_dict(project),
+        ensure_ascii=False,
+        indent=2,
+        sort_keys=False,
+        allow_nan=False,
     )
     temporary: Path | None = None
     try:

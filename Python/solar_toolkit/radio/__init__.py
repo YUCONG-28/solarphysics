@@ -49,6 +49,7 @@ _SUBMODULES = {
     "reprojection": "solar_toolkit.radio.reprojection",
     "roi_lightcurve": "solar_toolkit.radio.roi_lightcurve",
     "spectrogram": "solar_toolkit.radio.spectrogram",
+    "time_matching": "solar_toolkit.radio.time_matching",
     "trajectory": "solar_toolkit.radio.trajectory",
 }
 

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import math
-from bisect import bisect_left
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -11,7 +10,6 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
-
 from solar_toolkit.map.coordinates import calculate_fits_extent_from_header
 from solar_toolkit.radio.centers import (
     POL_LCP,
@@ -21,7 +19,6 @@ from solar_toolkit.radio.centers import (
     filter_radio_images,
     iter_radio_images,
     maybe_make_sum_images,
-    parse_time_from_filename,
     select_radio_files,
     to_arcsec,
 )
@@ -33,8 +30,14 @@ from solar_toolkit.radio.roi_lightcurve import (
     RadioRoi,
     extract_radio_roi_lightcurve,
 )
+from solar_toolkit.radio.time_matching import (
+    index_radio_frames,
+    materialize_radio_frame,
+    pair_radio_frames,
+)
+from solar_toolkit.time import TimeFrame, TimeStamp, nearest_by_time, normalize_time
 
-from ..models import CompositeRequest, ROI_CURVE_COLUMNS
+from ..models import ROI_CURVE_COLUMNS, CompositeRequest
 
 __all__ = [
     "DEFAULT_ROI_FREQUENCIES_MHZ",
@@ -102,7 +105,7 @@ def extract_multi_frequency_roi_curve(
     missing = sorted(required_source_columns.difference(extracted.columns))
     if missing:
         raise ValueError(
-            "ROI lightcurve extractor is missing required columns: " f"{missing}"
+            f"ROI lightcurve extractor is missing required columns: {missing}"
         )
 
     curve = extracted.copy(deep=True)
@@ -167,6 +170,8 @@ class RadioFrameReference:
     freq_mhz: float
     pol: str
     pair_time_tolerance_sec: float = 0.5
+    time_stamp: TimeStamp | None = None
+    logical_frames: tuple[TimeFrame, ...] = ()
 
 
 def select_radio_frame(
@@ -198,6 +203,8 @@ def load_radio_candidates(
     pattern: str = "*.fits",
     recursive: bool = True,
     pair_time_tolerance_sec: float = 0.5,
+    time_start=None,
+    time_end=None,
 ) -> tuple[RadioFrameReference, ...]:
     """Index timed candidates without loading every radio image plane."""
 
@@ -237,6 +244,8 @@ def load_radio_candidates(
             left,
             right,
             tolerance_sec=pair_time_tolerance_sec,
+            time_start=time_start,
+            time_end=time_end,
         )
     else:
         candidates = _path_references(
@@ -245,7 +254,10 @@ def load_radio_candidates(
             polarization=requested_pol,
             pair_time_tolerance_sec=pair_time_tolerance_sec,
         )
-    timed = sorted(candidates, key=lambda item: item.obs_time)
+    timed = sorted(
+        candidates,
+        key=lambda item: (item.time_stamp or normalize_time(item.obs_time)).tai_ns,
+    )
     if not timed:
         raise FileNotFoundError(
             f"No timed {request.radio_frequency:g} MHz {request.polarization} "
@@ -266,17 +278,17 @@ def select_radio_frame_from_candidates(
     timed = tuple(item for item in candidates if item.obs_time is not None)
     if not timed:
         raise FileNotFoundError("No timed radio frame candidates are available")
-    target = target_time_utc.astimezone(UTC).replace(tzinfo=None)
-    selected = min(
-        timed,
-        key=lambda item: abs((item.obs_time - target).total_seconds()),
-    )
-    delta = abs((selected.obs_time - target).total_seconds())
-    if delta > float(max_dt_seconds):
+    target = normalize_time(target_time_utc)
+
+    def key(item):
+        return getattr(item, "time_stamp", None) or normalize_time(item.obs_time)
+
+    selected = nearest_by_time(target, timed, key=key, max_diff_seconds=max_dt_seconds)
+    if selected is None:
         raise RuntimeError(
-            f"Nearest radio frame is {delta:.3f} s from the requested time, "
-            f"exceeding {float(max_dt_seconds):.3f} s"
+            f"No radio frame lies within {float(max_dt_seconds):.9f} s of the requested time"
         )
+    delta = abs(key(selected).tai_ns - target.tai_ns) / 1e9
     return _materialize_radio_candidate(selected), len(timed), float(delta)
 
 
@@ -287,26 +299,28 @@ def _path_references(
     polarization: str,
     pair_time_tolerance_sec: float,
 ) -> tuple[RadioFrameReference, ...]:
-    references = []
-    for raw_path in paths:
-        path = Path(raw_path)
-        obs_time = parse_time_from_filename(path)
-        if obs_time is None:
-            loaded = tuple(iter_radio_images(path, default_pol=polarization))
-            obs_times = [item.obs_time for item in loaded if item.obs_time is not None]
-            if not obs_times:
-                continue
-            obs_time = min(obs_times)
-        references.append(
-            RadioFrameReference(
-                paths=(path,),
-                obs_time=obs_time,
-                freq_mhz=float(frequency_mhz),
-                pol=polarization,
-                pair_time_tolerance_sec=float(pair_time_tolerance_sec),
-            )
-        )
-    return tuple(sorted(references, key=lambda item: item.obs_time))
+    indexed = index_radio_frames(
+        paths, frequency_mhz=frequency_mhz, polarization=polarization, strict=False
+    )
+    return tuple(
+        _reference_from_frames((frame,), polarization, pair_time_tolerance_sec)
+        for frame in indexed
+    )
+
+
+def _reference_from_frames(frames, polarization, tolerance, stamp=None):
+    stamp = stamp or frames[0].time
+    return RadioFrameReference(
+        paths=tuple(Path(frame.payload["path"]) for frame in frames),
+        obs_time=datetime.fromisoformat(stamp.utc.replace("Z", "+00:00")).replace(
+            tzinfo=None
+        ),
+        freq_mhz=float(frames[0].payload["frequency_mhz"]),
+        pol=polarization,
+        pair_time_tolerance_sec=float(tolerance),
+        time_stamp=stamp,
+        logical_frames=tuple(frames),
+    )
 
 
 def _paired_references(
@@ -314,37 +328,24 @@ def _paired_references(
     right: Sequence[RadioFrameReference],
     *,
     tolerance_sec: float,
+    time_start=None,
+    time_end=None,
 ) -> tuple[RadioFrameReference, ...]:
-    right_times = [item.obs_time for item in right]
-    used_right: set[int] = set()
+    indexed_left = [frame for reference in left for frame in reference.logical_frames]
+    indexed_right = [frame for reference in right for frame in reference.logical_frames]
+    pairs = pair_radio_frames(
+        indexed_left,
+        indexed_right,
+        tolerance_seconds=tolerance_sec,
+        time_start=time_start,
+        time_end=time_end,
+    )
+    lookup = {id(frame.payload): frame for frame in (*indexed_left, *indexed_right)}
     paired = []
-    for left_item in left:
-        position = bisect_left(right_times, left_item.obs_time)
-        nearby = range(max(0, position - 2), min(len(right), position + 3))
-        eligible = [
-            (
-                abs((right[index].obs_time - left_item.obs_time).total_seconds()),
-                index,
-            )
-            for index in nearby
-            if index not in used_right
-        ]
-        if not eligible:
-            continue
-        delta, index = min(eligible)
-        if delta > float(tolerance_sec):
-            continue
-        used_right.add(index)
-        right_item = right[index]
-        midpoint = left_item.obs_time + (right_item.obs_time - left_item.obs_time) / 2
+    for pair in pairs:
+        members = tuple(lookup[id(payload)] for payload in pair.payload["pair_members"])
         paired.append(
-            RadioFrameReference(
-                paths=(left_item.paths[0], right_item.paths[0]),
-                obs_time=midpoint,
-                freq_mhz=left_item.freq_mhz,
-                pol=POL_SUM,
-                pair_time_tolerance_sec=float(tolerance_sec),
-            )
+            _reference_from_frames(members, POL_SUM, tolerance_sec, pair.time)
         )
     return tuple(paired)
 
@@ -356,11 +357,44 @@ def _materialize_radio_candidate(
         return candidate
     if not isinstance(candidate, RadioFrameReference):
         return candidate
-    images = [
-        image
-        for path in candidate.paths
-        for image in iter_radio_images(path, default_pol=candidate.pol)
-    ]
+    if candidate.logical_frames:
+        members = candidate.logical_frames
+        payload = dict(members[0].payload)
+        if len(members) > 1:
+            payload.update(
+                paths=tuple(str(path) for path in candidate.paths),
+                pair_members=tuple(frame.payload for frame in members),
+                polarization=POL_SUM,
+            )
+        stamp = candidate.time_stamp or normalize_time(candidate.obs_time)
+        exact = TimeFrame("+".join(frame.frame_id for frame in members), stamp, payload)
+        data, header = materialize_radio_frame(exact)
+        return RadioImage(
+            candidate.paths[0],
+            int(payload["hdu_index"]),
+            data,
+            header,
+            candidate.pol,
+            candidate.freq_mhz,
+            candidate.obs_time,
+        )
+    images = []
+    for index, path in enumerate(candidate.paths):
+        exact = candidate.logical_frames[index] if candidate.logical_frames else None
+        for image in iter_radio_images(path, default_pol=candidate.pol):
+            if exact is not None and image.hdu_index != exact.payload["hdu_index"]:
+                continue
+            if (
+                exact is not None
+                and normalize_time(image.obs_time).tai_ns != exact.time.tai_ns
+            ):
+                # RadioImage's legacy datetime cannot carry sub-microsecond digits.
+                if (
+                    abs(normalize_time(image.obs_time).tai_ns - exact.time.tai_ns)
+                    >= 1000
+                ):
+                    continue
+            images.append(image)
     filtered = filter_radio_images(
         images,
         freqs=[candidate.freq_mhz],

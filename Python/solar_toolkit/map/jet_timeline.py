@@ -1,55 +1,130 @@
 """Actual-frame pairing and geometry prechecks, independent of display shells."""
 
 from collections import Counter
+from decimal import Decimal
 
 import numpy as np
-from astropy.time import Time
 from sunpy.coordinates import frames
+
+from solar_toolkit.time import (
+    TimeFrame,
+    TimeStream,
+    build_sequence_match_plan,
+    normalize_time,
+)
 
 from .jet_annotations import pixel_hpc
 from .jet_viewpoint import observer
 
 
-def pair_frames(records, master="EUVI", band=None):
-    """Pair header emission times; missing and tied nearest frames remain explicit."""
+def pair_frames(records, master="auto", band=None):
+    """Cover all real frames, using UTC order and explicit centre-light-time cost.
+
+    ``master`` is retained as a legacy UI argument. The smallest nonempty stream
+    supplies the root and the largest last stream supplies the complete row axis.
+    Tolerance is a quality flag, and never removes a selected counterpart.
+    """
     records = [r for r in records if band is None or float(r["band"]) == float(band)]
-
-    def emission(r):
-        return Time(r["midpoint_utc"]).unix - float(r["dsun_m"]) / 299792458.0
-
-    aa = sorted([r for r in records if r["instrument"] == master], key=emission)
-    bb = sorted([r for r in records if r["instrument"] != master], key=emission)
-    dt = np.diff(sorted(set(emission(r) for r in bb)))
-    tolerance = float(np.median(dt) / 2) if len(dt) else None
+    if master not in ("auto", "AIA", "EUVI", None):
+        raise ValueError("master must be auto, AIA or EUVI")
+    if any(r["instrument"] not in ("AIA", "EUVI") for r in records):
+        raise ValueError("Jet timeline supports AIA and EUVI observations")
+    if len({float(r["band"]) for r in records}) > 1:
+        raise ValueError("Select one band before matching the Jet timeline")
+    if not records:
+        return []
+    frames = {"AIA": [], "EUVI": []}
+    for record in records:
+        stamp = normalize_time(record["midpoint_utc"], source="FITS:exposure_midpoint")
+        distance = Decimal(str(record["dsun_m"]))
+        if not distance.is_finite() or distance <= 0:
+            raise ValueError("A positive finite observer distance is required")
+        emission = stamp.shift(
+            -distance / Decimal(299792458), source="solar_center_emission"
+        )
+        frames[record["instrument"]].append(
+            TimeFrame(
+                record["image_sha256"],
+                stamp,
+                payload=record,
+                match_time=emission,
+            )
+        )
+    tolerances = {}
+    for instrument, values in frames.items():
+        times = sorted({frame.match_time.tai_ns for frame in values})
+        intervals = sorted(b - a for a, b in zip(times[:-1], times[1:], strict=True))
+        if intervals:
+            middle = len(intervals) // 2
+            median = (
+                Decimal(intervals[middle])
+                if len(intervals) % 2
+                else (Decimal(intervals[middle - 1]) + Decimal(intervals[middle])) / 2
+            )
+            tolerances[instrument] = median / Decimal(2_000_000_000)
+        else:
+            tolerances[instrument] = None
+    plan = build_sequence_match_plan(
+        [
+            TimeStream(name, values, tolerance_seconds=tolerances[name] or 0)
+            for name, values in frames.items()
+        ]
+    )
     result = []
-    previous = None
-    for a in aa:
+    other = "EUVI" if plan.output_source_id == "AIA" else "AIA"
+    tolerance = tolerances[other]
+    for row in plan.rows:
+        selected = row.selections[other]
+        paired = selected.frame is not None
+        delta = (
+            row.selections["AIA"].match_time.tai_ns
+            - row.selections["EUVI"].match_time.tai_ns
+            if paired
+            else None
+        )
+        within = selected.within_tolerance if tolerance is not None and paired else None
+        status = (
+            "no_other_frame"
+            if not paired
+            else "cadence_unavailable"
+            if tolerance is None
+            else "matched"
+            if within
+            else "outside_tolerance"
+        )
         out = {
-            "master_id": a["image_sha256"],
-            "AIA": a if master == "AIA" else None,
-            "EUVI": a if master == "EUVI" else None,
-            "tolerance_s": tolerance,
-            "status": "no_other_frame",
-            "delta_emission_s": None,
-            "repeated_other": False,
+            "master_id": row.master_frame.frame_id,
+            "master_instrument": plan.master_source_id,
+            "output_id": row.output_frame.frame_id,
+            "output_instrument": plan.output_source_id,
+            "output_utc": row.time.utc,
+            "reference_instrument": other,
+            "AIA": row.selections["AIA"].frame.payload
+            if row.selections["AIA"].frame
+            else None,
+            "EUVI": row.selections["EUVI"].frame.payload
+            if row.selections["EUVI"].frame
+            else None,
+            "tolerance_s": float(tolerance) if tolerance is not None else None,
+            "status": status,
+            "within_tolerance": within,
+            "delta_emission_s": delta / 1e9 if delta is not None else None,
+            "delta_emission_ns": delta,
+            "repeated_other": selected.reused,
+            "reference_use_count": selected.use_count,
+            "time_match_policy": "hierarchical_monotone_full_coverage_solar_center_emission_cost",
+            "algorithm_version": 3,
+            "source_order": list(plan.source_order),
+            "parent_matches": row.to_dict()["parent_matches"],
+            "time_match_fingerprint": plan.fingerprint,
+            "selected_indices": {
+                name: {
+                    "original_index": item.original_index,
+                    "sorted_index": item.sorted_index,
+                }
+                for name, item in row.selections.items()
+            },
         }
-        if bb and tolerance is not None:
-            distance = np.array([abs(emission(b) - emission(a)) for b in bb])
-            ids = np.where(np.isclose(distance, distance.min(), atol=1e-6, rtol=0))[0]
-            if len(ids) > 1:
-                out["status"] = "ambiguous_nearest"
-            elif distance.min() > tolerance + 1e-6:
-                out["status"] = "outside_tolerance"
-            else:
-                b = bb[ids[0]]
-                other = "AIA" if master == "EUVI" else "EUVI"
-                out[other] = b
-                out["status"] = "matched"
-                out["delta_emission_s"] = emission(out["AIA"]) - emission(out["EUVI"])
-                out["repeated_other"] = b["image_sha256"] == previous
-                previous = b["image_sha256"]
-        elif bb:
-            out["status"] = "cadence_unavailable"
         result.append(out)
     return result
 

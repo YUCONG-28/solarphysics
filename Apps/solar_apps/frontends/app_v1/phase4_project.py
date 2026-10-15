@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: GPL-3.0-only
-"""Image Composer schema-1 persistence and dirty-project lifecycle."""
+"""Image Composer versioned persistence and dirty-project lifecycle."""
 
 from __future__ import annotations
 
@@ -60,6 +60,10 @@ class ComposerProjectControls:
         self._reload_project_ui()
         self.project_path = candidate
         self._dirty = False
+        if project.migration_note:
+            self.sync_status.setText(project.migration_note)
+        self._matching_settings_key = self._matching_key()
+        self.timeline_sources_changed.emit()
         return True
 
     def _reload_project_ui(self, *, select_folder_id: str = "") -> None:
@@ -85,7 +89,9 @@ class ComposerProjectControls:
             self._refresh_match_folders()
             self.match_mode.setCurrentText(self.project.matching.mode)
             self.match_tolerance.setValue(self.project.matching.tolerance_seconds)
-            self.match_strict.setChecked(self.project.matching.strict)
+            self.match_strict.setChecked(True)
+            self.match_time_start.setText(self.project.matching.time_start or "")
+            self.match_time_end.setText(self.project.matching.time_end or "")
             self.output_path.setText(self.project.export.output_path)
             self.output_format.setCurrentText(self.project.export.output_format)
             self.export_fps.setValue(self.project.export.fps)
@@ -123,7 +129,7 @@ class ComposerProjectControls:
                     f"Project is outside configured allowed roots: {candidate}"
                 )
             saved = save_project(candidate, self.project)
-        except OSError as exc:
+        except (OSError, ValueError) as exc:
             QMessageBox.critical(self, "Could not save project", str(exc))
             return False
         self.project_path = saved
@@ -138,11 +144,48 @@ class ComposerProjectControls:
         self.project_path = None
         self._dirty = False
         self._reload_project_ui()
+        self._matching_settings_key = self._matching_key()
+        self.timeline_sources_changed.emit()
         return True
+
+    def _matching_key(self):
+        used = {slot.folder_id for slot in self.project.slots}
+        return (
+            self.project.matching.mode,
+            self.project.matching.tolerance_seconds,
+            self.project.matching.time_start,
+            self.project.matching.time_end,
+            tuple(
+                (
+                    folder.id,
+                    folder.start_index,
+                    folder.end_index,
+                    folder.offset_seconds,
+                    tuple(
+                        (
+                            str(record.path),
+                            record.timestamp_text or record.timestamp.isoformat(),
+                            record.readable,
+                        )
+                        for record in folder.records
+                    ),
+                )
+                for folder in self.project.folders
+                if folder.id in used
+            ),
+        )
+
 
     def _mark_dirty(self) -> None:
         if not self._updating_controls:
             self._dirty = True
+            key = self._matching_key()
+            if key != self._matching_settings_key:
+                self._matching_settings_key = key
+                self.project.sequence_plan = None
+                self.project._match_plan_cache = None
+                self._refresh_match_folders()
+                self.timeline_sources_changed.emit()
 
     def confirm_discard_changes(self) -> bool:
         if not self._dirty:

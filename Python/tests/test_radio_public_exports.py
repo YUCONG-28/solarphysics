@@ -7,6 +7,15 @@ import importlib
 import pytest
 
 PUBLIC_EXPORTS = {
+    "time_matching": {
+        "compatible_radio_payloads",
+        "frame_for_item",
+        "index_radio_frames",
+        "materialize_radio_frame",
+        "observation_stamp",
+        "pair_radio_frames",
+        "selection_metadata",
+    },
     "centers": {
         "FITS_SUFFIXES",
         "POL_LCP",
