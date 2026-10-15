@@ -175,7 +175,6 @@ class ComposerProjectControls:
             ),
         )
 
-
     def _mark_dirty(self) -> None:
         if not self._updating_controls:
             self._dirty = True

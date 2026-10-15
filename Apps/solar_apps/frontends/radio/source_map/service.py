@@ -256,11 +256,7 @@ def parse_request_config(
     cfg["radio_background_workflow"] = (
         "display_and_fit"
         if apply_display and apply_fit
-        else "display_only"
-        if apply_display
-        else "fit_only"
-        if apply_fit
-        else "off"
+        else "display_only" if apply_display else "fit_only" if apply_fit else "off"
     )
     return cfg
 
@@ -478,15 +474,18 @@ def _candidate_record(
         ),
         "paths": [str(path) for path in paths],
         "observation_time": (
-            time_match.get("output_time_utc") or time_match.get("master_time_utc")
-        )
-        if time_match
-        else observed_utc,
+            (time_match.get("output_time_utc") or time_match.get("master_time_utc"))
+            if time_match
+            else observed_utc
+        ),
         "observation_time_tai_ns": (
-            time_match.get("output_time_tai_ns") or time_match.get("master_time_tai_ns")
-        )
-        if time_match
-        else observed_ns,
+            (
+                time_match.get("output_time_tai_ns")
+                or time_match.get("master_time_tai_ns")
+            )
+            if time_match
+            else observed_ns
+        ),
         "time_match": copy.deepcopy(time_match),
         "frequencies_mhz": frequencies,
         "polarization": str(cfg.get("polarization")),

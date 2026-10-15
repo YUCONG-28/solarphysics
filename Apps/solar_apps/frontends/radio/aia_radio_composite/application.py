@@ -634,9 +634,11 @@ def build_dynamic_composite_video(
             frame_paths.append(frame_path)
             frame_metadata.append(
                 {
-                    "primary_radio_time_utc": primary_selection.frame.time.utc
-                    if primary_selection.frame
-                    else None,
+                    "primary_radio_time_utc": (
+                        primary_selection.frame.time.utc
+                        if primary_selection.frame
+                        else None
+                    ),
                     "output_time_utc": row.time.utc,
                     "output_frame_id": row.output_frame.frame_id,
                     "top_panel": dict(top.metadata),

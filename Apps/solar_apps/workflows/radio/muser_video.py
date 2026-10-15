@@ -124,9 +124,11 @@ def write_video(
         (
             row,
             [
-                row.selections[source].frame.payload
-                if row.selections[source].frame
-                else None
+                (
+                    row.selections[source].frame.payload
+                    if row.selections[source].frame
+                    else None
+                )
                 for source in source_ids
             ],
         )

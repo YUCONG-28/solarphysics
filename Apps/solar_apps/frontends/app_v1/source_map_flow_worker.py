@@ -79,7 +79,10 @@ def main(argv: list[str] | None = None) -> int:
             "end_idx": args.end_idx,
             "image_time_start": args.image_time_start,
             "image_time_end": args.image_time_end,
-            "image_window_use_indices": any(value.split("=", 1)[0] in {"--start-idx", "--end-idx"} for value in arguments),
+            "image_window_use_indices": any(
+                value.split("=", 1)[0] in {"--start-idx", "--end-idx"}
+                for value in arguments
+            ),
             "cmap": args.cmap,
             "color_range_mode": args.color_range_mode,
             "fixed_vmin": args.fixed_vmin,

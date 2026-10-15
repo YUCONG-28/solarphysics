@@ -15,11 +15,16 @@ def test_public_workflow_forwards_acceptance_window_without_opening_inputs(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     arguments = [
-        "--event-root", "/allowed/synthetic-event",
-        "--muser-directory", "/allowed/synthetic-muser",
-        "--output", "/allowed/synthetic-results",
-        "--time-start", "2000-01-01T00:00:00.000000001Z",
-        "--time-end", "2000-01-01T00:00:01Z",
+        "--event-root",
+        "/allowed/synthetic-event",
+        "--muser-directory",
+        "/allowed/synthetic-muser",
+        "--output",
+        "/allowed/synthetic-results",
+        "--time-start",
+        "2000-01-01T00:00:00.000000001Z",
+        "--time-end",
+        "2000-01-01T00:00:01Z",
     ]
     calls = []
 
@@ -34,7 +39,9 @@ def test_public_workflow_forwards_acceptance_window_without_opening_inputs(
     monkeypatch.setattr(dispatcher, "import_module", import_target)
     original_program = sys.argv[0]
 
-    assert router.main(["workflow", "radio", "time-matching-acceptance", *arguments]) == 17
+    assert (
+        router.main(["workflow", "radio", "time-matching-acceptance", *arguments]) == 17
+    )
     assert calls == [(arguments, "solar-apps workflow radio time-matching-acceptance")]
     assert sys.argv[0] == original_program
 

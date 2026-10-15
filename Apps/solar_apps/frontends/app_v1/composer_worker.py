@@ -100,7 +100,8 @@ def _static(project, output: Path) -> dict[str, object]:  # type: ignore[no-unty
     matched = {folder_id: match.record for folder_id, match in frame.matches.items()}
     slot_records = {}
     repeated_folders = {
-        slot.folder_id for slot in project.slots
+        slot.folder_id
+        for slot in project.slots
         if sum(other.folder_id == slot.folder_id for other in project.slots) > 1
     }
     for slot in project.slots:

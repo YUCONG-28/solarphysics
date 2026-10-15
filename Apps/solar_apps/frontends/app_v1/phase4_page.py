@@ -26,7 +26,10 @@ from PyQt6.QtWidgets import (
 
 from solar_apps.frontends.image_composer.catalog import scan_folder
 from solar_apps.frontends.image_composer.models import ComposerProject, FolderSource
-from solar_apps.frontends.image_composer.matching import freeze_match_plan, in_window_records
+from solar_apps.frontends.image_composer.matching import (
+    freeze_match_plan,
+    in_window_records,
+)
 
 from .components import NativeModulePanel
 from .phase4 import Phase4ComposerAdapter
@@ -433,7 +436,6 @@ class Phase4ComposerPanel(
             self.record_diagnostic(exc)
             self.sync_status.setText(str(exc))
             return False
-
 
     def _refresh_match_folders(self, *, select_id: str = "") -> None:
         current = select_id or self.project.matching.master_folder_id

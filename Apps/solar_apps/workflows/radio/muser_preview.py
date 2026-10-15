@@ -160,9 +160,11 @@ def build_preview(config, output):
     )
     window = video_image_time_window(config)
     image_bounds = [
-        float(Time(config[key], scale="utc").unix)
-        if config[key] is not None
-        else bounds[index]
+        (
+            float(Time(config[key], scale="utc").unix)
+            if config[key] is not None
+            else bounds[index]
+        )
         for index, key in enumerate(("image_time_start", "image_time_end"))
     ]
     if image_bounds[0] >= image_bounds[1]:
@@ -618,9 +620,9 @@ def build_preview(config, output):
         "selection": {
             "bandwidth_mhz": 2,
             "frequencies_mhz": frequencies,
-            "score_mean_source_db": float(score[score_index])
-            if score_index is not None
-            else None,
+            "score_mean_source_db": (
+                float(score[score_index]) if score_index is not None else None
+            ),
             "radio_tolerance_s": 0.1,
             "aia_tolerance_s": 12,
         },

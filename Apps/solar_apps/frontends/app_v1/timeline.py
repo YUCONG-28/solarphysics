@@ -575,9 +575,11 @@ class TimeCoordinator:
             "window_clock": "observed_utc",
             "algorithm_version": 3,
             "output_source_id": self.output_source_id,
-            "source_order": list(self.current_plan.source_order)
-            if self.current_plan is not None
-            else [],
+            "source_order": (
+                list(self.current_plan.source_order)
+                if self.current_plan is not None
+                else []
+            ),
             "migration_note": self.migration_note,
             "plan_fingerprint": self._plan_fingerprint,
             "cursor_index": self._cursor_index,

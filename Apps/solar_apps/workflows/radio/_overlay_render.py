@@ -895,10 +895,14 @@ def process_aia_group(
                     and isinstance(file_item, tuple)
                 ):
                     rr_path, ll_path = file_item
-                    rr_data, ra_map, dec_map, rr_header, _ = (
-                        _workflow().extract_radio_2d_data(
-                            rr_path, cfg.radio_use_float32, cfg
-                        )
+                    (
+                        rr_data,
+                        ra_map,
+                        dec_map,
+                        rr_header,
+                        _,
+                    ) = _workflow().extract_radio_2d_data(
+                        rr_path, cfg.radio_use_float32, cfg
                     )
                     ll_data, _, _, _, _ = _workflow().extract_radio_2d_data(
                         ll_path, cfg.radio_use_float32, cfg
@@ -911,10 +915,14 @@ def process_aia_group(
                     radio_header2 = rr_header
                 else:
                     # 单偏振模式时，file_item 就是单文件的路径（字符串）
-                    radio_data, ra_map, dec_map, radio_header2, _ = (
-                        _workflow().extract_radio_2d_data(
-                            file_item, cfg.radio_use_float32, cfg
-                        )
+                    (
+                        radio_data,
+                        ra_map,
+                        dec_map,
+                        radio_header2,
+                        _,
+                    ) = _workflow().extract_radio_2d_data(
+                        file_item, cfg.radio_use_float32, cfg
                     )
                     if radio_data is None:
                         continue

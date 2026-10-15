@@ -60,9 +60,7 @@ def _render_candidate(
         item = (
             inputs._restore_source_map_slot([paths], cfg["_time_match"])[0]
             if has_locators
-            else tuple(paths)
-            if isinstance(paths, list)
-            else paths
+            else tuple(paths) if isinstance(paths, list) else paths
         )
         if isinstance(item, tuple):
             cfg["_selected_polarization_pair"] = item

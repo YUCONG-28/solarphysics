@@ -106,9 +106,11 @@ def match_row_metadata(row):
                 "use_count": item.use_count,
                 "reused": item.reused,
                 "sorted_index": item.sorted_index,
-                "status": "missing"
-                if item.frame is None
-                else ("matched" if item.within_tolerance else "outside_tolerance"),
+                "status": (
+                    "missing"
+                    if item.frame is None
+                    else ("matched" if item.within_tolerance else "outside_tolerance")
+                ),
                 "parent_match": metadata["selections"][source]["parent_match"],
             }
             for source, item in row.selections.items()

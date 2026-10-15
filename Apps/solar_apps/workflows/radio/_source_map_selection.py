@@ -1377,9 +1377,9 @@ def _pair_time_metadata(pair, cfg):
         selected.update(
             locator=_logical_locator(frame),
             slot_item_index=0,
-            paths=list(map(str, pair))
-            if isinstance(pair, (tuple, list))
-            else [str(pair)],
+            paths=(
+                list(map(str, pair)) if isinstance(pair, (tuple, list)) else [str(pair)]
+            ),
         )
     return result
 

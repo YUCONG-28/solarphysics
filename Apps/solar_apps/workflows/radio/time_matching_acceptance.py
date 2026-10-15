@@ -660,9 +660,9 @@ def verify_exact_reference(frame):
             {
                 "locator": list(_locator(member)),
                 "time": candidate.time.to_dict(),
-                "frequency_mhz": None
-                if "wavelength_A" in member
-                else observed["frequency_mhz"],
+                "frequency_mhz": (
+                    None if "wavelength_A" in member else observed["frequency_mhz"]
+                ),
                 "polarization": member["polarization"],
                 "wavelength_A": member.get("wavelength_A"),
                 "unit": observed["header"].get("BUNIT"),
@@ -1074,9 +1074,11 @@ def run_acceptance(args):
                     "source_order": list(plan.source_order),
                     "outside_tolerance": "keep_flagged",
                     "dart_mode": args.dart_mode,
-                    "rrll": "strict_one_to_one"
-                    if args.dart_mode == "RR+LL"
-                    else "not_applicable",
+                    "rrll": (
+                        "strict_one_to_one"
+                        if args.dart_mode == "RR+LL"
+                        else "not_applicable"
+                    ),
                     "aia_tolerance_seconds": args.aia_tolerance_seconds,
                     "radio_tolerance_seconds": args.radio_tolerance_seconds,
                     "pair_tolerance_seconds": args.pair_tolerance_seconds,

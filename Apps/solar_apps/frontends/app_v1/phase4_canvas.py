@@ -31,7 +31,11 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from solar_apps.frontends.image_composer.matching import (freeze_match_plan, select_plan_frame, in_window_records)
+from solar_apps.frontends.image_composer.matching import (
+    freeze_match_plan,
+    select_plan_frame,
+    in_window_records,
+)
 from solar_apps.frontends.image_composer.models import LayoutSlot
 
 from .components import load_preview_pixmap
@@ -704,7 +708,6 @@ class ComposerCanvasControls:
             QSize(max(1, round(slot.width)), max(1, round(slot.height))),
         )
 
-
     def clear_sync_selection(self) -> None:
         """Clear global browsing references without changing the saved window."""
 
@@ -717,7 +720,6 @@ class ComposerCanvasControls:
         self.sync_status.setText(
             "Global UTC sync: no valid images in the global window; Composer export uses its own selected window."
         )
-
 
     def show_export_preview(self) -> None:
         """Restore the dedicated preview from the Composer's frozen export plan."""

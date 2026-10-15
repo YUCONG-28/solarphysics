@@ -4548,9 +4548,9 @@ def _apply_source_map_cli_args(cfg: dict, args: argparse.Namespace) -> dict:
     if args.no_drift_browser:
         cfg.setdefault("drift_rate_interactive", {})["auto_open_browser"] = False
     if args.drift_launch_policy:
-        cfg.setdefault("drift_rate_interactive", {})["launch_policy"] = (
-            args.drift_launch_policy
-        )
+        cfg.setdefault("drift_rate_interactive", {})[
+            "launch_policy"
+        ] = args.drift_launch_policy
     return cfg
 
 

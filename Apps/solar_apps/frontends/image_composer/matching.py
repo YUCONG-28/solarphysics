@@ -320,8 +320,13 @@ def _settings_signature(project: ComposerProject) -> str:
     used = {slot.folder_id for slot in project.slots}
     values = {
         "folders": [
-            (folder.id, str(folder.path.resolve()), folder.start_index,
-             folder.end_index, float(folder.offset_seconds))
+            (
+                folder.id,
+                str(folder.path.resolve()),
+                folder.start_index,
+                folder.end_index,
+                float(folder.offset_seconds),
+            )
             for folder in sorted(project.folders, key=lambda item: item.id)
             if folder.id in used
         ],
@@ -330,7 +335,9 @@ def _settings_signature(project: ComposerProject) -> str:
         "tolerance_seconds": float(project.matching.tolerance_seconds),
         "window": matching_window(project),
     }
-    return hashlib.sha256(json.dumps(values, sort_keys=True).encode("utf-8")).hexdigest()
+    return hashlib.sha256(
+        json.dumps(values, sort_keys=True).encode("utf-8")
+    ).hexdigest()
 
 
 def _source_signature(project: ComposerProject) -> str:
@@ -345,15 +352,27 @@ def _source_signature(project: ComposerProject) -> str:
             try:
                 stat = path.stat()
             except OSError as exc:
-                raise StaleMatchPlanError(f"Image input is unavailable: {path}") from exc
+                raise StaleMatchPlanError(
+                    f"Image input is unavailable: {path}"
+                ) from exc
             files.append((str(path.resolve()), stat.st_size, stat.st_mtime_ns))
-        values.append((
-            folder.id,
-            files,
-            [(str(record.path.resolve()), record.timestamp_text or record.timestamp.isoformat(),
-              record.readable) for record in folder.records],
-        ))
-    return hashlib.sha256(json.dumps(values, sort_keys=True).encode("utf-8")).hexdigest()
+        values.append(
+            (
+                folder.id,
+                files,
+                [
+                    (
+                        str(record.path.resolve()),
+                        record.timestamp_text or record.timestamp.isoformat(),
+                        record.readable,
+                    )
+                    for record in folder.records
+                ],
+            )
+        )
+    return hashlib.sha256(
+        json.dumps(values, sort_keys=True).encode("utf-8")
+    ).hexdigest()
 
 
 def build_match_plan(project: ComposerProject) -> ComposerMatchPlan:
@@ -601,19 +620,23 @@ def iter_match_rows(
                 "source_file": str(match.record.path) if match else "",
                 "source_ordinal": match.record.ordinal if match else "",
                 "source_timestamp": (
-                    match.record.timestamp_text
-                    or match.record.timestamp.isoformat(timespec="microseconds")
-                )
-                if match
-                else "",
+                    (
+                        match.record.timestamp_text
+                        or match.record.timestamp.isoformat(timespec="microseconds")
+                    )
+                    if match
+                    else ""
+                ),
                 "source_time_source": match.record.time_source if match else "",
                 "source_offset_seconds": folder.offset_seconds,
                 "source_corrected_timestamp": (
-                    match.corrected_timestamp_text
-                    or match.corrected_timestamp.isoformat(timespec="microseconds")
-                )
-                if match
-                else "",
+                    (
+                        match.corrected_timestamp_text
+                        or match.corrected_timestamp.isoformat(timespec="microseconds")
+                    )
+                    if match
+                    else ""
+                ),
                 "delta_seconds": match.delta_seconds if match else "",
                 "abs_delta_seconds": abs(match.delta_seconds) if match else "",
                 "over_tolerance": match.over_tolerance if match else "",

@@ -246,7 +246,8 @@ def test_explicit_range_edit_builds_a_new_plan_without_mutating_previous_plan(
 
 @pytest.mark.parametrize("change", ["file_contents", "directory_membership"])
 def test_selection_edit_cannot_hide_changed_observations(
-    tmp_path: Path, change: str,
+    tmp_path: Path,
+    change: str,
 ) -> None:
     project = _project(tmp_path)
     freeze_match_plan(project)

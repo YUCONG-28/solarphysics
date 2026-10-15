@@ -114,9 +114,11 @@ def project_from_dict(payload: dict[str, Any]) -> ComposerProject:
                 master_folder_id=str(matching_data.get("master_folder_id", "")),
                 mode=str(matching_data.get("mode", "time")),
                 tolerance_seconds=float(matching_data.get("tolerance_seconds", 1.0)),
-                strict=False
-                if schema_version == 1
-                else bool(matching_data.get("strict", False)),
+                strict=(
+                    False
+                    if schema_version == 1
+                    else bool(matching_data.get("strict", False))
+                ),
                 master_policy=str(
                     matching_data.get("master_policy", "auto_min_frames_hierarchical")
                 ),

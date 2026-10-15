@@ -318,9 +318,11 @@ def test_acceptance_rejects_forged_adjacent_nearest_and_coverage_flags():
     assert edge["coverage_forced"] is True
     edge.update(is_nearest=True, coverage_forced=False)
     rows = [
-        replace(row, parent_matches={"many": edge})
-        if row.selections["many"].sorted_index == 0
-        else row
+        (
+            replace(row, parent_matches={"many": edge})
+            if row.selections["many"].sorted_index == 0
+            else row
+        )
         for row in plan.rows
     ]
     invalid = replace(
