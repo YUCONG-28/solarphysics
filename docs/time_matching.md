@@ -90,6 +90,9 @@ coincidence.
 fractional digits and continuous integer TAI nanoseconds. Naive scientific clocks
 default to UTC; explicit time zones and TAI labels are converted. Legacy
 `datetime` wrappers retain their return types and microsecond precision limit.
+`TimeStamp.to_datetime()` returns naive UTC and truncates submicrosecond digits
+without changing the exact stamp. It raises `ValueError` for a leap second,
+which `datetime` cannot represent; retain the exact stamp for that observation.
 Invalid complete observation timestamps cannot silently become date-only
 midnight observations. FITS observation metadata takes precedence over filename
 fallbacks; original header cards remain available in the locator.

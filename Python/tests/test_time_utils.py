@@ -63,6 +63,22 @@ def test_legacy_time_helpers_convert_tai_timezone_and_fraction():
     assert extract_time_from_filename("cso_20200101044800123456_LL.fits") == expected
 
 
+@pytest.mark.parametrize("zone", ["Z", "+08:00", "+0800"])
+def test_legacy_parser_accepts_nanosecond_inputs_at_microsecond_boundary(zone):
+    from solar_toolkit.time import parse_time
+
+    hour = "04" if zone == "Z" else "12"
+    assert parse_time(f"2020-01-01T{hour}:48:00.123456789{zone}") == dt.datetime(
+        2020,
+        1,
+        1,
+        4,
+        48,
+        0,
+        123456,
+    )
+
+
 @pytest.mark.parametrize(
     "filename",
     [

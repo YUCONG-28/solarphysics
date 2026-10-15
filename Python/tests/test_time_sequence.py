@@ -37,7 +37,9 @@ def test_nanoseconds_tai_timezone_and_exact_integer_roundtrip():
     a = normalize_time("2020-01-01T04:48:00.123456789Z", source="DATE-OBS")
     b = normalize_time("2020-01-01T12:48:00.123456789+08:00")
     c = normalize_time("2020-01-01T04:48:37.123456789_TAI")
+    compact_zone = normalize_time("2020-01-01T12:48:00.123456789+0800")
     assert a.tai_ns == b.tai_ns == c.tai_ns
+    assert compact_zone.tai_ns == a.tai_ns
     assert a.utc == "2020-01-01T04:48:00.123456789"
     assert c.scale == "tai"
     later = normalize_time("2020-01-01T04:48:00.123456790Z")
@@ -48,6 +50,34 @@ def test_nanoseconds_tai_timezone_and_exact_integer_roundtrip():
     assert normalize_time(a, source="copied").source == "copied"
     assert seconds_to_ns("0.0000000005") == 0
     assert seconds_to_ns("0.0000000015") == 2
+
+
+@pytest.mark.parametrize(
+    "fraction,microseconds",
+    [
+        ("000000001", 0),
+        ("123456789", 123456),
+        ("999999999", 999999),
+    ],
+)
+def test_datetime_conversion_truncates_without_mutating_exact_timestamp(
+    fraction, microseconds
+):
+    stamp = normalize_time(f"2020-01-01T23:59:59.{fraction}")
+    original = stamp.to_dict()
+
+    result = stamp.to_datetime()
+
+    assert result == dt.datetime(2020, 1, 1, 23, 59, 59, microseconds)
+    assert result.tzinfo is None
+    assert stamp.to_dict() == original
+
+
+def test_datetime_conversion_cannot_represent_a_leap_second():
+    stamp = normalize_time("2016-12-31T23:59:60.123456789")
+    with pytest.raises(ValueError):
+        stamp.to_datetime()
+    assert stamp.utc == "2016-12-31T23:59:60.123456789"
 
 
 def test_continuous_clock_preserves_utc_leap_second():

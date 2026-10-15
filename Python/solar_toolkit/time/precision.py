@@ -63,6 +63,16 @@ class TimeStamp:
             raw=f"{self.raw} + ({seconds}) s",
         )
 
+    def to_datetime(self) -> dt.datetime:
+        """Return naive UTC at microsecond resolution, truncating finer digits.
+
+        The exact timestamp remains unchanged. Leap seconds cannot be expressed
+        by ``datetime`` and raise ``ValueError``; use this object for those times.
+        """
+        # Normalized UTC has nine fractional digits; Python 3.10's ISO parser
+        # only accepts three or six. Truncate explicitly at this legacy boundary.
+        return dt.datetime.strptime(self.utc[:26], "%Y-%m-%dT%H:%M:%S.%f")
+
     def to_dict(self):
         return {
             "raw": self.raw,
@@ -117,6 +127,8 @@ def _text_time(text, scale):
         if zone != "Z":
             # Preserve the fractional nanoseconds independently of datetime's
             # microsecond limit. Offsets themselves are whole minutes.
+            if len(zone) == 5:
+                zone = f"{zone[:3]}:{zone[3:]}"
             offset = dt.datetime.fromisoformat(f"{date}T{clock}{zone}")
             base = offset.astimezone(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
             result = base + ("." + fraction if fraction else "")

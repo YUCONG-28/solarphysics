@@ -41,7 +41,7 @@ def parse_time(value: str | dt.datetime | dt.date) -> dt.datetime:
         except ValueError:
             from .precision import normalize_time
 
-            parsed = dt.datetime.fromisoformat(normalize_time(text).utc)
+            parsed = normalize_time(text).to_datetime()
 
     if parsed.tzinfo is not None:
         parsed = parsed.astimezone(dt.timezone.utc).replace(tzinfo=None)
@@ -138,7 +138,7 @@ def extract_time_from_filename(filename: str) -> dt.datetime:
     """
     text = str(filename)
     if re.search(r"\d{4}-\d{2}-\d{2}T|\d{8}[T_-]\d|\d{14}", text):
-        return dt.datetime.fromisoformat(extract_timestamp_from_filename(filename).utc)
+        return extract_timestamp_from_filename(filename).to_datetime()
     for pattern, fmt in (
         (r"(\d{4}-\d{2}-\d{2})", "%Y-%m-%d"),
         (r"(?<!\d)(\d{8})(?!\d)", "%Y%m%d"),

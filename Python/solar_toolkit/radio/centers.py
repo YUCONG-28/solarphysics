@@ -260,9 +260,7 @@ def parse_datetime_value(value: object) -> datetime | None:
             value = compact_millis[1] + "." + f"{int(compact_millis[2]):03d}"
     try:
         stamp = normalize_time(value)
-        return datetime.fromisoformat(stamp.utc.replace("Z", "+00:00")).replace(
-            tzinfo=None
-        )
+        return stamp.to_datetime()
     except (ValueError, TypeError):
         return None
 
@@ -334,9 +332,7 @@ def parse_observation_time(path: Path, header: fits.Header) -> datetime | None:
             path=path,
             fallback_parser=lambda value: parse_time_from_filename(Path(value)),
         )
-        return datetime.fromisoformat(stamp.utc.replace("Z", "+00:00")).replace(
-            tzinfo=None
-        )
+        return stamp.to_datetime()
     except (ValueError, TypeError):
         return None
 
@@ -834,9 +830,7 @@ def maybe_make_sum_images(
         midpoint = TimeStamp.from_tai_ns(
             (pair.left.time.tai_ns + pair.right.time.tai_ns) // 2
         )
-        observed = datetime.fromisoformat(midpoint.utc.replace("Z", "+00:00")).replace(
-            tzinfo=None
-        )
+        observed = midpoint.to_datetime()
         header = left.header.copy()
         header["POLAR"] = POL_SUM
         header["DATE-OBS"] = midpoint.utc.rstrip("Z")
