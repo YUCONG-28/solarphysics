@@ -113,14 +113,22 @@ def test_preview_and_video_share_plan_until_explicit_refresh(tmp_path, monkeypat
         composite_app._placeholder_roi().to_json_dict()
     )
     app.session_state["aia_radio_spectrum"] = SpectrumWindow(
-        data=np.ones((6, 2)),
-        frequency_mhz=np.array([149, 164, 190, 205, 223, 238]),
+        data=np.ones((8, 2)),
+        # Both edge bands need their full +/-1 MHz extent inside the spectrum.
+        frequency_mhz=np.array([148, 149, 164, 190, 205, 223, 238, 239]),
         time_utc=(settings["time_start"], settings["time_end"]),
         polarization="RR",
         unit="sfu",
         source="CSO",
     )
     app.run()
+    assert not _button(app, "Generate synchronized composite").disabled, {
+        "warnings": [notice.value for notice in app.warning],
+        "errors": [notice.value for notice in app.error],
+        "infos": [notice.value for notice in app.info],
+        "roi": app.session_state["aia_radio_confirmed_roi"],
+        "curve_frequencies": app.multiselect(key="curve_frequencies").value,
+    }
     _button(app, "Generate synchronized composite").click().run()
     assert not app.exception
     assert composites[0]["match_plan"] is plan
