@@ -280,111 +280,22 @@ def _parse_time_from_filename(filename: str) -> tuple[str, int] | None:
     return None
 
 
-def _match_rr_ll_by_time(
-    rr_files: list, ll_files: list, tolerance_ms: float = 10.0
-) -> list[tuple[str, str]]:
-    """
-    根据文件名时间戳将RR与LL文件逐一配对（毫秒级精度）。
+def _match_rr_ll_by_time(rr_files: list, ll_files: list, tolerance_ms: float = 10.0):
+    """Use the shared strict UTC/grid/frequency one-to-one radio pairing."""
+    from solar_toolkit.radio.time_matching import index_radio_frames, pair_radio_frames
 
-    算法:
-      1. 解析所有LL文件的时间戳，建立 {(date, ms): path} 索引。
-      2. 遍历每个RR文件，先精确匹配，再在容差范围内找最近邻。
-      3. 返回已匹配的 [(rr_path, ll_path), ...] 列表，并报告未匹配数量。
-
-    Parameters
-    ----------
-    rr_files      : RR文件路径列表（已排序）
-    ll_files      : LL文件路径列表（已排序）
-    tolerance_ms  : 时间匹配容差（毫秒），默认10ms
-
-    Returns
-    -------
-    matched_pairs : list of (rr_path, ll_path)
-    """
-    # 构建LL时间索引: {(date, total_ms): ll_path}
-    ll_index: dict[tuple[str, int], str] = {}
-    ll_no_parse: list[str] = []
-    for ll_path in ll_files:
-        parsed = _workflow()._parse_time_from_filename(os.path.basename(ll_path))
-        if parsed is None:
-            ll_no_parse.append(ll_path)
-        else:
-            key = parsed  # (date_str, total_ms)
-            if key not in ll_index:
-                ll_index[key] = ll_path
-
-    if ll_no_parse:
-        warnings.warn(
-            f"有 {len(ll_no_parse)} 个LL文件无法从文件名解析时间，将被跳过。",
-            stacklevel=2,
+    left = index_radio_frames(
+        rr_files, fallback_parser=parse_radio_time_from_filename, strict=False
+    )
+    right = index_radio_frames(
+        ll_files, fallback_parser=parse_radio_time_from_filename, strict=False
+    )
+    return [
+        tuple(frame.payload["paths"])
+        for frame in pair_radio_frames(
+            left, right, tolerance_seconds=float(tolerance_ms) / 1000
         )
-
-    matched_pairs: list[tuple[str, str]] = []
-    unmatched_rr: list[str] = []
-
-    # 将LL索引按日期分组，加速搜索
-    from collections import defaultdict
-
-    ll_by_date: dict[str, list[tuple[int, str]]] = defaultdict(
-        list
-    )  # {date_str: [(total_ms, ll_path), ...]}
-    for (date_str, total_ms), ll_path in ll_index.items():
-        ll_by_date[date_str].append((total_ms, ll_path))
-    # 每个日期内按ms排序，以便未来二分查找（当前数据量不大，线性也可）
-    for date_str in ll_by_date:
-        ll_by_date[date_str].sort(key=lambda x: x[0])
-
-    for rr_path in rr_files:
-        parsed = _workflow()._parse_time_from_filename(os.path.basename(rr_path))
-        if parsed is None:
-            unmatched_rr.append(rr_path)
-            warnings.warn(
-                f"RR文件 {os.path.basename(rr_path)} 无法解析时间，跳过。", stacklevel=2
-            )
-            continue
-
-        rr_date, rr_ms = parsed
-
-        # ① 精确匹配
-        if (rr_date, rr_ms) in ll_index:
-            matched_pairs.append((rr_path, ll_index[(rr_date, rr_ms)]))
-            continue
-
-        # ② 容差范围内最近邻匹配
-        candidates = ll_by_date.get(rr_date, [])
-        best_ll_path = None
-        best_diff = float("inf")
-        for ll_ms, ll_path in candidates:
-            diff = abs(rr_ms - ll_ms)
-            if diff < best_diff:
-                best_diff = diff
-                best_ll_path = ll_path
-
-        if best_ll_path is not None and best_diff <= tolerance_ms:
-            matched_pairs.append((rr_path, best_ll_path))
-        else:
-            unmatched_rr.append(rr_path)
-            if best_diff != float("inf"):
-                warnings.warn(
-                    f"RR文件 {os.path.basename(rr_path)} 找不到时间匹配的LL文件 "
-                    f"(最近差值={best_diff:.1f}ms > 容差={tolerance_ms:.1f}ms)，跳过。",
-                    stacklevel=2,
-                )
-            else:
-                warnings.warn(
-                    f"RR文件 {os.path.basename(rr_path)} 在LL目录中找不到同日期文件，跳过。",
-                    stacklevel=2,
-                )
-
-    if unmatched_rr:
-        print(
-            f"  时间匹配结果: 成功 {len(matched_pairs)} 对，"
-            f"RR未匹配 {len(unmatched_rr)} 个。"
-        )
-    else:
-        print(f"  时间匹配结果: 全部 {len(matched_pairs)} 对成功匹配。")
-
-    return matched_pairs
+    ]
 
 
 def _multi_wave_overlay_enabled(cfg: Config) -> bool:
@@ -402,94 +313,68 @@ def _radio_time_key_from_item(item) -> tuple[str, int] | None:
     return _workflow()._parse_time_from_filename(os.path.basename(path))
 
 
-def _build_common_radio_slots_from_entries(
-    per_band_entries: list[list[tuple[tuple[str, int], object]]],
-    tolerance_ms: float,
-) -> list[list[object]]:
-    if not per_band_entries or any(not entries for entries in per_band_entries):
-        return []
-    reference_index = min(
-        range(len(per_band_entries)), key=lambda index: len(per_band_entries[index])
+def _build_common_radio_slots_from_entries(per_band_entries, tolerance_ms):
+    """Compatibility wrapper for legacy entry lists using the unified fixed plan."""
+    from solar_toolkit.time import (
+        TimeFrame,
+        TimeStamp,
+        TimeStream,
+        build_sequence_match_plan,
+        normalize_time,
     )
-    reference_entries = sorted(
-        per_band_entries[reference_index], key=lambda entry: (entry[0][0], entry[0][1])
-    )
-    used_by_band = [set() for _entries in per_band_entries]
-    slots = []
-    for ref_key, _ref_item in reference_entries:
-        slot = []
-        matched_indices = []
-        for band_index, entries in enumerate(per_band_entries):
-            match_index = _workflow()._nearest_radio_entry_index(
-                entries, ref_key, used_by_band[band_index], tolerance_ms
+
+    streams = []
+    for band_index, entries in enumerate(per_band_entries):
+        frames = []
+        for index, (key, item) in enumerate(entries):
+            if (
+                isinstance(item, tuple)
+                and len(item) >= 4
+                and isinstance(item[3], datetime)
+            ):
+                stamp = normalize_time(item[3])
+            else:
+                midnight = _parse_flexible_datetime(f"{key[0]}_000000_0")
+                if midnight is None:
+                    raise ValueError("Legacy radio entry has no parseable UTC date")
+                stamp = TimeStamp.from_tai_ns(
+                    normalize_time(midnight).tai_ns + int(key[1]) * 1_000_000
+                )
+            frames.append(
+                TimeFrame(f"band:{band_index:04d};entry:{index}", stamp, item)
             )
-            if match_index is None:
-                slot = []
-                matched_indices = []
-                break
-            matched_indices.append(match_index)
-            slot.append(entries[match_index][1])
-        if not slot:
-            continue
-        slot_times = [
-            per_band_entries[band_index][match_index][0][1]
-            for band_index, match_index in enumerate(matched_indices)
+        streams.append(
+            TimeStream(
+                f"band:{band_index:04d}",
+                frames,
+                tolerance_seconds=float(tolerance_ms) / 1000,
+            )
+        )
+    if not any(stream.frames for stream in streams):
+        return []
+    plan = build_sequence_match_plan(streams)
+    return [
+        [
+            selection.frame.payload
+            for selection in row.selections.values()
+            if selection.frame is not None
         ]
-        if max(slot_times) - min(slot_times) > tolerance_ms:
-            continue
-        for band_index, match_index in enumerate(matched_indices):
-            used_by_band[band_index].add(match_index)
-        slots.append(slot)
-    return slots
+        for row in plan.rows
+    ]
 
 
 def build_radio_time_slots_for_overlay(cfg: Config) -> list[tuple[int, dict]]:
-    """Build radio-first multi-frequency slots for raw AIA overlay frames."""
-    per_band_entries = []
-    tolerance_ms = float(getattr(cfg, "multi_band_time_tolerance_seconds", 0.1)) * 1000
-    for band in cfg.selected_bands:
-        band_dir = os.path.join(cfg.radio_base_dir, band)
-        if cfg.combine_polarizations and cfg.polarization_mode == "RR+LL":
-            rr_dir = os.path.join(band_dir, cfg.rr_dir_suffix)
-            ll_dir = os.path.join(band_dir, cfg.ll_dir_suffix)
-            rr_files = _workflow()._fits_files_in_dir(
-                rr_dir, cfg.radio_start_idx, cfg.radio_end_idx
-            )
-            ll_files = _workflow()._fits_files_in_dir(
-                ll_dir, cfg.radio_start_idx, cfg.radio_end_idx
-            )
-            matched_items = _workflow()._match_rr_ll_by_time(
-                rr_files, ll_files, cfg.time_tolerance_seconds * 1000
-            )
-            polarization = "RR+LL"
-        else:
-            pol_dir = os.path.join(band_dir, cfg.polarization_mode)
-            search_dir = pol_dir if os.path.isdir(pol_dir) else band_dir
-            matched_items = _workflow()._fits_files_in_dir(
-                search_dir, cfg.radio_start_idx, cfg.radio_end_idx
-            )
-            polarization = cfg.polarization_mode
+    """Keep all longest-radio-stream observations with monotone display reuse."""
+    from solar_toolkit.time import build_sequence_match_plan
 
-        entries = []
-        for item in matched_items:
-            key = _workflow()._radio_time_key_from_item(item)
-            path_for_time = item[0] if isinstance(item, tuple) else item
-            radio_time = _workflow().parse_radio_time_from_filename(path_for_time)
-            if key is None or radio_time is None:
-                continue
-            entries.append((key, (band, item, polarization, radio_time)))
-        per_band_entries.append(entries)
-
-    common_slots = _workflow()._build_common_radio_slots_from_entries(
-        per_band_entries, tolerance_ms
-    )
-    output_slots = []
-    for slot_index, slot_items in enumerate(common_slots):
-        single_slice_bands = {}
-        for band, file_item, polarization, radio_time in slot_items:
-            single_slice_bands[band] = [(file_item, polarization, radio_time)]
-        output_slots.append((slot_index, single_slice_bands))
-    return output_slots
+    streams = _overlay_radio_streams(cfg)
+    if not any(stream.frames for stream in streams):
+        return []
+    plan = build_sequence_match_plan(streams, **_overlay_image_window(cfg))
+    cfg._time_match_plan = plan.to_dict()
+    return [
+        (index, _overlay_slice(row, plan=plan)) for index, row in enumerate(plan.rows)
+    ]
 
 
 def _aia_panel_wavelengths(cfg: Config) -> list[int]:
@@ -528,6 +413,11 @@ def _nearest_file_by_time(
 
 
 def _slot_reference_time(single_slice_bands: dict) -> datetime | None:
+    metadata = getattr(single_slice_bands, "time_match", {})
+    if metadata.get("output_time_utc") or metadata.get("master_time_utc"):
+        return datetime.fromisoformat(
+            (metadata.get("output_time_utc") or metadata["master_time_utc"]).rstrip("Z")
+        ).replace(tzinfo=None)
     times = []
     for file_list in single_slice_bands.values():
         for _file_item, _polarization, radio_time in file_list:
@@ -541,193 +431,239 @@ def _slot_reference_time(single_slice_bands: dict) -> datetime | None:
 def build_multi_wave_matched_pairs(
     cfg: Config,
 ) -> list[tuple[dict[int, str], str | None, list]]:
-    """Match radio-first slots to the nearest six-wave AIA files and HMI file."""
+    """All image routes share the longest route's complete fixed time axis."""
     wavelengths = _workflow()._aia_panel_wavelengths(cfg)
     if not wavelengths:
         return []
-
-    aia_files_by_wave = {
-        wave: _workflow()._fits_files_in_dir(
-            _workflow()._aia_panel_dir(cfg, wave),
-            cfg.aia_file_start_idx,
-            cfg.aia_file_end_idx,
-        )
-        for wave in wavelengths
-    }
-    if any(not files for files in aia_files_by_wave.values()):
-        missing = [wave for wave, files in aia_files_by_wave.items() if not files]
-        raise FileNotFoundError(f"Missing AIA FITS files for wavelengths: {missing}")
-
-    hmi_files = (
-        sorted(glob.glob(os.path.join(cfg.hmi_base_dir, "*.fits")))
-        if cfg.overlay_hmi
-        else []
-    )
-    radio_slots = _workflow().build_radio_time_slots_for_overlay(cfg)
-    matched_pairs = []
-    for slot_index, single_slice_bands in radio_slots:
-        reference_time = _workflow()._slot_reference_time(single_slice_bands)
-        if reference_time is None:
-            continue
-        matched_aia = {}
-        for wave, files in aia_files_by_wave.items():
-            aia_file = _workflow()._nearest_file_by_time(
-                files,
-                _workflow().parse_aia_time_from_filename,
-                reference_time,
-                float(cfg.aia_time_threshold_seconds),
+    plan = _build_overlay_plan(cfg, wavelengths)
+    if plan is None:
+        return []
+    matched = []
+    for index, row in enumerate(plan.rows):
+        aia = {
+            wave: row.selections[f"aia:{wave}"].frame.payload
+            for wave in wavelengths
+            if row.selections[f"aia:{wave}"].frame is not None
+        }
+        hmi = row.selections.get("hmi")
+        matched.append(
+            (
+                aia,
+                hmi.frame.payload if hmi and hmi.frame else None,
+                [(index, _overlay_slice(row, plan=plan))],
             )
-            if aia_file is None:
-                matched_aia = {}
-                break
-            matched_aia[wave] = aia_file
-        if not matched_aia:
-            continue
-        hmi_file = None
-        if hmi_files:
-            hmi_file = _workflow()._nearest_file_by_time(
-                hmi_files,
-                _workflow().parse_hmi_time_from_filename,
-                reference_time,
-                float(cfg.hmi_time_threshold) * 3600.0,
-            )
-        matched_pairs.append(
-            (matched_aia, hmi_file, [(slot_index, single_slice_bands)])
         )
-    return matched_pairs
+    return matched
 
 
-def build_matched_pairs(cfg: Config) -> list[tuple[str, str | None, list]]:
-    """
-    构建任务列表：将 AIA 文件前后指定时间内的所有射电数据
-    按时间顺序切分为一个个独立的“切片”（slice），用于生成序列帧。
-    """
-    aia_files = sorted(glob.glob(os.path.join(cfg.aia_base_dir, "*.fits")))
-    if not aia_files:
-        raise FileNotFoundError(f"在 {cfg.aia_base_dir} 中未找到 AIA fits 文件")
+def build_matched_pairs(cfg: Config) -> list[tuple[str | None, str | None, list]]:
+    """Single AIA overlays use the same complete fixed plan as multi-wave overlays."""
+    wave = int(cfg.aia_wavelength)
+    plan = _build_overlay_plan(cfg, [wave])
+    if plan is None:
+        return []
+    matched = []
+    for index, row in enumerate(plan.rows):
+        aia = row.selections[f"aia:{wave}"].frame
+        hmi = row.selections.get("hmi")
+        matched.append(
+            (
+                aia.payload if aia else None,
+                hmi.frame.payload if hmi and hmi.frame else None,
+                [(index, _overlay_slice(row, plan=plan))],
+            )
+        )
+    return matched
 
-    start = cfg.aia_file_start_idx if cfg.aia_file_start_idx is not None else 0
-    end = cfg.aia_file_end_idx if cfg.aia_file_end_idx is not None else len(aia_files)
-    aia_files = aia_files[start:end]
 
-    hmi_files = (
-        sorted(glob.glob(os.path.join(cfg.hmi_base_dir, "*.fits")))
-        if cfg.overlay_hmi
-        else []
+class RadioOverlaySlice(dict):
+    """Legacy band task mapping carrying the exact master UTC and matching flags."""
+
+    def __init__(self, *args, time_match=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.time_match = time_match or {}
+
+
+def _overlay_radio_streams(cfg):
+    from solar_toolkit.radio.time_matching import index_radio_frames, pair_radio_frames
+    from solar_toolkit.time import TimeFrame, TimeStream
+    from . import (
+        source_map_workflow,
+    )  # Initialize the shared facade before its input adapter.
+    from . import _source_map_selection as inputs
+
+    window = _overlay_image_window(cfg)
+    radio_start, radio_end = _overlay_file_indices(
+        cfg, "radio", cfg.radio_start_idx, cfg.radio_end_idx
     )
-
-    # 提前缓存并解析所有射电文件的时间
-    radio_cache = []
+    streams = []
     for band in cfg.selected_bands:
         band_dir = os.path.join(cfg.radio_base_dir, band)
-        rr_dir = (
-            os.path.join(band_dir, cfg.rr_dir_suffix)
-            if cfg.combine_polarizations
-            else band_dir
-        )
-        ll_dir = (
-            os.path.join(band_dir, cfg.ll_dir_suffix)
-            if cfg.combine_polarizations
-            else None
-        )
+        frequency = re.search(r"(\d+(?:\.\d+)?)", str(band))
+        frequency = float(frequency.group(1)) if frequency else None
 
-        rr_files = (
-            sorted(glob.glob(os.path.join(rr_dir, "*.fits")))
-            if os.path.isdir(rr_dir)
-            else []
-        )
-        ll_files = (
-            sorted(glob.glob(os.path.join(ll_dir, "*.fits")))
-            if ll_dir and os.path.isdir(ll_dir)
-            else []
-        )
+        def fallback(path):
+            return inputs._radio_stamp_from_filename(path, {"date_format": "auto"})
 
-        if cfg.combine_polarizations and rr_files and ll_files:
-            pairs = _workflow()._match_rr_ll_by_time(
-                rr_files, ll_files, cfg.time_tolerance_seconds * 1000
+        if cfg.combine_polarizations and cfg.polarization_mode == "RR+LL":
+            rr = index_radio_frames(
+                _fits_files_in_dir(
+                    os.path.join(band_dir, cfg.rr_dir_suffix), radio_start, radio_end
+                ),
+                frequency_mhz=frequency,
+                polarization="RR",
+                fallback_parser=fallback,
             )
-            for rr_path, ll_path in pairs:
-                t = _workflow().parse_radio_time_from_filename(rr_path)
-                if t:
-                    radio_cache.append(
-                        {
-                            "path": (rr_path, ll_path),
-                            "band": band,
-                            "pol": "RR+LL",
-                            "time": t,
-                        }
-                    )
+            ll = index_radio_frames(
+                _fits_files_in_dir(
+                    os.path.join(band_dir, cfg.ll_dir_suffix), radio_start, radio_end
+                ),
+                frequency_mhz=frequency,
+                polarization="LL",
+                fallback_parser=fallback,
+            )
+            frames = pair_radio_frames(
+                rr, ll, tolerance_seconds=cfg.time_tolerance_seconds, **window
+            )
+            polarization = "RR+LL"
         else:
-            files = (
-                rr_files
-                if rr_files
-                else (
-                    ll_files
-                    if ll_files
-                    else glob.glob(os.path.join(band_dir, "*.fits"))
+            pol_dir = os.path.join(band_dir, cfg.polarization_mode)
+            frames = index_radio_frames(
+                _fits_files_in_dir(
+                    pol_dir if os.path.isdir(pol_dir) else band_dir,
+                    radio_start,
+                    radio_end,
+                ),
+                frequency_mhz=frequency,
+                polarization=cfg.polarization_mode,
+                fallback_parser=fallback,
+            )
+            polarization = cfg.polarization_mode
+        wrapped = []
+        for frame in frames:
+            item = inputs._item_from_logical_frame(frame)
+            actual = datetime.fromisoformat(frame.time.utc).replace(tzinfo=None)
+            wrapped.append(
+                TimeFrame(
+                    frame.frame_id, frame.time, (band, item, polarization, actual)
                 )
             )
-            for rf in files:
-                t = _workflow().parse_radio_time_from_filename(rf)
-                if t:
-                    radio_cache.append(
-                        {
-                            "path": rf,
-                            "band": band,
-                            "pol": cfg.polarization_mode,
-                            "time": t,
-                        }
+        streams.append(
+            TimeStream(
+                f"radio:{band}",
+                wrapped,
+                tolerance_seconds=cfg.multi_band_time_tolerance_seconds,
+            )
+        )
+    return streams
+
+
+def _overlay_image_window(cfg):
+    from . import _source_map_selection as inputs
+
+    return inputs._image_time_window(
+        {
+            "image_time_start": cfg.image_time_start,
+            "image_time_end": cfg.image_time_end,
+            "multi_band_root": cfg.radio_base_dir,
+        }
+    )
+
+
+def _overlay_file_indices(cfg, source, start, end):
+    if any(
+        value is not None for value in _overlay_image_window(cfg).values()
+    ) and source not in (cfg.image_index_sources or []):
+        return None, None
+    return start, end
+
+
+def _overlay_slice(row, *, plan):
+    from solar_toolkit.radio.time_matching import selection_metadata
+
+    values = {}
+    for source_id, selection in row.selections.items():
+        if source_id.startswith("radio:") and selection.frame is not None:
+            band, item, polarization, actual = selection.frame.payload
+            values[band] = [(item, polarization, actual)]
+    metadata = selection_metadata(row, plan=plan)
+    from . import _source_map_selection as inputs
+
+    for source_id, selection in row.selections.items():
+        if selection.frame is None:
+            continue
+        item = (
+            selection.frame.payload[1]
+            if source_id.startswith("radio:")
+            else selection.frame.payload
+        )
+        if getattr(item, "logical_frame", None) is not None:
+            metadata["selections"][source_id]["locator"] = inputs._logical_locator(
+                item.logical_frame
+            )
+            metadata["selections"][source_id]["paths"] = (
+                list(map(str, item)) if isinstance(item, tuple) else [str(item)]
+            )
+    return RadioOverlaySlice(values, time_match=metadata)
+
+
+def _build_overlay_plan(cfg, wavelengths):
+    from solar_toolkit.radio.time_matching import index_radio_frames
+    from solar_toolkit.time import (
+        TimeFrame,
+        TimeStream,
+        build_sequence_match_plan,
+        extract_timestamp_from_filename,
+    )
+
+    streams = _overlay_radio_streams(cfg)
+    from . import _source_map_selection as inputs
+
+    for wave in wavelengths:
+        files = _fits_files_in_dir(
+            _aia_panel_dir(cfg, wave),
+            *_overlay_file_indices(
+                cfg, "aia", cfg.aia_file_start_idx, cfg.aia_file_end_idx
+            ),
+        )
+        frames = index_radio_frames(
+            files, fallback_parser=extract_timestamp_from_filename
+        )
+        streams.append(
+            TimeStream(
+                f"aia:{wave}",
+                [
+                    TimeFrame(
+                        frame.frame_id,
+                        frame.time,
+                        inputs._item_from_logical_frame(frame),
                     )
-
-    matched_pairs = []
-    for aia_file in aia_files:
-        aia_time = _workflow().parse_aia_time_from_filename(os.path.basename(aia_file))
-        if not aia_time:
-            continue
-
-        # 匹配最近的 HMI
-        best_hmi = None
-        if cfg.overlay_hmi and hmi_files:
-            hmi_diffs = []
-            for hf in hmi_files:
-                ht = _workflow().parse_hmi_time_from_filename(hf)
-                if ht:
-                    hmi_diffs.append((hf, abs((ht - aia_time).total_seconds())))
-            valid_hmis = [x for x in hmi_diffs if x[1] <= cfg.hmi_time_threshold * 3600]
-            if valid_hmis:
-                best_hmi = min(valid_hmis, key=lambda x: x[1])[0]
-
-        # 归类落在这个 AIA 时间窗口内的所有射电帧
-        band_groups = {}
-        for rc in radio_cache:
-            dt = abs((rc["time"] - aia_time).total_seconds())
-            if dt <= cfg.radio_time_threshold:
-                band_groups.setdefault(rc["band"], []).append(
-                    (rc["path"], rc["pol"], rc["time"], dt)
-                )
-
-        if not band_groups:
-            continue
-
-        for band in band_groups:
-            band_groups[band].sort(key=lambda x: x[2])  # 严格按照时间排序
-            band_groups[band] = band_groups[band][: cfg.max_radio_per_band]
-
-        min_count = min(len(v) for v in band_groups.values())
-        if min_count == 0:
-            continue
-
-        # 横向构建切片，生成序列子任务 (切片结构：{ 频段: [(文件, 偏振, 时间)] })
-        tasks_for_aia = []
-        for idx in range(min_count):
-            slc = {
-                band: [band_groups[band][idx][:3]]
-                for band in band_groups
-                if idx < len(band_groups[band])
-            }
-            if slc:
-                tasks_for_aia.append((idx, slc))
-
-        matched_pairs.append((aia_file, best_hmi, tasks_for_aia))
-
-    return matched_pairs
+                    for frame in frames
+                ],
+                tolerance_seconds=float(cfg.aia_time_threshold_seconds),
+            )
+        )
+    if cfg.overlay_hmi:
+        files = _fits_files_in_dir(cfg.hmi_base_dir)
+        frames = index_radio_frames(
+            files, fallback_parser=extract_timestamp_from_filename
+        )
+        streams.append(
+            TimeStream(
+                "hmi",
+                [
+                    TimeFrame(
+                        frame.frame_id,
+                        frame.time,
+                        inputs._item_from_logical_frame(frame),
+                    )
+                    for frame in frames
+                ],
+                tolerance_seconds=float(cfg.hmi_time_threshold) * 3600,
+            )
+        )
+    if not any(stream.frames for stream in streams):
+        return None
+    plan = build_sequence_match_plan(streams, **_overlay_image_window(cfg))
+    cfg._time_match_plan = plan.to_dict()
+    return plan

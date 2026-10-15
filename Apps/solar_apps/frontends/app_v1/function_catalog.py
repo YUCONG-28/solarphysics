@@ -815,6 +815,15 @@ FUNCTIONS: tuple[FunctionSpec, ...] = (
         "solar_apps.frontends.app_v1.source_map_flow_worker",
         parameters=(
             _p(
+                "image_time_start", "Image start UTC", "time", flag="--image-time-start"
+            ),
+            _p(
+                "image_time_end",
+                "Image end UTC (exclusive)",
+                "time",
+                flag="--image-time-end",
+            ),
+            _p(
                 "config",
                 "Configuration JSON",
                 "file",

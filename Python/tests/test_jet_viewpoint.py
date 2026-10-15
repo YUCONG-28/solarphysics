@@ -117,16 +117,47 @@ def test_pairing_real_frames_repeats_ties_missing():
     ]
     pairs = pair_frames(records, "AIA", 304)
     assert len(pairs) == 5 and pairs[1]["repeated_other"]
+    assert all(pair["master_instrument"] == "EUVI" for pair in pairs)
+    assert all(pair["output_instrument"] == "AIA" for pair in pairs)
+    assert {pair["output_id"] for pair in pairs} == {
+        str(t) for t in [0, 12, 24, 36, 48]
+    }
+    assert [pair["output_utc"] for pair in pairs] == sorted(
+        pair["output_utc"] for pair in pairs
+    )
     tied = pair_frames(
         [record("AIA", 20, "a"), record("EUVI", 0, "e0"), record("EUVI", 40, "e40")],
         "AIA",
     )
-    assert tied[0]["status"] == "ambiguous_nearest"
+    assert len(tied) == 2
+    assert {p["EUVI"]["image_sha256"] for p in tied} == {"e0", "e40"}
+    assert all(p["AIA"]["image_sha256"] == "a" for p in tied)
     missing = pair_frames(
-        [record("AIA", 59, "a"), record("EUVI", 0, "e0"), record("EUVI", 12, "e12")],
+        [record("AIA", t, f"a{t}") for t in [0, 20, 59]]
+        + [record("EUVI", 0, "e0"), record("EUVI", 12, "e12")],
         "AIA",
     )
-    assert missing[0]["status"] == "outside_tolerance"
+    assert missing[-1]["status"] == "outside_tolerance"
+    assert missing[-1]["EUVI"] is not None
+    assert missing[-1]["within_tolerance"] is False
+
+
+def test_pairing_preserves_nanosecond_exposure_midpoint_and_light_time():
+    aia = record("AIA", 0, "a")
+    euvi = record("EUVI", 0, "e")
+    aia["midpoint_utc"] = "2000-01-01T12:00:00.000000001"
+    euvi["midpoint_utc"] = "2000-01-01T12:00:00.000000002"
+    aia["dsun_m"] = 299792458
+    euvi["dsun_m"] = 599584916
+
+    pair = pair_frames([euvi, aia], band=304)[0]
+
+    assert pair["master_instrument"] == "AIA"
+    assert pair["output_instrument"] == "EUVI"
+    assert pair["output_utc"] == euvi["midpoint_utc"]
+    assert pair["delta_emission_ns"] == 999999999
+    assert pair["delta_emission_s"] == pytest.approx(0.999999999)
+    assert pair["AIA"] is aia and pair["EUVI"] is euvi
 
 
 def test_scaled_rotated_crop_and_backside(tmp_path):

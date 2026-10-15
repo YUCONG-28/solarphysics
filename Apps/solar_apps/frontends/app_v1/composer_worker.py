@@ -13,6 +13,10 @@ from pathlib import Path
 
 from solar_apps.frontends.image_composer.catalog import scan_folder
 from solar_apps.frontends.image_composer.project import load_project
+from solar_apps.frontends.image_composer.matching import (
+    freeze_match_plan,
+    in_window_records,
+)
 from solar_apps.frontends.image_composer.rendering import (
     compose_frame,
     export_project,
@@ -60,11 +64,6 @@ def _hydrate(project, roots: tuple[Path, ...]) -> None:  # type: ignore[no-untyp
                 f"Composer folder contains no supported images: {resolved}"
             )
         folder.resolved = True
-        folder.start_index = max(1, min(folder.start_index, len(folder.records)))
-        folder.end_index = max(
-            folder.start_index,
-            min(folder.end_index, len(folder.records)),
-        )
 
 
 def _scaled(project, scale: int):  # type: ignore[no-untyped-def]
@@ -83,19 +82,39 @@ def _scaled(project, scale: int):  # type: ignore[no-untyped-def]
 
 
 def _static(project, output: Path) -> dict[str, object]:  # type: ignore[no-untyped-def]
+    plan = freeze_match_plan(project)
+    if not plan:
+        raise ValueError(
+            "No valid images in the selected UTC time window; PNG was not exported."
+        )
     folders = project.folder_map()
+    output_folder = folders[plan.output_folder_id]
+    output_slot = next(
+        slot for slot in project.slots if slot.folder_id == output_folder.id
+    )
+    preview = output_folder.record_by_ordinal(output_slot.preview_ordinal)
+    frame = next(
+        (row for row in plan if preview and row.output_record.path == preview.path),
+        plan[0],
+    )
+    matched = {folder_id: match.record for folder_id, match in frame.matches.items()}
     slot_records = {}
+    repeated_folders = {
+        slot.folder_id
+        for slot in project.slots
+        if sum(other.folder_id == slot.folder_id for other in project.slots) > 1
+    }
     for slot in project.slots:
+        if slot.folder_id not in repeated_folders:
+            continue
         folder = folders.get(slot.folder_id)
-        if folder is None:
-            raise ValueError(f"Slot references missing folder: {slot.folder_id}")
-        record = folder.record_by_ordinal(slot.preview_ordinal)
-        if record is None:
-            raise ValueError(
-                f"Preview ordinal {slot.preview_ordinal} is unavailable in {folder.name}"
-            )
-        slot_records[slot.id] = record
-    image = compose_frame(project, {}, slot_records=slot_records)
+        record = folder.record_by_ordinal(slot.preview_ordinal) if folder else None
+        fallback = matched.get(slot.folder_id)
+        if record is None or record not in in_window_records(project, folder):
+            record = fallback
+        if record is not None:
+            slot_records[slot.id] = record
+    image = compose_frame(project, matched, slot_records=slot_records)
     output.parent.mkdir(parents=True, exist_ok=True)
     temporary = output.with_name(f".{output.stem}.{uuid.uuid4().hex}.tmp.png")
     try:
@@ -126,6 +145,7 @@ def main(argv: list[str] | None = None) -> int:
             raise ValueError(f"Composer snapshot SHA-256 mismatch: {project_path}")
     project = load_project(project_path)
     _hydrate(project, roots)
+    freeze_match_plan(project)
     project = _scaled(project, args.scale)
     print("PROGRESS 10", flush=True)
     if args.mode == "static":

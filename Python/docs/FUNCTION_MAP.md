@@ -3,6 +3,7 @@
 | Area | Public modules | Responsibility |
 | --- | --- | --- |
 | Foundation | `solar_toolkit.time`, `io`, `data`, `map`, `timeseries` | Parsing, discovery, explicit I/O, coordinate-neutral array/table helpers |
+| Image time matching | `time.precision`, `time.sequence`, `radio.time_matching` | Exact UTC/TAI clocks, fixed chronological hierarchy, logical FITS planes and strict polarization pairing |
 | Modeling | `solar_toolkit.modeling.gaussian`, `radio.source_geometry` | Reusable Gaussian models and source geometry |
 | PFSS | `solar_toolkit.modeling.pfss` | Global-field computation and result-bundle validation; solving and tracing need optional backend dependencies |
 | AIA/HMI | `solar_toolkit.aia`, `hmi` | FITS selection, normalization, differences, mosaics and magnetogram calculations |
@@ -30,6 +31,9 @@ separate caller decisions; importing a module does not start a workflow.
 
 | Operation | Input contract | Output and failure behavior |
 | --- | --- | --- |
+| `time.normalize_time` | A complete timestamp, explicit time scale where applicable, or a numeric value with explicit format | Source text/scale, true UTC and continuous integer TAI nanoseconds. Incomplete observation times raise `ValueError`; legacy `datetime` wrappers remain microsecond-limited. |
+| `time.build_sequence_match_plan` | Independent `TimeStream` sequences; optional original-UTC `time_start`/`time_end`, tolerances and explicit offsets | A fixed full-coverage hierarchy ordered by increasing filtered frame count. The largest stream provides output UTC/row count; references never go backwards. Bounds are half-open; over-tolerance selections remain flagged. See [time matching](../../docs/time_matching.md). |
+| `radio.time_matching.index_radio_frames` / `pair_radio_frames` / `materialize_radio_frame` | Explicit FITS files and logical frequency/Stokes selection; optional pairing window and tolerance | Exact file/HDU/plane references and UTC. Strict RR/LL members are filtered before one-to-one pairing; changed input versions are rejected when materialized. |
 | `radio.muser_comparison.nearest_index` | One-dimensional finite, nondecreasing UTC Unix seconds; finite target in seconds; finite nonnegative tolerance in seconds | Original index or `None` if empty/outside tolerance. Invalid inputs raise `ValueError`; no implicit sorting. Ties retain the earlier candidate. |
 | `xray_dem.sxr.load_sxr_data` | User-owned CSV/TXT or NetCDF path; optional start and/or end in UTC (offset-aware inputs are converted) | CSV/TXT returns a DataFrame with normalized `obs_time`; NetCDF returns a loaded Dataset detached from its file. Bounds are inclusive; omitted bounds are open. Reversed/invalid bounds raise `ValueError`. |
 | `timeseries.normalize_time_column` / `crop_time_range` | A DataFrame and explicit time-column name; parseable timestamps | A copied table with UTC-normalized times or selected rows, preserving row order. Naive timestamps are interpreted as UTC. |

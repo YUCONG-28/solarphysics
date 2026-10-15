@@ -14,6 +14,13 @@ import pandas as pd
 import pytest
 from astropy.io import fits
 from PIL import Image
+from solar_toolkit.radio.dart_spectrogram import (
+    DartNarrowbandCurve,
+    DartNarrowbandResult,
+    DartSpectrogramWindow,
+    extract_dart_narrowband_lightcurves,
+)
+from solar_toolkit.radio.roi_lightcurve import RadioRoi, extract_radio_roi_lightcurve
 from streamlit.testing.v1 import AppTest
 
 from solar_apps.frontends.radio.composite_figure.composite_figure_app import (
@@ -32,8 +39,8 @@ from solar_apps.frontends.radio.composite_figure.composite_figure_application im
     annotate_source_map_png,
     build_centered_frequency_bands,
     build_composite_artifacts,
-    build_composite_frame_template,
     build_composite_figure,
+    build_composite_frame_template,
     build_dart_selection_figure,
     build_request_signature,
     frequency_band_from_selection,
@@ -45,13 +52,6 @@ from solar_apps.frontends.radio.source_map.artifacts import (
     validate_source_map_artifact,
 )
 from solar_apps.workflows.radio import source_map_workflow
-from solar_toolkit.radio.dart_spectrogram import (
-    DartNarrowbandCurve,
-    DartNarrowbandResult,
-    DartSpectrogramWindow,
-    extract_dart_narrowband_lightcurves,
-)
-from solar_toolkit.radio.roi_lightcurve import RadioRoi, extract_radio_roi_lightcurve
 
 
 def _source_map_png() -> bytes:
@@ -403,6 +403,35 @@ def test_curve_template_is_marker_free_and_cached_frame_markers_align() -> None:
     )
     with Image.open(io.BytesIO(rendered.png_bytes)) as opened:
         assert np.array_equal(rendered.rgb, np.asarray(opened.convert("RGB")))
+
+
+def test_cached_marker_fraction_uses_integer_nanoseconds() -> None:
+    from dataclasses import replace
+
+    observed = datetime(2025, 1, 24, 4, 48, 30, tzinfo=UTC)
+    annotated = annotate_source_map_png(
+        _source_map_png(), _source_map_metadata(), _roi()
+    )
+    template = build_composite_frame_template(
+        annotated,
+        _radio_frame(observed),
+        _dart_result(observed),
+        roi=_roi(),
+        map_frequency_mhz=149.0,
+        polarization="RR+LL",
+        time_start=observed,
+        time_end=observed + timedelta(seconds=4),
+        dpi=72,
+    )
+    start = pd.Timestamp("2025-01-24T04:48:30.123456789Z")
+    end = start + pd.Timedelta(nanoseconds=2)
+    template = replace(template, time_start_utc=start, time_end_utc=end)
+    rendered = render_cached_composite_frame(
+        template, annotated, map_time=(start + pd.Timedelta(nanoseconds=1)).isoformat()
+    )
+    for name in ("radio_curve", "dart_curve"):
+        left, _, right, _ = template.panel_bounds_pixels[name]
+        assert rendered.marker_x_pixels[name] == round((left + right) / 2)
 
 
 def test_request_signature_invalidates_for_controls_and_file_identity(

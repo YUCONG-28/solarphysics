@@ -97,6 +97,12 @@ class SourceMapNativePanel(NativeModulePanel):
         form.addRow("Configuration JSON", self.config_name)
         form.addRow("Source", self._source_path_row())
         form.addRow("Output folder", self._directory_row(self.output_path))
+        self.image_time_start = QLineEdit()
+        self.image_time_end = QLineEdit()
+        for field in (self.image_time_start, self.image_time_end):
+            field.setPlaceholderText("Optional UTC, e.g. 2000-01-01T00:00:00Z")
+        form.addRow("Image start UTC (inclusive)", self.image_time_start)
+        form.addRow("Image end UTC (exclusive)", self.image_time_end)
 
         self.mode = QComboBox()
         self.mode.addItem("Single band", "single_band")
@@ -184,6 +190,8 @@ class SourceMapNativePanel(NativeModulePanel):
         self.status.setWordWrap(True)
         self.status.setProperty("muted", True)
         form.addRow("Status", self.status)
+        self.image_time_start.textChanged.connect(self._image_window_changed)
+        self.image_time_end.textChanged.connect(self._image_window_changed)
         scroll.setWidget(content)
         scroll.setMinimumWidth(320)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -350,6 +358,8 @@ class SourceMapNativePanel(NativeModulePanel):
             "polarization": self.polarization.currentText(),
             "start_idx": self.input_start.value(),
             "end_idx": (None if self.input_end.value() < 0 else self.input_end.value()),
+            "image_time_start": self.image_time_start.text().strip() or None,
+            "image_time_end": self.image_time_end.text().strip() or None,
             "cmap": self.cmap.currentText(),
             "color_range_mode": self.range_mode.currentText(),
             "gaussian_overlay": self.gaussian_overlay.isChecked(),
@@ -363,6 +373,24 @@ class SourceMapNativePanel(NativeModulePanel):
             payload["fixed_vmin"] = self.fixed_min.value()
             payload["fixed_vmax"] = self.fixed_max.value()
         return payload
+
+    def _image_window_changed(self, _text: str) -> None:
+        use_window = bool(
+            self.image_time_start.text().strip() or self.image_time_end.text().strip()
+        )
+        for field in (self.input_start, self.input_end):
+            field.setEnabled(not use_window)
+            field.setToolTip(
+                "UTC interval uses every valid image; file indices are ignored"
+                if use_window
+                else ""
+            )
+        self._discovery_file = None
+        self.candidate.clear()
+        self.candidate.setEnabled(False)
+        self.render_button.setEnabled(False)
+        self.sequence_button.setEnabled(False)
+        self.status.setText("Image UTC interval changed; discover again")
 
     def _request_file(self, stem: str, payload: dict[str, Any]) -> tuple[Path, Path]:
         root = self.adapter.runtime.tmp_dir / "source-map-native"
@@ -535,6 +563,33 @@ class SourceMapNativePanel(NativeModulePanel):
                 self._load_image(artifact)
 
     def _load_discovery(self, path: Path, payload: dict[str, Any]) -> None:
+        config = payload.get("config")
+        if isinstance(config, dict):
+            from solar_toolkit.time import normalize_time
+
+            try:
+                incoming = tuple(
+                    normalize_time(config[key]).tai_ns if config.get(key) else None
+                    for key in ("image_time_start", "image_time_end")
+                )
+                requested = tuple(
+                    (
+                        normalize_time(field.text().strip()).tai_ns
+                        if field.text().strip()
+                        else None
+                    )
+                    for field in (self.image_time_start, self.image_time_end)
+                )
+            except (TypeError, ValueError):
+                self.status.setText(
+                    "Image UTC interval changed during discovery; enter valid UTC and discover again"
+                )
+                return
+            if incoming != requested:
+                self.status.setText(
+                    "Image UTC interval changed during discovery; discover again"
+                )
+                return
         candidates = payload.get("public_candidates")
         if not isinstance(candidates, list):
             return

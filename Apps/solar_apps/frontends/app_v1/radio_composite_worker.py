@@ -8,7 +8,7 @@ import json
 import math
 import traceback
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 
 _PREFIX = "APP_V1_EVENT "
@@ -85,6 +85,8 @@ def _run(args: argparse.Namespace, output: Path) -> list[tuple[Path, str]]:
     )
     from solar_apps.frontends.radio.composite_figure.composite_sequence import (
         SequenceExportOptions,
+        build_native_sequence_plan,
+        planned_native_candidate,
         common_candidate_time_coverage,
         export_composite_sequences,
         group_candidates_by_frequency,
@@ -190,13 +192,8 @@ def _run(args: argparse.Namespace, output: Path) -> list[tuple[Path, str]]:
         frequencies,
         next(iter(bands.values())).bandwidth_mhz,
     )
-    start, end = _intersect_observation_coverage(
-        start,
-        end,
-        dart_full.time_utc[0],
-        dart_full.time_utc[-1],
-    )
-    combined_dart = _clip_dart_result(dart_full, start=start, end=end)
+    # Spectra retain native UTC and never delete real image observations.
+    combined_dart = dart_full
     shared_times = tuple(combined_dart.time_utc)
     dart_results: dict[float, DartNarrowbandResult] = {
         frequency: DartNarrowbandResult(
@@ -205,16 +202,24 @@ def _run(args: argparse.Namespace, output: Path) -> list[tuple[Path, str]]:
         )
         for index, frequency in enumerate(frequencies)
     }
+    native_plans = {
+        frequency: build_native_sequence_plan(items, frequency)
+        for frequency, items in grouped.items()
+    }
     reference_frequency = frequencies[0]
-    reference_candidate = grouped[reference_frequency][0]
-    reference_time = _utc(reference_candidate["observation_time"])
-    if reference_time < start:
-        reference_candidate = next(
-            item
-            for item in grouped[reference_frequency]
-            if _utc(item["observation_time"]) >= start
+    reference_plan = native_plans[reference_frequency]
+    reference_candidate = planned_native_candidate(
+        reference_plan.rows[0], reference_plan
+    )
+    reference_time = _utc(reference_plan.rows[0].time.utc)
+    if args.stride != 1:
+        _emit(
+            "log",
+            {
+                "level": "info",
+                "message": "Legacy stride is migrated to 1; every output-source frame is preserved.",
+            },
         )
-        reference_time = _utc(reference_candidate["observation_time"])
     bounds = _bounds(args.roi_bounds)
     roi = RadioRoi.from_box(*bounds, label="App 1.0 ROI")
     radio_paths: dict[float, list[Path]] = {
@@ -289,6 +294,10 @@ def _run(args: argparse.Namespace, output: Path) -> list[tuple[Path, str]]:
         output,
         source_configs=configs,
         candidates_by_frequency=grouped,
+        expected_plan_fingerprints={
+            frequency: plan.input_fingerprint
+            for frequency, plan in native_plans.items()
+        },
         radio_curves=radio_curves,
         dart_result=combined_dart,
         dart_results_by_frequency=dart_results,
@@ -386,7 +395,7 @@ def _utc(value: object) -> datetime:
         stamp = stamp.tz_localize("UTC")
     else:
         stamp = stamp.tz_convert("UTC")
-    return stamp.to_pydatetime().astimezone(UTC)
+    return stamp
 
 
 def _intersect_observation_coverage(
@@ -395,12 +404,11 @@ def _intersect_observation_coverage(
     dart_start: datetime,
     dart_end: datetime,
 ) -> tuple[datetime, datetime]:
-    """Return the shared radio/DART coverage required by composite exports."""
+    """Compatibility hook: spectrum coverage no longer clips real image UTC."""
 
-    start = max(_utc(radio_start), _utc(dart_start))
-    end = min(_utc(radio_end), _utc(dart_end))
+    start, end = _utc(radio_start), _utc(radio_end)
     if start >= end:
-        raise ValueError("Radio and DART observations have no shared UTC coverage")
+        raise ValueError("Real image time range must have positive duration")
     return start, end
 
 

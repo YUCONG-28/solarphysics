@@ -5,17 +5,17 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, MutableMapping
+from typing import Any, Mapping, MutableMapping
 
 import numpy as np
 import pandas as pd
-
 from solar_toolkit.aia.background import (
     AiaBackground,
     find_nearest_aia,
     read_aia_background,
     scan_aia_folder,
 )
+from solar_toolkit.time import normalize_time
 
 from ..models import CompositeRequest
 
@@ -31,11 +31,12 @@ class AiaSelection:
     matched_time_utc: datetime
     delta_seconds: float
     candidate_count: int
+    match_metadata: Mapping[str, Any] | None = None
 
     def to_metadata_dict(self) -> dict[str, Any]:
         """Return JSON-safe selection metadata."""
 
-        return {
+        metadata = {
             "path": str(Path(self.background.path).resolve(strict=False)),
             "wavelength": str(self.background.wavelength),
             "requested_time_utc": self.requested_time_utc.isoformat(),
@@ -44,6 +45,12 @@ class AiaSelection:
             "candidate_count": int(self.candidate_count),
             "shape": [int(value) for value in self.background.z.shape],
         }
+        if self.match_metadata is not None:
+            metadata["time_match"] = dict(self.match_metadata)
+            if self.match_metadata.get("status") == "missing":
+                metadata["path"] = None
+                metadata["matched_time_utc"] = None
+        return metadata
 
 
 def load_aia_selection(
@@ -58,6 +65,7 @@ def load_aia_selection(
     wcs_mode: str = "header",
     catalog: pd.DataFrame | None = None,
     background_cache: MutableMapping[str, AiaBackground] | None = None,
+    selected_record: Mapping[str, Any] | None = None,
 ) -> AiaSelection:
     """Load the nearest AIA background in the request's selected wavelength."""
 
@@ -73,42 +81,66 @@ def load_aia_selection(
     filtered = _filter_wavelength(table, request.aia_wave)
     if filtered.empty:
         raise FileNotFoundError(
-            f"No AIA {request.aia_wave} Å FITS files found in "
-            f"{request.aia_directory}"
+            f"No AIA {request.aia_wave} Å FITS files found in {request.aia_directory}"
         )
 
     requested_naive_utc = request.aia_time.astimezone(UTC).replace(tzinfo=None)
-    nearest = find_nearest_aia(
-        filtered,
-        requested_naive_utc,
-        max_dt_seconds=max_dt_seconds,
-    )
-    if nearest.status != "matched" or nearest.path is None:
-        detail = nearest.reason or nearest.status
-        raise RuntimeError(
-            f"Could not match AIA {request.aia_wave} Å at "
-            f"{request.aia_time.isoformat()}: {detail}"
+    if selected_record is None:
+        nearest = find_nearest_aia(
+            filtered, requested_naive_utc, max_dt_seconds=max_dt_seconds
         )
-    cache_key = str(Path(nearest.path).resolve(strict=False))
+        if nearest.status != "matched" or nearest.path is None:
+            detail = nearest.reason or nearest.status
+            raise RuntimeError(
+                f"Could not match AIA {request.aia_wave} Å at {request.aia_time.isoformat()}: {detail}"
+            )
+        chosen_path, chosen_time, delta = (
+            nearest.path,
+            nearest.obs_time,
+            float(nearest.delta_seconds or 0.0),
+        )
+        selected_hdu = nearest.hdu_index
+    else:
+        chosen_path = str(selected_record["path"])
+        chosen_time = selected_record.get("utc") or selected_record.get("obs_time")
+        selected_hdu = selected_record.get("hdu_index")
+        delta = (
+            abs(
+                normalize_time(chosen_time).tai_ns
+                - normalize_time(request.aia_time).tai_ns
+            )
+            / 1e9
+        )
+        if selected_record.get("size_bytes") is not None:
+            stat = Path(chosen_path).stat()
+            if (stat.st_size, stat.st_mtime_ns) != (
+                int(selected_record["size_bytes"]),
+                int(selected_record["mtime_ns"]),
+            ):
+                raise RuntimeError(
+                    "AIA inputs changed after matching; rebuild the sequence plan"
+                )
+    cache_key = f"{Path(chosen_path).resolve(strict=False)}#hdu={selected_hdu}"
     background = (
         background_cache.get(cache_key) if background_cache is not None else None
     )
     if background is None:
         background = read_aia_background(
-            nearest.path,
+            chosen_path,
             max_pixels=max_pixels,
             percentile_limits=percentile_limits,
             log_scale=log_scale,
             wcs_mode=wcs_mode,
+            hdu_index=int(selected_hdu) if selected_hdu is not None else None,
         )
         if background_cache is not None:
             background_cache[cache_key] = background
-    matched = _timestamp_utc(nearest.obs_time, label="matched AIA time")
+    matched = _timestamp_utc(chosen_time, label="matched AIA time")
     return AiaSelection(
         background=background,
         requested_time_utc=request.aia_time,
         matched_time_utc=matched,
-        delta_seconds=float(nearest.delta_seconds or 0.0),
+        delta_seconds=delta,
         candidate_count=int(len(filtered)),
     )
 

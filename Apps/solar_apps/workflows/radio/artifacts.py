@@ -125,6 +125,7 @@ def save_figure_artifact(
     write_sidecar: bool,
     warnings: Sequence[str] = (),
     display: Mapping[str, Any] | None = None,
+    time_match: Mapping[str, Any] | None = None,
     bbox_inches: str | None = "tight",
     pad_inches: float = 0.1,
 ) -> tuple[Path, Path | None]:
@@ -211,6 +212,8 @@ def save_figure_artifact(
     if display is not None:
         display_payload = _display_payload(display)
         payload["display"] = display_payload
+    if time_match:
+        payload["time_match"] = dict(time_match)
     sidecar = sidecar_path_for(target)
     _atomic_write_json(sidecar, payload)
     return target, sidecar
@@ -233,8 +236,8 @@ def _save_fixed_canvas_png(
     exact same Agg buffer.
     """
 
-    from matplotlib.backends.backend_agg import FigureCanvasAgg
     import numpy as np
+    from matplotlib.backends.backend_agg import FigureCanvasAgg
     from PIL import Image
 
     requested_dpi = int(dpi)
@@ -324,8 +327,9 @@ def data_to_image_pixel(
     metadata: Mapping[str, Any], panel_id: str, x_arcsec: float, y_arcsec: float
 ) -> tuple[float, float]:
     panel = _panel_by_id(metadata, panel_id)
-    width, height = float(metadata["image"]["width"]), float(
-        metadata["image"]["height"]
+    width, height = (
+        float(metadata["image"]["width"]),
+        float(metadata["image"]["height"]),
     )
     left, top, right, bottom = panel["bbox_normalized"]
     x0, x1 = panel["xlim_arcsec"]
@@ -340,8 +344,9 @@ def image_pixel_to_data(
     metadata: Mapping[str, Any], panel_id: str, x_pixel: float, y_pixel: float
 ) -> tuple[float, float]:
     panel = _panel_by_id(metadata, panel_id)
-    width, height = float(metadata["image"]["width"]), float(
-        metadata["image"]["height"]
+    width, height = (
+        float(metadata["image"]["width"]),
+        float(metadata["image"]["height"]),
     )
     left, top, right, bottom = panel["bbox_normalized"]
     x0, x1 = panel["xlim_arcsec"]

@@ -7,11 +7,11 @@ public entry point while the monolith shrinks. No behavior change.
 from __future__ import annotations
 
 from ._source_map_layout import (
-    _get_radio_display_range,
-    _apply_fixed_single_band_artifact_layout,
-    _apply_compact_radio_axis_style,
-    _prune_edge_ticklabels,
     _add_global_radio_axis_labels,
+    _apply_compact_radio_axis_style,
+    _apply_fixed_single_band_artifact_layout,
+    _get_radio_display_range,
+    _prune_edge_ticklabels,
 )
 
 
@@ -295,11 +295,13 @@ def _gaussian_diagnostics_row(
 
 
 def get_time_from_header(header):
-    """Extract observation time from FITS header."""
-    date_obs = header.get("DATE-OBS", "Unknown")
-    if "TIME-OBS" in header:
-        return f"{date_obs} {header['TIME-OBS']}"
-    return date_obs
+    """Display the canonical full-precision observation UTC, not a raw time scale."""
+    from solar_toolkit.radio.time_matching import observation_stamp
+
+    try:
+        return observation_stamp(header).utc + "Z"
+    except ValueError, TypeError:
+        return "Unknown"
 
 
 def get_freq_from_header(header):

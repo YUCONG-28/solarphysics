@@ -41,10 +41,6 @@ from astropy.io import fits
 from matplotlib.lines import Line2D
 from numpy.typing import NDArray
 from scipy.ndimage import median_filter
-from tqdm import tqdm
-
-from solar_apps.platform.config import load_script_config
-from solar_apps.workflows.common.image_naming import build_scientific_image_filename
 from solar_toolkit.radio.gaussian import (
     fit_multiple_gaussians_on_radio_image as _fit_multiple_gaussians_on_radio_image,
 )
@@ -57,71 +53,41 @@ from solar_toolkit.radio.gaussian import (
 from solar_toolkit.radio.gaussian import (
     save_multi_gaussian_diagnostics_row as _save_multi_gaussian_diagnostics_row,
 )
-from .artifacts import (
-    apply_colorbar_tick_notation,
-    colorbar_label,
-    resolve_colorbar_unit,
-    save_figure_artifact,
-    tick_notation_for_transform,
-)
-from .spatial_display import SpatialRadioDisplay, spatial_display_for_source_map
-from ._source_map_helpers import (  # noqa: F401 - compatibility facade exports
-    resolve_background_workflow,
-    _gaussian_multi_source_enabled,
+from tqdm import tqdm
+
+import solar_apps.workflows.radio.source_map_workflow as _facade  # noqa: E402
+from solar_apps.platform.config import load_script_config
+from solar_apps.workflows.common.image_naming import build_scientific_image_filename
+
+from ._source_map_helpers import (  # noqa: F401 - compatibility facade exports  # noqa: F401
+    _add_global_radio_axis_labels,
+    _apply_compact_radio_axis_style,
+    _apply_fixed_single_band_artifact_layout,
     _background_disabled_diag,
-    get_radio_image_origin,
-    _radio_background_mode,
-    _safe_background_median_size,
-    _gaussian_diagnostics_row,
-    get_time_from_header,
-    get_freq_from_header,
-    get_polar_from_header,
-    _require_study_mode,
-    _raw_quality_filter_enabled,
-    _nearest_time_entry_index,
     _build_slots_by_position,
     _candidate_slot_index,
-    _get_radio_display_range,
-    _apply_fixed_single_band_artifact_layout,
-    _apply_compact_radio_axis_style,
-    _prune_edge_ticklabels,
-    _add_global_radio_axis_labels,
-    _multi_band_output_subdir,
-    _should_precompute_fixed_band_ranges,
     _combine_polarization_data,
+    _gaussian_diagnostics_row,
+    _gaussian_multi_source_enabled,
+    _get_radio_display_range,
     _migrate_config,
+    _multi_band_output_subdir,
+    _nearest_time_entry_index,
+    _prune_edge_ticklabels,
+    _radio_background_mode,
+    _raw_quality_filter_enabled,
+    _require_study_mode,
+    _safe_background_median_size,
+    _should_precompute_fixed_band_ranges,
+    background_enabled_for_display,
+    background_enabled_for_fit,
+    background_workflow_enabled,
+    get_freq_from_header,
+    get_polar_from_header,
+    get_radio_image_origin,
+    get_time_from_header,
+    resolve_background_workflow,
 )
-from ._source_map_selection import (  # noqa: F401
-    _RAW_QUALITY_BAD_REASONS_KEY,
-    _RAW_QUALITY_FILE_FLAGS_KEY,
-    TimeParser,
-    _build_multi_band_slots,
-    _build_slots_by_common_time,
-    _check_time_alignment,
-    _expected_frozen_record_id,
-    _filter_bad_radio_files,
-    _frozen_files_for_band,
-    _iter_raw_quality_item_paths,
-    _match_rr_ll_by_time,
-    _normalized_selection_path,
-    _parse_time_from_filename,
-    _parse_utc_z,
-    _radio_item_time_key,
-    _raw_quality_bad_frame_output_dir,
-    _raw_quality_bad_reasons_for_item,
-    _raw_quality_item_is_bad,
-    _raw_quality_path_key,
-    _remember_raw_quality_rows,
-    _selected_workspace_files,
-    _selected_workspace_slot_items,
-    _sorted_fits_for_band,
-    _source_map_slot_file_paths,
-    _utc_z_millis,
-    _workspace_source_map_selection,
-    create_time_parser,
-    get_sorted_fits,
-)
-
 from ._source_map_layout import (  # noqa: F401
     _auto_multi_band_figure_size,
     _auto_tick_step,
@@ -130,7 +96,6 @@ from ._source_map_layout import (  # noqa: F401
     _layout_grid,
     _set_compact_radio_ticks,
 )
-
 from ._source_map_ranges import (  # noqa: F401
     _calculate_per_band_ranges,
     _calculate_range,
@@ -140,14 +105,60 @@ from ._source_map_ranges import (  # noqa: F401
     _resolve_multi_band_display_ranges,
     compute_global_range,
 )
-
-from ._source_map_helpers import (  # noqa: F401
-    background_enabled_for_display,
-    background_enabled_for_fit,
-    background_workflow_enabled,
+from ._source_map_selection import (  # noqa: F401
+    _RAW_QUALITY_BAD_REASONS_KEY,
+    _RAW_QUALITY_FILE_FLAGS_KEY,
+    RadioFramePair,
+    RadioFramePath,
+    RadioTimeSlot,
+    TimeParser,
+    _build_multi_band_slots,
+    _build_slots_by_common_time,
+    _check_time_alignment,
+    _expected_frozen_record_id,
+    _filter_bad_radio_files,
+    _frozen_files_for_band,
+    _image_file_slice,
+    _image_time_window,
+    _index_source_items,
+    _item_from_logical_frame,
+    _iter_raw_quality_item_paths,
+    _logical_frame_from_locator,
+    _logical_item_header,
+    _logical_locator,
+    _match_rr_ll_by_time,
+    _normalized_selection_path,
+    _pair_member_frame,
+    _pair_time_metadata,
+    _parse_time_from_filename,
+    _parse_utc_z,
+    _prepare_single_band_inputs,
+    _radio_item_time_key,
+    _radio_stamp_from_filename,
+    _raw_quality_bad_frame_output_dir,
+    _raw_quality_bad_reasons_for_item,
+    _raw_quality_item_is_bad,
+    _raw_quality_path_key,
+    _remember_raw_quality_rows,
+    _restore_source_map_slot,
+    _selected_workspace_files,
+    _selected_workspace_slot_items,
+    _sorted_fits_for_band,
+    _source_map_slot_file_paths,
+    _strict_single_band_pairs,
+    _utc_z_millis,
+    _workspace_source_map_selection,
+    create_time_parser,
+    get_sorted_fits,
 )
-
-import solar_apps.workflows.radio.source_map_workflow as _facade  # noqa: E402
+from .artifacts import (
+    apply_colorbar_tick_notation,
+    colorbar_label,
+    resolve_colorbar_unit,
+    save_figure_artifact,
+    tick_notation_for_transform,
+)
+from .spatial_display import SpatialRadioDisplay, spatial_display_for_source_map
 
 # Canonical science helpers are bound before the historical orchestration is
 # defined so annotations and monkeypatch anchors keep resolving in this module.
@@ -320,6 +331,9 @@ DEFAULT_CONFIG = {
     # File range (only effective in batch mode)
     "start_idx": 1588,  # start index (inclusive)
     "end_idx": 1666,  # end index (exclusive)
+    "image_time_start": None,
+    "image_time_end": None,
+    "image_window_use_indices": False,
     "study_mode": None,  # must be explicit: exploratory or confirmatory
     # ---------- Multi-band mode configuration ----------
     "multi_band_root": "data/radio",
@@ -1060,56 +1074,31 @@ def _parse_radio_date_part(
     return None
 
 
-def _radio_datetime_from_filename(
-    path: str | None, cfg: dict | None = None
-) -> datetime.datetime | None:
-    if not path:
-        return None
-    path = path.split("|")[0]
-    name = os.path.basename(path)
+def _radio_datetime_from_filename(path, cfg=None):
+    stamp = _radio_stamp_from_filename(path, cfg)
+    return datetime.datetime.fromisoformat(stamp.utc) if stamp is not None else None
 
-    match = re.search(r"_(\d{6,8})_(\d{6})(?:_(\d{1,6}))?", name)
-    if not match:
-        return None
-    date_part, time_part, frac_part = match.groups()
+
+def radio_datetime_from_header_or_path(header=None, path=None, cfg=None):
+    """Legacy UTC datetime view of the same precise observation used by matching."""
+    from solar_toolkit.radio.time_matching import observation_stamp
+
     try:
-        base_date = _parse_radio_date_part(date_part, path, cfg)
-        if base_date is None:
-            return None
-        hour = int(time_part[0:2])
-        minute = int(time_part[2:4])
-        second = int(time_part[4:6])
-        microsecond = 0
-        if frac_part:
-            microsecond = int(frac_part.ljust(6, "0")[:6])
-        return datetime.datetime.combine(base_date, datetime.time()).replace(
-            hour=hour, minute=minute, second=second, microsecond=microsecond
+        stamp = observation_stamp(
+            header or {},
+            path=path,
+            fallback_parser=lambda value: _radio_stamp_from_filename(value, cfg),
         )
-    except Exception:
+        return datetime.datetime.fromisoformat(stamp.utc)
+    except ValueError, TypeError:
         return None
-
-
-def radio_datetime_from_header_or_path(
-    header=None, path: str | None = None, cfg: dict | None = None
-) -> datetime.datetime | None:
-    """Get observation datetime from FITS header first, then filename."""
-    if header is not None:
-        date_obs = str(header.get("DATE-OBS", header.get("DATE_OBS", ""))).strip()
-        time_obs = str(header.get("TIME-OBS", header.get("TIME_OBS", ""))).strip()
-        candidates = []
-        if date_obs and time_obs and "T" not in date_obs and " " not in date_obs:
-            candidates.append(f"{date_obs} {time_obs}")
-        if date_obs:
-            candidates.append(date_obs)
-        for candidate in candidates:
-            parsed = _parse_datetime_value(candidate)
-            if parsed is not None:
-                return parsed
-    return _radio_datetime_from_filename(path, cfg)
 
 
 def _radio_item_datetime(item, cfg: dict | None = None) -> datetime.datetime | None:
     """Parse datetime from a single path, RR/LL tuple, or diagnostic source string."""
+    logical_frame = getattr(item, "logical_frame", None)
+    if logical_frame is not None:
+        return datetime.datetime.fromisoformat(logical_frame.time.utc)
     if isinstance(item, (tuple, list)) and item:
         return _radio_item_datetime(item[0], cfg)
     if not isinstance(item, str):
@@ -1487,6 +1476,11 @@ def read_fits(file_path: str):
     Prefer ImageHDU (hdul[1]), otherwise use primary HDU (hdul[0]).
     memmap=True speeds up sequential reading of large files, .copy() ensures data remains valid after hdul is closed.
     """
+    logical_frame = getattr(file_path, "logical_frame", None)
+    if logical_frame is not None:
+        from solar_toolkit.radio.time_matching import materialize_radio_frame
+
+        return materialize_radio_frame(logical_frame)
     with fits.open(file_path, memmap=True) as hdul:
         if len(hdul) > 1 and isinstance(hdul[1], fits.ImageHDU):
             data, header = hdul[1].data.copy(), hdul[1].header
@@ -2296,27 +2290,40 @@ def plot_single_band(
     # 检查是否启用左右旋数据加和
     combine_polarizations = cfg.get("combine_polarizations", False)
 
-    if combine_polarizations:
-        # 获取对应的左旋/右旋文件路径
-        base_dir = os.path.dirname(os.path.dirname(file_path))  # 获取频率目录
-        file_name = os.path.basename(file_path)
+    if not combine_polarizations and getattr(file_path, "logical_frame", None) is None:
+        exact_items = _index_source_items([file_path], cfg)
+        if len(exact_items) != 1:
+            raise ValueError(
+                "Single-band rendering requires an exact logical image candidate"
+            )
+        file_path = exact_items[0]
+    if not combine_polarizations and not cfg.get("_time_match"):
+        cfg = dict(cfg, _time_match=_pair_time_metadata(file_path, cfg))
 
-        # 根据当前文件路径判断是RR还是LL
-        if cfg["rr_dir_suffix"] in file_path:
-            # 当前是RR文件，查找对应的LL文件
-            rr_path = file_path
-            ll_path = os.path.join(base_dir, cfg["ll_dir_suffix"], file_name)
-            current_pol = "RR"
-        elif cfg["ll_dir_suffix"] in file_path:
-            # 当前是LL文件，查找对应的RR文件
-            ll_path = file_path
-            rr_path = os.path.join(base_dir, cfg["rr_dir_suffix"], file_name)
-            current_pol = "LL"
-        else:
-            # 无法确定偏振，使用单个文件
-            img_data, header = read_fits(file_path)
-            rr_data, ll_data = None, None
-            current_pol = get_polar_from_header(header)
+    if combine_polarizations:
+        selected_pair = cfg.get("_selected_polarization_pair") or cfg.get(
+            "_single_band_pair_map", {}
+        ).get(
+            getattr(
+                getattr(file_path, "logical_frame", None), "frame_id", str(file_path)
+            )
+        )
+        if selected_pair is None:
+            pairs = _strict_single_band_pairs([str(file_path)], cfg)
+            if len(pairs) != 1:
+                raise ValueError(
+                    "Single-band rendering requires one exact verified RR/LL pair; select a logical image candidate"
+                )
+            selected_pair = pairs[0]
+        if getattr(selected_pair, "logical_frame", None) is None:
+            selected_pair = _restore_source_map_slot(
+                [list(selected_pair)], cfg.get("_time_match"), cfg=cfg
+            )[0]
+        rr_path, ll_path = selected_pair
+        file_name = os.path.basename(rr_path)
+        current_pol = "RR"
+        if not cfg.get("_time_match"):
+            cfg = dict(cfg, _time_match=_pair_time_metadata(selected_pair, cfg))
     else:
         img_data, header = read_fits(file_path)
         rr_data, ll_data = None, None
@@ -2333,8 +2340,27 @@ def plot_single_band(
             if not _check_time_alignment(
                 rr_header, ll_header, rr_path, ll_path, time_tolerance
             ):
-                warnings.warn(
-                    f"RR和LL文件时间未对齐: {rr_path} vs {ll_path}", stacklevel=2
+                raise ValueError(
+                    f"RR/LL observation times exceed the synthesis tolerance: {rr_path} vs {ll_path}"
+                )
+
+            from solar_toolkit.radio.centers import parse_frequency_mhz
+            from solar_toolkit.radio.time_matching import compatible_radio_payloads
+
+            if not compatible_radio_payloads(
+                {
+                    "shape": rr_data.shape,
+                    "header": rr_header,
+                    "frequency_mhz": parse_frequency_mhz(Path(rr_path), rr_header),
+                },
+                {
+                    "shape": ll_data.shape,
+                    "header": ll_header,
+                    "frequency_mhz": parse_frequency_mhz(Path(ll_path), ll_header),
+                },
+            ):
+                raise ValueError(
+                    "RR/LL pixels, WCS, frequency or units are incompatible"
                 )
 
             # 数据组合（加权平均或简单相加）
@@ -2429,16 +2455,9 @@ def plot_single_band(
                 )
 
         except FileNotFoundError as e:
-            warnings.warn(f"无法找到对应的偏振文件: {e}，使用单个文件", stacklevel=2)
-            if current_pol == "RR" and rr_data is not None:
-                img_data, header = rr_data, rr_header
-                polar_display = "RR"
-            elif current_pol == "LL" and ll_data is not None:
-                img_data, header = ll_data, ll_header
-                polar_display = "LL"
-            else:
-                img_data, header = read_fits(file_path)
-                polar_display = get_polar_from_header(header)
+            raise ValueError(
+                "A verified RR/LL source is missing; rebuild the source-map selection"
+            ) from e
     else:
         polar_display = get_polar_from_header(header)
 
@@ -2465,6 +2484,10 @@ def plot_single_band(
     gaussian_cfg["_current_radio_image_origin"] = image_origin
     file_name = os.path.basename(file_path)
     current_frame_time = radio_datetime_from_header_or_path(header, file_path, cfg)
+    time_match = cfg.get("_time_match") or {}
+    if time_match.get("output_time_utc") or time_match.get("master_time_utc"):
+        time_str = time_match.get("output_time_utc") or time_match["master_time_utc"]
+        current_frame_time = _parse_datetime_value(time_str)
     source_file_for_quality = file_path
     if combine_polarizations and "rr_path" in locals() and "ll_path" in locals():
         source_file_for_quality = f"{rr_path}|{ll_path}"
@@ -2945,6 +2968,9 @@ def plot_single_band(
                     "tick_notation": radio_tick_notation,
                     "colorbar_label": radio_colorbar_label,
                     "unit": unit_resolution.to_dict(),
+                    "time_match": next(
+                        iter(time_match.get("selections", {}).values()), {}
+                    ),
                 }
             ],
             mode="single_band",
@@ -2953,6 +2979,7 @@ def plot_single_band(
             write_sidecar=should_write_sidecar,
             warnings=artifact_warnings,
             display=spatial_display.sidecar_payload(),
+            time_match=time_match,
             bbox_inches=cfg.get("_artifact_bbox_inches", "tight"),
             pad_inches=float(cfg.get("_artifact_pad_inches", 0.1)),
         )
@@ -3138,6 +3165,41 @@ def plot_multi_band_slot(
 
     generated_at = generated_at or datetime.datetime.now(datetime.timezone.utc)
 
+    time_match = getattr(slot_files, "time_match", None) or cfg.get("_time_match") or {}
+    slot_files = _restore_source_map_slot(slot_files, time_match, cfg=cfg)
+    radio_selections = [
+        (source, value)
+        for source, value in time_match.get("selections", {}).items()
+        if value.get("frame_id")
+        and (source.startswith("radio:") or source.startswith("band:"))
+    ]
+    selected_time_metadata = []
+    for item in slot_files:
+        paths = set(map(str, item if isinstance(item, (tuple, list)) else (item,)))
+        logical_frame = getattr(item, "logical_frame", None)
+        matching = [
+            value
+            for _source, value in radio_selections
+            if logical_frame is not None
+            and value.get("frame_id") == logical_frame.frame_id
+        ]
+        if not matching:
+            matching = [
+                value
+                for _source, value in radio_selections
+                if set(value.get("paths", ())) == paths
+                or (
+                    len(paths) == 1
+                    and any(
+                        value.get("frame_id") == path
+                        or str(value.get("frame_id", "")).startswith(path + "#")
+                        for path in paths
+                    )
+                )
+            ]
+        if not matching and len(radio_selections) == len(slot_files):
+            matching = [radio_selections[len(selected_time_metadata)][1]]
+        selected_time_metadata.append(matching[0] if matching else {})
     all_data = []
     all_headers = []
     all_extents = []
@@ -3184,8 +3246,27 @@ def plot_multi_band_slot(
             if not _check_time_alignment(
                 rr_header, ll_header, rr_path, ll_path, time_tolerance
             ):
-                warnings.warn(
-                    f"RR和LL文件时间未对齐: {rr_path} vs {ll_path}", stacklevel=2
+                raise ValueError(
+                    f"RR/LL observation times exceed the synthesis tolerance: {rr_path} vs {ll_path}"
+                )
+
+            from solar_toolkit.radio.centers import parse_frequency_mhz
+            from solar_toolkit.radio.time_matching import compatible_radio_payloads
+
+            if not compatible_radio_payloads(
+                {
+                    "shape": rr_data.shape,
+                    "header": rr_header,
+                    "frequency_mhz": parse_frequency_mhz(Path(rr_path), rr_header),
+                },
+                {
+                    "shape": ll_data.shape,
+                    "header": ll_header,
+                    "frequency_mhz": parse_frequency_mhz(Path(ll_path), ll_header),
+                },
+            ):
+                raise ValueError(
+                    "RR/LL pixels, WCS, frequency or units are incompatible"
                 )
 
             # 数据组合（加权平均或简单相加）
@@ -3696,6 +3777,16 @@ def plot_multi_band_slot(
 
         # 在子图中标注频率（替代标题）
         freq_text = f"{freq} MHz"
+        if idx < len(selected_time_metadata):
+            timing = selected_time_metadata[idx]
+            actual = str(timing.get("actual_time_utc") or band_time).split("T")[-1]
+            freq_text += f"\n{actual} UTC"
+            if timing.get("delta_ns") is not None:
+                freq_text += f"  Δt={timing['delta_ns'] / 1_000_000_000:+.6f} s"
+            if timing.get("reused"):
+                freq_text += " · reused"
+            if timing.get("within_tolerance") is False:
+                freq_text += " · outside tolerance"
         ax.text(
             0.02,
             0.98,
@@ -3839,11 +3930,22 @@ def plot_multi_band_slot(
         axes[row, col].axis("off")
         axes[row, col].set_visible(False)
 
-    main_time = band_info[0][2] if band_info else "Unknown"
+    for index, panel in enumerate(panel_metadata):
+        if index < len(selected_time_metadata):
+            panel["time_match"] = selected_time_metadata[index]
+    main_time = (
+        time_match.get("output_time_utc")
+        or time_match.get("master_time_utc")
+        or (band_info[0][2] if band_info else "Unknown")
+    )
     current_frame_time = (
         _radio_item_datetime(all_source_files[0], cfg) if all_source_files else None
     )
-    if current_frame_time is None:
+    if time_match.get("output_time_utc") or time_match.get("master_time_utc"):
+        current_frame_time = _parse_datetime_value(
+            time_match.get("output_time_utc") or time_match["master_time_utc"]
+        )
+    elif current_frame_time is None:
         current_frame_time = _parse_datetime_value(main_time)
 
     # 确定显示名称
@@ -3931,6 +4033,7 @@ def plot_multi_band_slot(
             write_sidecar=should_write_sidecar,
             warnings=artifact_warnings,
             display=spatial_display.sidecar_payload(),
+            time_match=time_match,
             bbox_inches=cfg.get("_artifact_bbox_inches", "tight"),
             pad_inches=float(cfg.get("_artifact_pad_inches", 0.1)),
         )
@@ -4410,6 +4513,8 @@ def _parse_source_map_args(argv=None):
     parser.add_argument("--self-test", action="store_true")
     parser.add_argument("--select-drift", action="store_true")
     parser.add_argument("--use-drift-selection")
+    parser.add_argument("--image-time-start")
+    parser.add_argument("--image-time-end")
     parser.add_argument("--drift-port", type=int)
     parser.add_argument("--no-drift-browser", action="store_true")
     parser.add_argument(
@@ -4424,6 +4529,9 @@ def _parse_source_map_args(argv=None):
 
 def _apply_source_map_cli_args(cfg: dict, args: argparse.Namespace) -> dict:
     """Apply source-map options to a request-owned configuration in place."""
+    for key in ("image_time_start", "image_time_end"):
+        if getattr(args, key) is not None:
+            cfg[key] = getattr(args, key)
     if args.disable_drift:
         cfg["enable_drift_rate_overlay"] = False
         cfg["drift_rate_mode"] = "off"
@@ -4607,14 +4715,20 @@ def _run_source_map_config(config: dict, *, argv=None):
             os.makedirs(output_dir, exist_ok=True)
             files = get_sorted_fits(
                 data_dir,
-                cfg["start_idx"],
-                cfg["end_idx"],
+                *_image_file_slice(cfg),
                 study_mode=cfg.get("study_mode"),
             )
             print(f"Selected {len(files)} FITS files, output directory: {output_dir}")
 
             # Single-band rendering is linear. Fixed limits belong to the
             # request; global limits are computed below, and auto is per frame.
+
+    if mode != "multi_band":
+        files = _prepare_single_band_inputs(files, cfg)
+        if not files:
+            raise ValueError(
+                "No compatible logical source-map observations are available"
+            )
 
     # ── 1.5 预加载动态频谱（仅一次）──────────────────────────
     if _spectrogram_panel_enabled(cfg):

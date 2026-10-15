@@ -23,19 +23,64 @@ __all__ = [
 
 @dataclass(frozen=True)
 class FrameRef:
+    """Legacy seconds view plus an exact original FITS timestamp and HDU identity."""
+
     seconds: float
     paths: tuple[Path, ...]
+    stamp: object = None
+    payload: dict | None = None
+
+    @property
+    def time(self):
+        from solar_toolkit.time import normalize_time
+
+        if self.stamp is not None:
+            return self.stamp
+        return normalize_time(Time(self.seconds, format="unix", scale="utc"))
+
+    @property
+    def time_ns(self):
+        return self.time.tai_ns
+
+    @property
+    def frame_id(self):
+        return (self.payload or {}).get("frame_id") or f"{self.paths}#legacy"
 
 
 def index_images(paths):
+    from .time_matching import index_radio_frames
+
+    indexed = index_radio_frames(paths)
+    grouped = {}
+    for frame in indexed:
+        payload = frame.payload
+        key = (payload["path"], payload["hdu_index"])
+        if key not in grouped:
+            grouped[key] = [frame, []]
+        grouped[key][1].append(
+            {
+                "frame_id": frame.frame_id,
+                "frequency_mhz": payload["frequency_mhz"],
+                "polarization": payload["polarization"],
+                "plane_indices": payload["plane_indices"],
+            }
+        )
     entries = []
-    for path in sorted(paths):
-        h = fits.getheader(path)
-        time = parse_observation_time(Path(path), h)
-        if time is None:
-            raise ValueError(f"Missing observation time: {path}")
-        entries.append(FrameRef(float(Time(time, scale="utc").unix), (Path(path),)))
-    return sorted(entries, key=lambda ref: ref.seconds)
+    for frame, planes in grouped.values():
+        payload = dict(frame.payload)
+        payload["frame_id"] = (
+            f"{payload['path']}#hdu={payload['hdu_index']};size={payload['size_bytes']};mtime_ns={payload['mtime_ns']}"
+        )
+        payload["logical_planes"] = planes
+        entries.append(
+            FrameRef(
+                float(Time(frame.time.utc, scale="utc").unix),
+                (Path(payload["path"]),),
+                stamp=frame.time,
+                payload=payload,
+            )
+        )
+    return sorted(entries, key=lambda ref: (ref.time_ns, str(ref.paths)))
 
 
 def nearest_index(
@@ -74,19 +119,59 @@ def nearest_index(
 
 
 def pair_dart(left, right, tolerance=0.1):
-    times = [r.seconds for r in right]
-    used, pairs = set(), []
-    for left_frame in left:
-        i = nearest_index(times, left_frame.seconds, tolerance)
-        if i is not None and i not in used:
-            used.add(i)
-            pairs.append(
-                FrameRef(
-                    (left_frame.seconds + right[i].seconds) / 2,
-                    left_frame.paths + right[i].paths,
-                )
+    from solar_toolkit.time import TimeFrame, TimeStamp, monotone_one_to_one
+
+    from .time_matching import compatible_radio_payloads
+
+    left, right = list(left), list(right)
+    identities = [ref.frame_id for ref in (*left, *right)]
+    if len(identities) != len(set(identities)):
+        raise ValueError("An original polarization frame may appear only once")
+
+    def frames(values):
+        return [
+            TimeFrame(f"{ref.paths}#{index}", ref.time, ref)
+            for index, ref in enumerate(values)
+        ]
+
+    def compatible(a, b):
+        if a.payload.payload is None or b.payload.payload is None:
+            return True  # Compatibility for legacy in-memory timestamp-only references.
+        return compatible_radio_payloads(a.payload.payload, b.payload.payload)
+
+    pairs = monotone_one_to_one(
+        frames(left),
+        frames(right),
+        tolerance_seconds=tolerance,
+        compatibility=compatible,
+    )
+    output = []
+    for pair in pairs:
+        a, b = pair.left.payload, pair.right.payload
+        stamp = TimeStamp.from_tai_ns(
+            (a.time_ns + b.time_ns) // 2, source="RR+LL midpoint"
+        )
+        payload = dict(a.payload or {})
+        payload.update(
+            {
+                "paths": tuple(map(str, a.paths + b.paths)),
+                "frame_id": f"{a.frame_id}+{b.frame_id}",
+                "actual_times_utc": (a.time.utc, b.time.utc),
+                "actual_times_tai_ns": (a.time_ns, b.time_ns),
+                "pair_delta_ns": pair.delta_ns,
+                "polarization": "L+R",
+                "pair_members": (a.payload, b.payload),
+            }
+        )
+        output.append(
+            FrameRef(
+                float(Time(stamp.utc, scale="utc").unix),
+                a.paths + b.paths,
+                stamp=stamp,
+                payload=payload,
             )
-    return pairs
+        )
+    return output
 
 
 def load_dart_sum(ref):

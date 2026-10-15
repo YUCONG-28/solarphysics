@@ -5,6 +5,7 @@ const els = {};
 for (const id of [
   "serverState", "openSectionBtn", "saveFolderBtn", "configInput", "sourcePathInput",
   "outputPathInput", "frequenciesField", "frequenciesInput", "polarizationInput",
+  "imageTimeStartInput", "imageTimeEndInput",
   "cmapInput", "rangeModeInput", "fixedRangeFields", "vminInput", "vmaxInput",
   "radioUnitInput", "gaussianInput", "backgroundModeInput", "backgroundDisplayInput",
   "backgroundFitInput", "spectrogramInput", "spectrogramPathField", "spectrogramPathInput",
@@ -111,6 +112,8 @@ function requestPayload() {
     output_dir: els.outputPathInput.value.trim(),
     frequencies: els.frequenciesInput.value.trim(),
     polarization: els.polarizationInput.value,
+    image_time_start: els.imageTimeStartInput.value.trim() || null,
+    image_time_end: els.imageTimeEndInput.value.trim() || null,
     cmap: els.cmapInput.value,
     color_range_mode: els.rangeModeInput.value,
     fixed_vmin: els.vminInput.value,
@@ -131,7 +134,12 @@ async function discover() {
   setStatus(els.generationStatus, "Scanning source data...");
   els.discoverBtn.disabled = true;
   try {
-    const payload = await api("/api/source-maps/discover", jsonRequest(requestPayload()));
+    const requested = requestPayload();
+    const payload = await api("/api/source-maps/discover", jsonRequest(requested));
+    if (requested.image_time_start !== (els.imageTimeStartInput.value.trim() || null) ||
+        requested.image_time_end !== (els.imageTimeEndInput.value.trim() || null)) {
+      throw new Error("Image UTC interval changed during scanning; scan source data again.");
+    }
     state.discoveryId = payload.discovery_id;
     state.candidates = payload.candidates;
     els.candidateInput.replaceChildren();
@@ -159,6 +167,18 @@ async function discover() {
   } finally {
     els.discoverBtn.disabled = false;
   }
+}
+
+for (const field of [els.imageTimeStartInput, els.imageTimeEndInput]) {
+  field.addEventListener("input", () => {
+    state.discoveryId = null;
+    state.candidates = [];
+    els.candidateInput.replaceChildren();
+    els.generateBtn.disabled = true;
+    els.prepareSequenceBtn.disabled = true;
+    clearPreparedSequence();
+    setStatus(els.generationStatus, "Image UTC interval changed; scan source data again.");
+  });
 }
 
 async function generate() {

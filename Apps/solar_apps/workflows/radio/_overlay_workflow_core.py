@@ -88,6 +88,12 @@ from ._overlay_context import (  # noqa: F401
 )
 
 from ._overlay_selection import (  # noqa: F401
+    RadioOverlaySlice,
+    _overlay_radio_streams,
+    _overlay_image_window,
+    _overlay_file_indices,
+    _overlay_slice,
+    _build_overlay_plan,
     _aia_panel_dir,
     _aia_panel_wavelengths,
     _build_common_radio_slots_from_entries,
@@ -156,6 +162,9 @@ from ._overlay_science import (  # noqa: F401
 )
 
 from ._overlay_render import (  # noqa: F401
+    _planned_solar_map,
+    _annotate_overlay_time_match,
+    _write_overlay_time_match,
     _add_multi_wave_panel_label,
     _aia_display_config_for_wave,
     _apply_multi_wave_row_axis_labels,

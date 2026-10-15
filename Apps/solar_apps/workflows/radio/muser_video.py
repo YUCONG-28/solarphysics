@@ -1,73 +1,146 @@
-"""Encode full-interval raw radio/AIA movies from a fixed preview figure."""
+"""Encode full-interval raw radio/AIA movies from the approved preview figure."""
 
-from functools import lru_cache
 import json
-from pathlib import Path
 import time
-import numpy as np
-from astropy.time import Time
-from astropy.io import fits
+from functools import lru_cache
+from pathlib import Path
+
 import astropy.units as u
-from astropy.coordinates import SkyCoord
 import matplotlib.dates as mdates
-from matplotlib.lines import Line2D
+import numpy as np
 import sunpy.map
-from solar_toolkit.radio.muser import read_muser_images, hpc_grid, peak_level
-from solar_toolkit.radio.muser_comparison import nearest_index, load_dart_sum
-from solar_toolkit.radio.centers import parse_observation_time
+from astropy.coordinates import SkyCoord
+from astropy.time import Time
+from matplotlib.lines import Line2D
+from solar_toolkit.radio.muser import hpc_grid, peak_level
 
 
-def write_video(fig, config, output, muser, dart, aia, bounds, removed, colors):
+def video_source_ids(config):
+    """Keep every requested MUSER frequency independent in both plan consumers."""
+    frequencies = config["frequencies_mhz"]
+    return [
+        *(f"MUSER:{frequency:g}" for frequency in frequencies),
+        *(f"DART:{frequency:g}" for frequency in frequencies),
+        "AIA:171",
+        "AIA:304",
+    ]
+
+
+def _muser_band_references(references, frequency):
+    """Freeze exact logical planes; a missing band excludes only that observation."""
+    from solar_toolkit.radio.muser_comparison import FrameRef
+
+    output = []
+    for ref in references:
+        if not ref.payload:
+            raise ValueError(
+                "Rescan MUSER images to obtain exact logical frequency references"
+            )
+        planes = ref.payload.get("logical_planes", (ref.payload,))
+        candidates = [
+            plane
+            for plane in planes
+            if plane.get("frequency_mhz") is not None
+            and plane.get("polarization") in {"L+R", "I", "SUM", "UNKNOWN", None}
+        ]
+        if not candidates:
+            continue
+        plane = min(
+            candidates,
+            key=lambda value: (
+                abs(value["frequency_mhz"] - frequency),
+                value["frame_id"],
+            ),
+        )
+        if abs(plane["frequency_mhz"] - frequency) > 5:
+            continue
+        payload = dict(ref.payload, **plane)
+        payload.pop("logical_planes", None)
+        output.append(FrameRef(ref.seconds, ref.paths, stamp=ref.time, payload=payload))
+    return output
+
+
+def build_video_match_plan(config, muser, dart, aia, bounds=None):
+    """Freeze separate frequency layers and expand the complete largest layer."""
+    from solar_toolkit.time import TimeFrame, TimeStream, build_sequence_match_plan
+
+    groups = [
+        (f"MUSER:{frequency:g}", _muser_band_references(muser, frequency), 0.1)
+        for frequency in config["frequencies_mhz"]
+    ]
+    groups += [
+        (f"DART:{frequency:g}", values, 0.1)
+        for frequency, values in zip(config["frequencies_mhz"], dart)
+    ]
+    groups += [(f"AIA:{wave}", values, 12.0) for wave, values in zip((171, 304), aia)]
+    window = video_image_time_window(config, bounds)
+    streams = []
+    for source_id, values, tolerance in groups:
+        frames = [TimeFrame(ref.frame_id, ref.time, ref) for ref in values]
+        streams.append(TimeStream(source_id, frames, tolerance_seconds=tolerance))
+    return build_sequence_match_plan(streams, **window)
+
+
+def video_image_time_window(config, bounds=None):
+    """Explicit image bounds take precedence over a legacy spectrum-derived window."""
+    from solar_toolkit.time import normalize_time
+
+    if (
+        config.get("image_time_start") is not None
+        or config.get("image_time_end") is not None
+    ):
+        return {
+            "time_start": config.get("image_time_start"),
+            "time_end": config.get("image_time_end"),
+        }
+    if bounds is None:
+        return {"time_start": None, "time_end": None}
+    return {
+        "time_start": normalize_time(bounds[0], format="unix"),
+        "time_end": normalize_time(bounds[1], format="unix"),
+    }
+
+
+def write_video(
+    fig, config, output, muser, dart, aia, bounds, removed, colors, *, plan=None
+):
     """Keep spectra/background/color limits frozen; only sources, AIA and UTC move."""
     import av
+    from solar_toolkit.radio.time_matching import (
+        materialize_radio_frame,
+        selection_metadata,
+    )
+    from solar_toolkit.time import TimeFrame
 
-    groups = [muser, *dart, *aia]
-    axes = [[r.seconds for r in g] for g in groups]
     frequencies = config["frequencies_mhz"]
     fps = float(config.get("video_fps", 10))
-    frames = []
+    plan = (
+        plan
+        if plan is not None
+        else build_video_match_plan(config, muser, dart, aia, bounds)
+    )
+    source_ids = video_source_ids(config)
+    frames = [
+        (
+            row,
+            [
+                (
+                    row.selections[source].frame.payload
+                    if row.selections[source].frame
+                    else None
+                )
+                for source in source_ids
+            ],
+        )
+        for row in plan.rows
+    ]
     skipped = []
-    for first in dart[0]:
-        target = first.seconds
-        if not bounds[0] <= target <= bounds[1]:
-            continue
-        if any(a <= target < b for a, b in removed):
-            skipped.append(
-                {
-                    "utc": Time(target, format="unix").isot,
-                    "reason": "removed spectrum interval",
-                }
-            )
-            continue
-        indices = [
-            nearest_index(ts, target, 0.1 if k <= len(dart) else 12)
-            for k, ts in enumerate(axes)
-        ]
-        if any(x is None for x in indices):
-            skipped.append(
-                {
-                    "utc": Time(target, format="unix").isot,
-                    "reason": "incomplete radio/AIA pairing",
-                }
-            )
-            continue
-        refs = [g[i] for g, i in zip(groups, indices)]
-        pol_times = [
-            float(Time(parse_observation_time(p, fits.getheader(p))).unix)
-            for ref in refs[1 : 1 + len(dart)]
-            for p in ref.paths
-        ]
-        if max(abs(t - target) for t in pol_times) > 0.100001:
-            skipped.append(
-                {
-                    "utc": Time(target, format="unix").isot,
-                    "reason": "polarization tolerance",
-                }
-            )
-            continue
-        frames.append((target, refs))
     if not frames:
         raise ValueError("No valid video frames")
+    if removed:
+        raise ValueError(
+            "Full-frame video requires the original, uncompressed UTC spectrum axis"
+        )
     top = fig.axes[:2]
     spectra = [
         ax
@@ -76,10 +149,18 @@ def write_video(fig, config, output, muser, dart, aia, bounds, removed, colors):
     ]
     cursors = [ax.lines[0] for ax in spectra]
     fov = config["fov_arcsec"]
+    aia_references = {ref.frame_id: ref for group in aia for ref in group}
 
     @lru_cache(maxsize=8)
-    def aia_data(path):
-        m = sunpy.map.Map(path)
+    def aia_data(frame_id):
+        ref = aia_references[frame_id]
+        if ref.payload:
+            pixels, header = materialize_radio_frame(
+                TimeFrame(ref.frame_id, ref.time, ref.payload)
+            )
+            m = sunpy.map.Map((pixels, header))
+        else:
+            m = sunpy.map.Map(ref.paths[0])
         m = m.submap(
             SkyCoord(fov[0] * u.arcsec, fov[2] * u.arcsec, frame=m.coordinate_frame),
             top_right=SkyCoord(
@@ -93,7 +174,9 @@ def write_video(fig, config, output, muser, dart, aia, bounds, removed, colors):
         data = np.log10(np.maximum(m.data.astype(float), 0) + 1)
         return x, y, data, float(m.rsun_obs.to_value(u.arcsec))
 
-    aia_clims = [ax.collections[0].get_clim() for ax in top]
+    aia_clims = [
+        ax.collections[0].get_clim() if ax.collections else (0.0, 1.0) for ax in top
+    ]
     # Freeze geometry and the static spectral raster once, then redraw top panels.
     fig.set_dpi(120)
     fig.canvas.draw()
@@ -122,37 +205,54 @@ def write_video(fig, config, output, muser, dart, aia, bounds, removed, colors):
     records = []
     started = time.time()
     try:
-        for number, (target, refs) in enumerate(frames):
-            planes = read_muser_images(refs[0].paths[0])
+        for number, (row, refs) in enumerate(frames):
+            target = float(Time(row.time.utc, scale="utc").unix)
             overlays = []
             pairs = []
             for k, freq in enumerate(frequencies):
-                mf, data, hdr, beam = min(planes, key=lambda p: abs(p[0] - freq))
-                if abs(mf - freq) > 5:
-                    raise ValueError("MUSER frequency match exceeds 5 MHz")
-                ds = load_dart_sum(refs[k + 1])
+                ref = refs[k]
+                mf = float("nan")
+                if ref is not None:
+                    mf = ref.payload["frequency_mhz"]
+                    data, hdr = materialize_radio_frame(
+                        TimeFrame(ref.frame_id, ref.time, ref.payload)
+                    )
+                    x, y = hpc_grid(hdr, data.shape)
+                    overlays.append((x, y, data, peak_level(data), colors[k], "-"))
+                ref = refs[len(frequencies) + k]
+                if ref is not None:
+                    data, hdr = materialize_radio_frame(
+                        TimeFrame(ref.frame_id, ref.time, ref.payload)
+                    )
+                    x, y = hpc_grid(hdr, data.shape)
+                    overlays.append((x, y, data, peak_level(data), colors[k], "--"))
                 pairs.append([mf, freq])
-                for name, z, h, style in [
-                    ("MUSER", data, hdr, "-"),
-                    ("DART", ds.image, ds.header, "--"),
-                ]:
-                    x, y = hpc_grid(h, z.shape)
-                    overlays.append((x, y, z, peak_level(z), colors[k], style))
             fig.canvas.restore_region(background)
             for k, (ax, wave, ref) in enumerate(zip(top, [171, 304], refs[-2:])):
                 ax.clear()
                 ax.set_facecolor("black")
-                x, y, data, radius = aia_data(str(ref.paths[0]))
-                ax.pcolormesh(
-                    x,
-                    y,
-                    data,
-                    shading="nearest",
-                    cmap=f"sdoaia{wave}",
-                    vmin=aia_clims[k][0],
-                    vmax=aia_clims[k][1],
-                    rasterized=True,
-                )
+                radius = None
+                if ref is not None:
+                    x, y, data, radius = aia_data(ref.frame_id)
+                    ax.pcolormesh(
+                        x,
+                        y,
+                        data,
+                        shading="nearest",
+                        cmap=f"sdoaia{wave}",
+                        vmin=aia_clims[k][0],
+                        vmax=aia_clims[k][1],
+                        rasterized=True,
+                    )
+                else:
+                    ax.text(
+                        0.5,
+                        0.5,
+                        f"AIA {wave}: no observation",
+                        transform=ax.transAxes,
+                        ha="center",
+                        color="white",
+                    )
                 for xx, yy, z, level, color, style in overlays:
                     ax.contour(
                         xx,
@@ -165,11 +265,12 @@ def write_video(fig, config, output, muser, dart, aia, bounds, removed, colors):
                     )
                 import matplotlib.pyplot as plt
 
-                ax.add_patch(
-                    plt.Circle(
-                        (0, 0), radius, fill=False, color="white", alpha=0.4, lw=0.7
+                if radius is not None:
+                    ax.add_patch(
+                        plt.Circle(
+                            (0, 0), radius, fill=False, color="white", alpha=0.4, lw=0.7
+                        )
                     )
-                )
                 ax.set(
                     xlim=fov[:2],
                     ylim=fov[2:],
@@ -178,7 +279,7 @@ def write_video(fig, config, output, muser, dart, aia, bounds, removed, colors):
                     ylabel="Solar Y [arcsec]" if k == 0 else "",
                 )
                 ax.set_title(
-                    f'AIA {wave} Å | {Time(ref.seconds,format="unix").isot[11:]} UTC',
+                    f"AIA {wave} Å | {ref.time.utc[11:] if ref is not None else 'no data'} UTC",
                     fontsize=12,
                 )
                 handles = [
@@ -212,7 +313,7 @@ def write_video(fig, config, output, muser, dart, aia, bounds, removed, colors):
             for ax, c in zip(spectra, cursors):
                 c.set_xdata([xx, xx])
                 ax.draw_artist(c)
-            title = f'{config["label"]} | {Time(target,format="unix").isot} UTC\nRaw 90% peak contours · total intensity · fixed FOV (outside contours clipped)\nSpectra: relative background [dB]; no interpolation'
+            title = f"{config['label']} | {row.time.utc} UTC\nRaw 90% peak contours · total intensity · fixed FOV (outside contours clipped)\nSpectra: relative background [dB]; no interpolation"
             if removed:
                 title += "; missing UTC intervals removed"
             fig._suptitle.set_text(title)
@@ -237,9 +338,10 @@ def write_video(fig, config, output, muser, dart, aia, bounds, removed, colors):
             records.append(
                 {
                     "frame": number,
-                    "utc": Time(target, format="unix").isot,
-                    "delta_seconds": [r.seconds - target for r in refs],
-                    "inputs": [str(p) for r in refs for p in r.paths],
+                    "utc": row.time.utc,
+                    "time_tai_ns": row.time.tai_ns,
+                    "time_match": selection_metadata(row, plan=plan),
+                    "inputs": [str(p) for r in refs if r is not None for p in r.paths],
                 }
             )
             if number % 10 == 0:
@@ -265,13 +367,14 @@ def write_video(fig, config, output, muser, dart, aia, bounds, removed, colors):
         "fps": fps,
         "frames": len(frames),
         "duration_seconds": len(frames) / fps,
-        "playback": "one frame per valid first-selected DART frequency observation; constant display fps, actual UTC in every frame",
+        "playback": "one frame per longest-route observation; constant display fps, original UTC in every frame",
+        "time_match_plan": plan.to_dict(),
         "first_utc": records[0]["utc"],
         "last_utc": records[-1]["utc"],
         "frame_records": records,
         "skipped": skipped,
         "aia_color_limits": aia_clims,
-        "spectra": "fixed preview P20 backgrounds and color limits throughout video",
+        "spectra": "fixed approved-preview P20 backgrounds and color limits throughout video",
         "removed_intervals_utc": [
             Time(x, format="unix").isot.tolist() for x in removed
         ],

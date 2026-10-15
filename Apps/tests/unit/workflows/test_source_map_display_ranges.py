@@ -19,9 +19,10 @@ def test_directory_run_keeps_single_band_limits_in_linear_units(
 ) -> None:
     source_dir = tmp_path / "radio"
     source_dir.mkdir()
-    fits.PrimaryHDU(np.array([[10.0, 100.0], [1000.0, 10000.0]])).writeto(
-        source_dir / "frame.fits"
-    )
+    fits.PrimaryHDU(
+        np.array([[10.0, 100.0], [1000.0, 10000.0]]),
+        fits.Header({"DATE-OBS": "2000-01-01T04:48:30Z", "POLAR": "RR"}),
+    ).writeto(source_dir / "frame.fits")
     captured: list[dict] = []
 
     def capture(path, output, config, *args, **kwargs):

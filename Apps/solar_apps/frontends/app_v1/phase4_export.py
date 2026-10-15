@@ -64,6 +64,7 @@ class ComposerExportControls:
         )
         if not selected or not self._confirm_overwrite(Path(selected)):
             return
+        self.show_export_preview()
         self._request(
             lambda: self.adapter.build_static_export(
                 self.project,
@@ -76,6 +77,7 @@ class ComposerExportControls:
         output = self.output_path.text().strip() or None
         if output is not None and not self._confirm_overwrite(Path(output)):
             return
+        self.show_export_preview()
         self._request(
             lambda: self.adapter.build_sequence_export(
                 self.project,

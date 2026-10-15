@@ -6,13 +6,13 @@ import numpy as np
 import pytest
 from astropy.io import fits
 
-from solar_apps.workflows.radio import source_map_workflow as workflow
 from solar_apps.frontends.radio.source_map.service import (
     PathPolicy,
     discover_candidates,
     parse_request_config,
     validate_advanced_config,
 )
+from solar_apps.workflows.radio import source_map_workflow as workflow
 
 
 def _write_radio_fits(path: Path, *, polarization: str, bunit: str = "K") -> None:
@@ -99,6 +99,36 @@ def test_frontend_input_slice_overrides_event_config(tmp_path: Path) -> None:
 
     assert cfg["start_idx"] == 2
     assert cfg["end_idx"] == 5
+
+
+def test_frontend_image_window_filters_headers_before_discovery(tmp_path: Path) -> None:
+    source = tmp_path / "radio" / "RR"
+    for number, second in enumerate((29, 30, 31)):
+        path = source / f"{number}.fits"
+        _write_radio_fits(path, polarization="RR")
+        with fits.open(path, mode="update") as hdus:
+            hdus[0].header["DATE-OBS"] = f"2025-01-24T04:48:{second:02d}.123456789"
+    policy = PathPolicy([tmp_path])
+    cfg = parse_request_config(
+        {
+            "mode": "single_band",
+            "source_path": str(source),
+            "output_dir": str(tmp_path / "out"),
+            "polarization": "RR",
+            "start_idx": 1588,
+            "end_idx": 1666,
+            "image_time_start": "2025-01-24T04:48:30.123456789Z",
+            "image_time_end": "2025-01-24T04:48:31.123456789Z",
+        },
+        policy=policy,
+    )
+    candidates = discover_candidates(cfg, policy=policy)
+    assert len(candidates) == 1
+    assert (
+        candidates[0]["time_match"]["master_time_utc"]
+        == "2025-01-24T04:48:30.123456789Z"
+    )
+    assert candidates[0]["time_match"]["window"]["boundary"] == "[start,end)"
 
 
 def test_seven_digit_calendar_date_ignores_dated_parent_directory(

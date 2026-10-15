@@ -602,7 +602,7 @@ def process_multi_wave_aia_group(
             continue
         try:
             aia_cutouts[wavelength] = _workflow()._get_padded_aia_map(
-                _workflow().sunpy.map.Map(aia_file), cfg
+                _planned_solar_map(aia_file), cfg
             )
         except Exception as exc:
             print(f"  [AIA {wavelength}] read failed: {exc}")
@@ -617,6 +617,7 @@ def process_multi_wave_aia_group(
 
     generated_at = generated_at or datetime.now(timezone.utc)
     for local_index, (sub_index, single_slice_bands) in enumerate(sub_tasks):
+        cfg._current_time_match = getattr(single_slice_bands, "time_match", {})
         print(
             f"multi-wave frame {task_index}/{total_tasks}, "
             f"sequence {sub_index + 1}/{len(sub_tasks)}",
@@ -625,7 +626,7 @@ def process_multi_wave_aia_group(
         fig, axes_by_wave, spectrogram_ax = _workflow().create_multi_wave_figure(
             cfg, wavelengths, panel_aspect_ratio=panel_aspect_ratio
         )
-        first_radio_time = None
+        first_radio_time = _workflow()._slot_reference_time(single_slice_bands)
         for panel_index, wavelength in enumerate(wavelengths):
             row, col = divmod(panel_index, ncols)
             ax = axes_by_wave[wavelength]
@@ -716,12 +717,18 @@ def process_multi_wave_aia_group(
             save_tight = not _workflow()._multi_wave_mosaic_enabled(cfg) or bool(
                 getattr(cfg, "aia_panel_save_tight", True)
             )
+            _annotate_overlay_time_match(
+                fig, getattr(single_slice_bands, "time_match", {})
+            )
             plt.savefig(
                 saved_path,
                 dpi=cfg.dpi,
                 bbox_inches="tight" if save_tight else None,
                 pad_inches=0.0 if not save_tight else 0.1,
                 facecolor=cfg.style.figure_bg,
+            )
+            _write_overlay_time_match(
+                saved_path, getattr(single_slice_bands, "time_match", {})
             )
             print(f"  saved multi-wave image: {saved_path}")
             saved_paths.append(saved_path)
@@ -774,7 +781,7 @@ def process_aia_group(
     saved_paths: list[str] = []
 
     try:
-        aia_map = _workflow().sunpy.map.Map(aia_file)
+        aia_map = _planned_solar_map(aia_file)
     except Exception as e:
         print(f"  读取 AIA 失败: {e}")
         return saved_paths
@@ -791,6 +798,7 @@ def process_aia_group(
     # 【核心：遍历时间切片，每一帧生成一张图】
     generated_at = generated_at or datetime.now(timezone.utc)
     for local_index, (sub_index, single_slice_bands) in enumerate(sub_tasks):
+        cfg._current_time_match = getattr(single_slice_bands, "time_match", {})
         print(f"  -> 绘制序列帧 {sub_index + 1}/{len(sub_tasks)}")
 
         spectrogram_ax = None
@@ -853,7 +861,7 @@ def process_aia_group(
         legend_elements = _workflow()._build_selected_band_legend_elements(
             cfg, color_cache
         )
-        first_radio_time = None
+        first_radio_time = _workflow()._slot_reference_time(single_slice_bands)
 
         # --- 3. 提取并遍历当前切片的波段数据 ---
         def _band_freq(item):
@@ -1054,11 +1062,17 @@ def process_aia_group(
             )
             saved_path = os.path.join(cfg.output_dir, out_name)
 
+            _annotate_overlay_time_match(
+                fig, getattr(single_slice_bands, "time_match", {})
+            )
             plt.savefig(
                 saved_path,
                 dpi=cfg.dpi,
                 bbox_inches="tight",
                 facecolor=cfg.style.figure_bg,
+            )
+            _write_overlay_time_match(
+                saved_path, getattr(single_slice_bands, "time_match", {})
             )
             print(f"  保存图像: {saved_path}")
 
@@ -1073,7 +1087,7 @@ def process_aia_group(
 def process_hmi_for_overlay(hmi_file: str, target_wcs, cfg: Config, ax):
     """读取 HMI 数据，投影到 AIA 坐标系并绘制磁图等值线"""
     try:
-        hmi_map = _workflow().sunpy.map.Map(hmi_file)
+        hmi_map = _planned_solar_map(hmi_file)
     except Exception as e:
         print(f"  读取 HMI 失败: {e}")
         return
@@ -1175,3 +1189,40 @@ def _selected_band_legend_label(cfg: Config, band_label: str) -> str:
             else f"{band_label} (RR+LL)"
         )
     return f"{band_label} ({cfg.polarization_mode})"
+
+
+def _planned_solar_map(path):
+    logical_frame = getattr(path, "logical_frame", None)
+    if logical_frame is not None:
+        from solar_toolkit.radio.time_matching import materialize_radio_frame
+
+        pixels, header = materialize_radio_frame(logical_frame)
+        return sunpy.map.Map(pixels, header)
+    return sunpy.map.Map(path)
+
+
+def _annotate_overlay_time_match(fig, metadata):
+    """Show actual observation clocks independently of the master display clock."""
+    if not metadata:
+        return
+    labels = []
+    for source, selection in metadata.get("selections", {}).items():
+        actual = selection.get("actual_time_utc")
+        label = f"{source}: {actual.split('T')[-1] if actual else 'no data'}"
+        if selection.get("delta_ns") is not None:
+            label += f" Δt={selection['delta_ns'] / 1_000_000_000:+.6f}s"
+        if selection.get("reused"):
+            label += " reused"
+        if selection.get("within_tolerance") is False:
+            label += " outside tolerance"
+        labels.append(label)
+    fig.text(0.01, 0.002, "\n".join(labels), fontsize=6, va="bottom")
+
+
+def _write_overlay_time_match(path, metadata):
+    import json
+    from pathlib import Path
+
+    Path(str(path) + ".time-match.json").write_text(
+        json.dumps(metadata, indent=2), encoding="utf-8"
+    )

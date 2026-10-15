@@ -14,6 +14,7 @@ from solar_apps.frontends.image_composer.project import (
     ProjectFormatError,
     load_project,
     project_to_dict,
+    project_from_dict,
     save_project,
 )
 
@@ -50,7 +51,7 @@ def test_project_round_trip_preserves_layout_but_not_catalog_records(
     assert restored.slots[0].rotation == 14.0
     assert restored.slots[0].fit == "cover"
     assert restored.slots[0].preview_relative_path == "preview.png"
-    assert project_to_dict(restored)["schema_version"] == 1
+    assert project_to_dict(restored)["schema_version"] == 2
 
 
 def test_unknown_project_schema_is_rejected(tmp_path: Path) -> None:
@@ -81,3 +82,40 @@ def test_missing_folder_loads_as_unresolved(tmp_path: Path) -> None:
     )
     project = load_project(path)
     assert project.folders[0].resolved is False
+    assert project.schema_version == 2
+    assert project.matching.master_policy == "auto_min_frames_hierarchical"
+    assert project.matching.overflow_policy == "keep_flagged"
+    assert "Migrated schema 1" in project.migration_note
+
+
+def test_schema_two_persists_window_and_migrates_only_old_matching_strategy(
+    tmp_path: Path,
+) -> None:
+    project = ComposerProject()
+    project.matching.time_start = "2025-01-24T04:48:30.123456789Z"
+    project.matching.time_end = "2025-01-24T04:49:00Z"
+    payload = project_to_dict(project)
+    restored = project_from_dict(payload)
+    assert restored.matching.time_start == project.matching.time_start
+    assert restored.matching.time_end == project.matching.time_end
+    assert restored.schema_version == 2
+    payload["sequence_plan"] = {"schema_version": 1, "rows": []}
+    migrated = project_from_dict(payload)
+    assert migrated.sequence_plan is None
+    assert "Migrated strategy 1" in migrated.migration_note
+    payload["sequence_plan"] = {"schema_version": 1, "algorithm_version": 2, "rows": []}
+    assert project_from_dict(payload).sequence_plan is None
+    payload["sequence_plan"] = {"schema_version": 1, "algorithm_version": 3, "rows": []}
+    assert project_from_dict(payload).sequence_plan == payload["sequence_plan"]
+
+
+def test_schema_two_legacy_maximum_policy_migrates_to_hierarchical_root() -> None:
+    payload = project_to_dict(ComposerProject())
+    payload["matching"]["master_policy"] = "auto_max_frames"
+    payload["sequence_plan"] = {"schema_version": 1, "algorithm_version": 2, "rows": []}
+    restored = project_from_dict(payload)
+    assert restored.schema_version == 2
+    assert restored.matching.master_policy == "auto_min_frames_hierarchical"
+    assert restored.sequence_plan is None
+    assert "Migrated legacy maximum-frame" in restored.migration_note
+    assert project_to_dict(restored)["matching"]["algorithm_version"] == 3

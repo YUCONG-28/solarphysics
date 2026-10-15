@@ -22,6 +22,15 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+from solar_toolkit.radio.dart_spectrogram import DartNarrowbandResult
+from solar_toolkit.radio.roi_lightcurve import RadioRoi
+from solar_toolkit.time import (
+    TimeFrame,
+    TimeStream,
+    build_sequence_match_plan,
+    normalize_time,
+)
+from solar_toolkit.visualization import media
 
 from solar_apps.frontends.radio.composite_figure.composite_figure_application import (
     CompositeArtifactBundle,
@@ -36,11 +45,8 @@ from solar_apps.frontends.radio.source_map.artifacts import (
 )
 from solar_apps.frontends.radio.source_map.worker import FIGURE_RENDER_LOCK, run_job
 from solar_apps.workflows.common.image_naming import build_scientific_image_filename
-from solar_toolkit.radio.dart_spectrogram import DartNarrowbandResult
-from solar_toolkit.radio.roi_lightcurve import RadioRoi
-from solar_toolkit.visualization import media
 
-SEQUENCE_SCHEMA_VERSION = "radio-composite-v2"
+SEQUENCE_SCHEMA_VERSION = "radio-composite-v4"
 DEFAULT_SEQUENCE_FPS = 10.0
 DEFAULT_SEQUENCE_STRIDE = 1
 LARGE_SEQUENCE_WARNING_FRAMES = 2_000
@@ -69,6 +75,7 @@ class SequenceExportOptions:
     transform: str = "linear"
     save_video: bool = True
     save_frames: bool = True
+    requested_stride: int = field(default=1, init=False)
 
     def __post_init__(self) -> None:
         fps = float(self.fps)
@@ -86,7 +93,8 @@ class SequenceExportOptions:
         if not bool(self.save_video) and not bool(self.save_frames):
             raise ValueError("Enable MP4 video, PNG frames, or both")
         object.__setattr__(self, "fps", fps)
-        object.__setattr__(self, "stride", stride)
+        object.__setattr__(self, "requested_stride", stride)
+        object.__setattr__(self, "stride", 1)
         object.__setattr__(self, "dpi", dpi)
         object.__setattr__(self, "transform", transform)
         object.__setattr__(self, "save_video", bool(self.save_video))
@@ -96,6 +104,8 @@ class SequenceExportOptions:
         return {
             "fps": self.fps,
             "stride": self.stride,
+            "requested_stride": self.requested_stride,
+            "timeline_policy": "hierarchical_full_coverage_keep_flagged",
             "dpi": self.dpi,
             "quality": str(self.quality),
             "transform": self.transform,
@@ -197,7 +207,12 @@ def group_candidates_by_frequency(
             if candidate.get("observation_time")
             and candidate_contains_frequency(candidate, frequency)
         ]
-        matched.sort(key=lambda item: _utc_datetime(item["observation_time"]))
+        matched.sort(
+            key=lambda item: (
+                normalize_time(item["observation_time"]).tai_ns,
+                str(item.get("id", "")),
+            )
+        )
         if not matched:
             raise ValueError(
                 f"No timestamped Source Map candidate matches {frequency:g} MHz"
@@ -209,7 +224,7 @@ def group_candidates_by_frequency(
 def common_candidate_time_coverage(
     grouped: Mapping[float, Sequence[Mapping[str, Any]]],
 ) -> tuple[datetime, datetime]:
-    """Return the common UTC coverage of all selected frequency sequences."""
+    """Return the union of real image coverage; spectra never clip the timeline."""
 
     if not grouped:
         raise ValueError("Select at least one Source Map frequency")
@@ -221,16 +236,13 @@ def common_candidate_time_coverage(
             for candidate in candidates
             if candidate.get("observation_time")
         )
-        if len(values) < 2 or values[0] == values[-1]:
-            raise ValueError(
-                f"{float(frequency):g} MHz needs at least two distinct observation times"
-            )
+        if not values:
+            raise ValueError(f"{float(frequency):g} MHz has no timed observation")
         starts.append(values[0])
         ends.append(values[-1])
-    start = max(starts)
-    end = min(ends)
-    if start >= end:
-        raise ValueError("Selected radio frequencies have no common UTC coverage")
+    start = min(starts)
+    # The inferred end is exclusive and includes the final exact observed frame.
+    end = max(ends) + pd.Timedelta(nanoseconds=1)
     return start, end
 
 
@@ -250,17 +262,128 @@ def select_sequence_candidates(
         raise ValueError("Shared UTC start must be before the end")
     if step < 1:
         raise ValueError("Sequence stride must be at least one")
+    start_ns, end_ns = (
+        normalize_time(time_start).tai_ns,
+        normalize_time(time_end).tai_ns,
+    )
     selected = [
         copy.deepcopy(dict(candidate))
         for candidate in candidates
         if candidate.get("observation_time")
-        and start <= _utc_datetime(candidate["observation_time"]) <= end
+        and start_ns <= normalize_time(candidate["observation_time"]).tai_ns < end_ns
     ]
-    selected.sort(key=lambda item: _utc_datetime(item["observation_time"]))
-    selected = selected[::step]
+    selected.sort(
+        key=lambda item: (
+            normalize_time(item["observation_time"]).tai_ns,
+            str(item.get("id", "")),
+        )
+    )
+    # Retain the legacy parameter but preserve every real master frame.
     if not selected:
         raise ValueError("No Source Map frame remains in the selected UTC range")
     return selected
+
+
+def _native_input_fingerprint(candidates, core_fingerprint):
+    identities = []
+    for candidate in candidates:
+        for path_text in candidate.get("paths", ()):
+            path = Path(path_text).expanduser().resolve(strict=False)
+            if path.is_file():
+                stat = path.stat()
+                identities.append((str(path), stat.st_size, stat.st_mtime_ns))
+            else:
+                identities.append((str(path), None, None))
+    contracts = sorted(
+        json.dumps(
+            {
+                "id": candidate.get("id"),
+                "paths": candidate.get("paths"),
+                "slot": candidate.get("slot"),
+                "time_match": candidate.get("time_match"),
+            },
+            sort_keys=True,
+        )
+        for candidate in candidates
+    )
+    text = json.dumps(
+        {
+            "core": core_fingerprint,
+            "files": sorted(set(identities)),
+            "contracts": contracts,
+        },
+        sort_keys=True,
+    )
+    return hashlib.sha256(text.encode()).hexdigest()
+
+
+@dataclass(frozen=True)
+class NativeSequencePlan:
+    core: object
+    input_fingerprint: str
+
+    @property
+    def rows(self):
+        return self.core.rows
+
+    def to_dict(self):
+        return {**self.core.to_dict(), "input_fingerprint": self.input_fingerprint}
+
+
+def build_native_sequence_plan(
+    candidates: Sequence[Mapping[str, Any]], frequency_mhz: float
+) -> NativeSequencePlan:
+    """Keep exact Source Map candidates on their upstream real master UTC."""
+    frames = []
+    for index, candidate in enumerate(candidates):
+        payload = copy.deepcopy(dict(candidate))
+        upstream = payload.get("time_match") or {}
+        if upstream.get("selections") and upstream.get("algorithm_version") != 3:
+            raise ValueError(
+                "Legacy Source Map matching plan requires a new hierarchy preview"
+            )
+        observed = (
+            upstream.get("output_time_utc")
+            or upstream.get("master_time_utc")
+            or payload.get("observation_time")
+        )
+        if not observed:
+            continue
+        stamp = normalize_time(observed, source="SourceMap output UTC")
+        declared = upstream.get("output_time_tai_ns") or upstream.get(
+            "master_time_tai_ns"
+        )
+        if declared is not None and int(declared) != stamp.tai_ns:
+            raise ValueError("Source Map output UTC and integer timestamp disagree")
+        frame_id = str(payload.get("id") or f"radio-{frequency_mhz:g}-{index}")
+        frames.append(
+            TimeFrame(
+                frame_id,
+                stamp,
+                payload=payload,
+            )
+        )
+    core = build_sequence_match_plan(
+        [TimeStream(f"radio-{frequency_mhz:g}", tuple(frames))]
+    )
+    return NativeSequencePlan(
+        core, _native_input_fingerprint(candidates, core.fingerprint)
+    )
+
+
+def planned_native_candidate(row, plan):
+    candidate = copy.deepcopy(row.output_frame.payload)
+    candidate["observation_time"] = row.time.utc + "Z"
+    if not candidate.get("time_match"):
+        from solar_toolkit.radio.time_matching import selection_metadata
+
+        candidate["time_match"] = selection_metadata(row, plan=plan.core)
+        for selected in candidate["time_match"]["selections"].values():
+            selected["paths"] = candidate_frequency_paths(
+                candidate, float(plan.core.output_source_id.removeprefix("radio-"))
+            )[0]
+    candidate["time_match"]["native_sequence_plan_fingerprint"] = plan.input_fingerprint
+    return candidate
 
 
 def sequence_frame_counts(
@@ -307,7 +430,8 @@ def prepare_single_panel_render(
     display_payload = dict(cfg.get("spatial_display") or {})
     display_payload["transform"] = str(transform)
     cfg["spatial_display"] = display_payload
-    if str(transform).lower() == "linear":
+    time_match = _frequency_time_match(selected, frequency_mhz)
+    if str(transform).lower() == "linear" and len(paths) == 1 and not time_match:
         cfg["mode"] = "single_band"
         cfg["single_file_path"] = paths[0]
         cfg["data_dir"] = str(Path(paths[0]).parent)
@@ -319,7 +443,7 @@ def prepare_single_panel_render(
             "frequencies_mhz": [float(frequency_mhz)],
             "observation_time": selected.get("observation_time"),
         }
-    elif str(transform).lower() == "log10":
+    elif str(transform).lower() in {"linear", "log10"}:
         cfg["mode"] = "multi_band"
         cfg["multi_band_freqs"] = [float(frequency_mhz)]
         selected = {
@@ -333,7 +457,57 @@ def prepare_single_panel_render(
         }
     else:
         raise ValueError("Map transform must be linear or log10")
+    selected["time_match"] = time_match
+    cfg["_time_match"] = time_match
     return cfg, selected
+
+
+def _frequency_time_match(candidate, frequency_mhz):
+    metadata = copy.deepcopy(candidate.get("time_match") or {})
+    selections = metadata.get("selections") or {}
+    if not selections:
+        return metadata
+    paths, _ = candidate_frequency_paths(candidate, float(frequency_mhz))
+    path_set = {str(Path(path).resolve(strict=False)) for path in paths}
+    matched = {
+        key: item
+        for key, item in selections.items()
+        if item.get("paths")
+        and {str(Path(path).resolve(strict=False)) for path in item["paths"]}
+        == path_set
+    }
+    if len(matched) > 1:
+        frequencies = [float(value) for value in candidate.get("frequencies_mhz", ())]
+        index = matching_frequency_index(frequencies, float(frequency_mhz))
+        matched = {
+            key: item
+            for key, item in matched.items()
+            if item.get("slot_item_index") == index
+        }
+        if len(matched) != 1:
+            raise ValueError(
+                "Cannot identify the exact logical image for the displayed radio frequency"
+            )
+    if not matched:
+        radio_keys = [
+            key for key in selections if key.startswith(("band:", "radio-", "radio:"))
+        ]
+        frequencies = [float(value) for value in candidate.get("frequencies_mhz", ())]
+        if len(radio_keys) == len(frequencies):
+            index = matching_frequency_index(frequencies, float(frequency_mhz))
+            matched = {radio_keys[index]: selections[radio_keys[index]]}
+        elif len(radio_keys) == 1:
+            matched = {radio_keys[0]: selections[radio_keys[0]]}
+        else:
+            raise ValueError(
+                "Cannot identify exact timing evidence for the displayed radio frequency"
+            )
+    for item in matched.values():
+        item["paths"] = list(paths)
+        # The frequency has been cropped into a new one-item SourceMap slot.
+        item["slot_item_index"] = 0
+    metadata["selections"] = matched
+    return metadata
 
 
 def candidate_frequency_paths(
@@ -503,6 +677,7 @@ def export_composite_sequences(
     cancel_check: CancelCheck | None = None,
     progress: ProgressCallback | None = None,
     generated_at: datetime | None = None,
+    expected_plan_fingerprints: Mapping[float, str] | None = None,
 ) -> CompositeSequenceBundle:
     """Atomically publish one full composite video per selected frequency."""
 
@@ -527,6 +702,22 @@ def export_composite_sequences(
     }
     if not selected:
         raise ValueError("No selected Source Map frequency is available for export")
+    sequence_plans = {
+        frequency: build_native_sequence_plan(candidates, frequency)
+        for frequency, candidates in selected.items()
+    }
+    for frequency, plan in sequence_plans.items():
+        if (
+            expected_plan_fingerprints
+            and expected_plan_fingerprints.get(frequency) != plan.input_fingerprint
+        ):
+            raise ValueError(
+                "The native sequence preview matching plan is stale; rebuild it before export"
+            )
+    selected = {
+        frequency: [planned_native_candidate(row, plan) for row in plan.rows]
+        for frequency, plan in sequence_plans.items()
+    }
     per_frequency_dart: dict[float, DartNarrowbandResult] = {}
     for frequency in selected:
         if dart_results_by_frequency is None:
@@ -576,6 +767,10 @@ def export_composite_sequences(
     destination = _unique_destination(output_root, package_name)
     stage = Path(tempfile.mkdtemp(prefix=".rcseq-", dir=output_root))
     warnings: list[str] = []
+    if options.requested_stride != 1:
+        warnings.append(
+            "Legacy stride migrated to 1 to preserve every real master frame"
+        )
     video_paths: dict[float, Path] = {}
     frame_directories: dict[float, Path] = {}
     radio_csv_paths: dict[float, Path] = {}
@@ -605,6 +800,7 @@ def export_composite_sequences(
         for frequency, frequency_candidates in selected.items():
             _raise_if_cancelled(cancel_check)
             config = _mapping_value_for_frequency(source_configs, frequency)
+            sequence_plan = sequence_plans[frequency]
             radio_curve = _mapping_value_for_frequency(radio_curves, frequency)
             frequency_dart_result = per_frequency_dart[frequency]
             frequency_name = Path(
@@ -687,7 +883,8 @@ def export_composite_sequences(
                 frequency_timings["source_map_render"] += (
                     time.perf_counter() - source_started
                 )
-                marker = _utc_datetime(candidate["observation_time"])
+                planned_row = sequence_plan.rows[index]
+                marker = _utc_datetime(planned_row.time.utc)
                 intersects = roi_intersects_source_map(map_metadata, roi)
                 panel_bbox = tuple(
                     float(value)
@@ -707,6 +904,25 @@ def export_composite_sequences(
                         f"{fixed_source_map_panel_bbox}, got {panel_bbox}"
                     )
                 frame_warnings: list[str] = []
+                displayed_time_match = _frequency_time_match(candidate, frequency)
+                selections = displayed_time_match.get("selections", {})
+                if any(
+                    item.get("within_tolerance") is False
+                    for item in selections.values()
+                ):
+                    frame_warnings.append("Source Map timing gap retained and flagged")
+                dart_times = tuple(
+                    normalize_time(value).tai_ns
+                    for value in frequency_dart_result.time_utc
+                )
+                dart_covers_master = bool(
+                    dart_times
+                    and min(dart_times) <= planned_row.time.tai_ns <= max(dart_times)
+                )
+                if not dart_covers_master:
+                    frame_warnings.append(
+                        "Master image is outside native DART spectrum coverage"
+                    )
                 if not intersects:
                     frame_warnings.append("ROI does not intersect the Source Map panel")
                 annotated = annotate_source_map_image(map_png, map_metadata, roi)
@@ -791,7 +1007,14 @@ def export_composite_sequences(
                     "filename": frame_filename,
                     "sha256": frame_hash,
                     "candidate_id": str(candidate.get("id") or ""),
-                    "observation_time_utc": marker.isoformat(),
+                    "observation_time_utc": planned_row.time.utc + "Z",
+                    "observation_time_tai_ns": planned_row.time.tai_ns,
+                    "time_match": _json_safe(displayed_time_match),
+                    "upstream_time_match": _json_safe(
+                        candidate.get("time_match") or {}
+                    ),
+                    "matching_plan_fingerprint": sequence_plan.input_fingerprint,
+                    "dart_coverage_contains_master": dart_covers_master,
                     "source_paths": candidate_frequency_paths(candidate, frequency)[0],
                     "source_map_image_sha256": map_metadata["image"]["sha256"],
                     "source_map_input_size_pixels": list(source_map_input_size),
@@ -800,7 +1023,9 @@ def export_composite_sequences(
                     "source_map_panel_bbox_normalized": list(panel_bbox),
                     "source_map_result": _json_safe(map_result),
                     "roi_intersects_panel": intersects,
-                    "roi_valid_pixel_count": _valid_pixel_count_at(radio_curve, marker),
+                    "roi_valid_pixel_count": _valid_pixel_count_at(
+                        radio_curve, planned_row.time.utc
+                    ),
                     "panel_bounds_pixels": {
                         key: list(value)
                         for key, value in rendered.panel_bounds_pixels.items()
@@ -926,9 +1151,11 @@ def export_composite_sequences(
                 },
                 "marker_free": True,
             }
+            _write_json(frequency_dir / "matching-plan.json", sequence_plan.to_dict())
             frequency_manifest = {
                 "schema_version": SEQUENCE_SCHEMA_VERSION,
                 "scientific_stem": frequency_name,
+                "matching_plan": sequence_plan.to_dict(),
                 "frequency_mhz": frequency,
                 "polarization": str(polarization),
                 "time_start_utc": start.isoformat(),
@@ -963,6 +1190,10 @@ def export_composite_sequences(
             sequence_manifests.append(
                 {
                     "frequency_mhz": frequency,
+                    "matching_plan_fingerprint": sequence_plan.input_fingerprint,
+                    "matching_plan": str(
+                        Path(frequency_dir_name) / "matching-plan.json"
+                    ),
                     "scientific_stem": frequency_name,
                     "directory": frequency_dir_name,
                     "video": (
@@ -1007,6 +1238,17 @@ def export_composite_sequences(
             radio_plot_paths[frequency] = radio_plot_path
             dart_plot_paths[frequency] = dart_plot_path
 
+        for frequency, plan in sequence_plans.items():
+            if (
+                _native_input_fingerprint(
+                    [row.output_frame.payload for row in plan.rows],
+                    plan.core.fingerprint,
+                )
+                != plan.input_fingerprint
+            ):
+                raise ValueError(
+                    "Native sequence inputs changed during export; staged outputs were not published"
+                )
         metadata = {
             "schema_version": SEQUENCE_SCHEMA_VERSION,
             "generated_at_utc": generated.isoformat(),
@@ -1020,7 +1262,10 @@ def export_composite_sequences(
             "time_range": {
                 "start_utc": start.isoformat(),
                 "end_utc": end.isoformat(),
-                "default_policy": "intersection-of-selected-radio-frequencies",
+                "default_policy": "union-of-enabled-real-image-observations",
+                "master_policy": "ascending_frame_count_hierarchy",
+                "overflow_policy": "keep_flagged",
+                "spectra_clip_image_timeline": False,
                 "resampling": "none",
                 "interpolation": "none",
             },
@@ -1188,7 +1433,7 @@ def _mapping_value_for_frequency(mapping: Mapping, frequency: float):
         try:
             if math.isclose(float(key), frequency, rel_tol=0.0, abs_tol=1e-6):
                 return value
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             continue
     raise ValueError(f"Missing sequence input for {frequency:g} MHz")
 
@@ -1264,7 +1509,7 @@ def _prefetch_frames(
         if callable(close):
             try:
                 close()
-            except (RuntimeError, ValueError):
+            except RuntimeError, ValueError:
                 # A producer that is unwinding may still own the generator.
                 # The stop event remains the authoritative cancellation signal.
                 pass
@@ -1377,7 +1622,7 @@ def _source_file_identities(value: Any) -> list[dict[str, Any]]:
         elif isinstance(item, (str, Path)):
             try:
                 path = Path(item).expanduser().resolve()
-            except (OSError, TypeError, ValueError):
+            except OSError, TypeError, ValueError:
                 return
             if path.is_file():
                 paths.add(path)
@@ -1401,16 +1646,13 @@ def _raise_if_cancelled(cancel_check: CancelCheck | None) -> None:
         raise CompositeSequenceCancelled("Sequence export canceled")
 
 
-def _utc_datetime(value: datetime | str) -> datetime:
-    if isinstance(value, datetime):
-        parsed = value
-    else:
-        text = str(value).strip()
-        normalized = text[:-1] + "+00:00" if text.upper().endswith("Z") else text
-        parsed = datetime.fromisoformat(normalized)
-    if parsed.tzinfo is None:
-        return parsed.replace(tzinfo=UTC)
-    return parsed.astimezone(UTC)
+def _utc_datetime(value: datetime | str) -> pd.Timestamp:
+    parsed = pd.Timestamp(value)
+    if pd.isna(parsed):
+        raise ValueError("A valid UTC timestamp is required")
+    return (
+        parsed.tz_localize("UTC") if parsed.tzinfo is None else parsed.tz_convert("UTC")
+    )
 
 
 def _json_safe(value: Any) -> Any:
@@ -1441,6 +1683,8 @@ __all__ = [
     "candidate_contains_frequency",
     "candidate_frequency_paths",
     "common_candidate_time_coverage",
+    "build_native_sequence_plan",
+    "planned_native_candidate",
     "export_composite_sequences",
     "group_candidates_by_frequency",
     "prepare_single_panel_render",

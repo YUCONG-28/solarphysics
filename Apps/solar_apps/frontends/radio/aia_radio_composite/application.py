@@ -12,16 +12,20 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any
 
+import numpy as np
 import pandas as pd
-from solar_apps.workflows.visualization.video_cli import write_video_from_paths
+from solar_toolkit.aia.background import AiaBackground
 from solar_toolkit.radio.roi_lightcurve import RadioRoi
+from solar_toolkit.time import SequenceMatchPlan, normalize_time
+
+from solar_apps.workflows.visualization.video_cli import write_video_from_paths
 
 from . import FRONTEND_ID
 from .adapters import (
     DEFAULT_ROI_FREQUENCIES_MHZ,
+    extract_multi_frequency_roi_curve,
     extract_spectrum_flux_curve,
     extract_spectrum_flux_curves,
-    extract_multi_frequency_roi_curve,
     fit_radio_gaussian_frame,
     load_aia_selection,
     load_radio_candidates,
@@ -29,6 +33,8 @@ from .adapters import (
     scan_aia_catalog,
     select_radio_frame_from_candidates,
 )
+from .adapters.aia_adapter import AiaSelection
+from .adapters.radio_adapter import _materialize_radio_candidate
 from .models import (
     CompositeRequest,
     CompositeResult,
@@ -44,6 +50,12 @@ from .rendering import (
     render_composite_result,
     render_top_panel,
 )
+from .sequence import (
+    aia_source_id,
+    build_image_sequence_plan,
+    match_row_metadata,
+    radio_source_id,
+)
 
 __all__ = [
     "FRONTEND_ID",
@@ -51,6 +63,7 @@ __all__ = [
     "build_composite",
     "build_composite_result",
     "build_composite_video",
+    "build_composite_match_plan",
     "build_dynamic_composite_video",
     "build_roi_lightcurve",
     "build_spectrum_flux_curve",
@@ -81,6 +94,93 @@ class _FrameMatchError(RuntimeError):
 
 AIA_VIDEO_MATCH_TOLERANCE_SECONDS = 12.0
 RADIO_VIDEO_MATCH_TOLERANCE_SECONDS = 0.1
+
+
+def _sequence_radio_candidates(
+    request, frequencies, pair_tolerance, *, time_start=None, time_end=None
+):
+    sources = {}
+    for frequency in frequencies:
+        try:
+            sources[frequency] = load_radio_candidates(
+                replace(request, radio_frequency=frequency),
+                pair_time_tolerance_sec=pair_tolerance,
+                time_start=time_start,
+                time_end=time_end,
+            )
+        except FileNotFoundError:
+            sources[frequency] = ()
+    return sources
+
+
+def _resolve_composite_match_plan(
+    request,
+    *,
+    frequencies,
+    wavelengths,
+    pair_tolerance,
+    aia_tolerance,
+    radio_tolerance,
+    time_start=None,
+    time_end=None,
+    match_plan=None,
+):
+    candidates = _sequence_radio_candidates(
+        request, frequencies, pair_tolerance, time_start=time_start, time_end=time_end
+    )
+    catalog = scan_aia_catalog(request)
+    current = build_image_sequence_plan(
+        candidates,
+        catalog,
+        wavelengths=wavelengths,
+        aia_tolerance_seconds=aia_tolerance,
+        radio_tolerance_seconds=radio_tolerance,
+        time_start=time_start,
+        time_end=time_end,
+    )
+    if match_plan is not None:
+        if not isinstance(match_plan, SequenceMatchPlan):
+            raise TypeError("match_plan must be a SequenceMatchPlan")
+        if (
+            getattr(match_plan, "output_source_id", None) is None
+            or match_plan.to_dict().get("algorithm_version") != 3
+        ):
+            raise RuntimeError(
+                "Legacy image matching plan requires a new hierarchy preview"
+            )
+        if current.fingerprint != match_plan.fingerprint:
+            raise RuntimeError(
+                "Image inputs or matching settings changed; rebuild the preview before export"
+            )
+        current = match_plan
+    return current, candidates, catalog
+
+
+def build_composite_match_plan(
+    request,
+    *,
+    radio_frequencies_mhz=None,
+    aia_waves=None,
+    time_start=None,
+    time_end=None,
+    pair_time_tolerance_sec=0.5,
+    aia_match_tolerance_seconds=12.0,
+    radio_match_tolerance_seconds=0.1,
+):
+    """Build the fixed image plan shared by preview and chronological export."""
+    plan, _, _ = _resolve_composite_match_plan(
+        request,
+        frequencies=_normalized_radio_frequencies(request, radio_frequencies_mhz),
+        wavelengths=_normalized_aia_waves(request, aia_waves),
+        pair_tolerance=pair_time_tolerance_sec,
+        aia_tolerance=aia_match_tolerance_seconds,
+        radio_tolerance=radio_match_tolerance_seconds,
+        time_start=time_start,
+        time_end=time_end,
+    )
+    if not plan.rows:
+        raise ValueError("No valid image observations exist in the selected window")
+    return plan
 
 
 def match_reference_radio_time(
@@ -170,6 +270,8 @@ def build_composite_result(
     flux_plot_layout: str = "combined",
     gaussian_overrides: Mapping[str, Any] | None = None,
     dpi: int = 160,
+    match_plan: SequenceMatchPlan | None = None,
+    match_time_range_utc: tuple[datetime | str, datetime | str] | None = None,
 ) -> CompositeResult:
     """Run the three adapters and assemble one validated in-memory result."""
 
@@ -183,6 +285,11 @@ def build_composite_result(
         display_extent_arcsec=display_extent_arcsec,
         extended_canvas_color=extended_canvas_color,
         gaussian_overrides=gaussian_overrides,
+        match_plan=match_plan,
+        time_start=match_time_range_utc[0] if match_time_range_utc else None,
+        time_end=match_time_range_utc[1] if match_time_range_utc else None,
+        aia_max_dt_seconds=AIA_VIDEO_MATCH_TOLERANCE_SECONDS,
+        radio_max_dt_seconds=RADIO_VIDEO_MATCH_TOLERANCE_SECONDS,
     )
     curve = build_roi_lightcurve(
         request,
@@ -211,7 +318,9 @@ def build_composite_result(
         else ()
     )
     map_time = str(
-        top.metadata.get(
+        top.metadata.get("time_match", {}).get("output_time_utc")
+        or top.metadata.get("time_match", {}).get("master_time_utc")
+        or top.metadata.get(
             "reference_radio_time_utc",
             request.aia_time.isoformat(),
         )
@@ -303,6 +412,8 @@ def build_composite(
     gaussian_overrides: Mapping[str, Any] | None = None,
     metric: str = "raw_sum",
     dpi: int = 160,
+    match_plan: SequenceMatchPlan | None = None,
+    match_time_range_utc: tuple[datetime | str, datetime | str] | None = None,
 ) -> tuple[CompositeResult, TriplePanelArtifact]:
     """Build and render the complete three-panel scientific product."""
 
@@ -313,6 +424,8 @@ def build_composite(
         time_range_utc=time_range_utc,
         roi_time_range_utc=roi_time_range_utc,
         spectrum_time_range_utc=spectrum_time_range_utc,
+        match_plan=match_plan,
+        match_time_range_utc=match_time_range_utc,
         cso_polarization=cso_polarization,
         spectrum_band=spectrum_band,
         spectrum_bands=spectrum_bands,
@@ -357,9 +470,10 @@ def build_composite_video(
 
     if not isinstance(result, CompositeResult):
         raise TypeError("result must be a CompositeResult")
+    start_stamp, end_stamp = normalize_time(time_start), normalize_time(time_end)
     start = _utc_datetime(time_start)
     end = _utc_datetime(time_end)
-    if start >= end:
+    if start_stamp.tai_ns >= end_stamp.tai_ns:
         raise ValueError("video time_start must be before time_end")
     if int(fps) <= 0:
         raise ValueError("fps must be greater than zero")
@@ -438,8 +552,10 @@ def build_dynamic_composite_video(
     radio_match_tolerance_seconds: float = RADIO_VIDEO_MATCH_TOLERANCE_SECONDS,
     pair_time_tolerance_sec: float = 0.5,
     max_aia_pixels: int = 1024,
+    match_plan: SequenceMatchPlan | None = None,
+    display_time_range_utc: tuple[datetime | str, datetime | str] | None = None,
 ) -> CompositeVideoArtifact:
-    """Encode one frame per real primary-radio observation without interpolation."""
+    """Encode the complete longest image timeline from one fixed match plan."""
 
     from .rendering.composite_renderer import _utc_datetime
 
@@ -447,9 +563,10 @@ def build_dynamic_composite_video(
         raise TypeError("result must be a CompositeResult")
     if not isinstance(request, CompositeRequest):
         raise TypeError("request must be a CompositeRequest")
+    start_stamp, end_stamp = normalize_time(time_start), normalize_time(time_end)
     start = _utc_datetime(time_start)
     end = _utc_datetime(time_end)
-    if start >= end:
+    if start_stamp.tai_ns >= end_stamp.tai_ns:
         raise ValueError("video time_start must be before time_end")
     if int(fps) <= 0:
         raise ValueError("fps must be greater than zero")
@@ -460,25 +577,19 @@ def build_dynamic_composite_video(
         request,
         radio_frequencies_mhz,
     )
-    radio_candidates = {
-        frequency: load_radio_candidates(
-            replace(request, radio_frequency=frequency),
-            pair_time_tolerance_sec=pair_time_tolerance_sec,
-        )
-        for frequency in frequencies
-    }
-    start_naive = start.replace(tzinfo=None)
-    end_naive = end.replace(tzinfo=None)
-    primary_frames = tuple(
-        frame
-        for frame in radio_candidates[frequencies[0]]
-        if frame.obs_time is not None and start_naive <= frame.obs_time <= end_naive
+    plan, radio_candidates, aia_catalog = _resolve_composite_match_plan(
+        request,
+        frequencies=frequencies,
+        wavelengths=wavelengths,
+        pair_tolerance=pair_time_tolerance_sec,
+        aia_tolerance=aia_match_tolerance_seconds,
+        radio_tolerance=radio_match_tolerance_seconds,
+        time_start=start_stamp,
+        time_end=end_stamp,
+        match_plan=match_plan,
     )
-    if len(primary_frames) < 2:
-        raise ValueError(
-            "Fewer than two primary-radio observations exist in the video window"
-        )
-    aia_catalog = scan_aia_catalog(request)
+    if not plan.rows:
+        raise ValueError("No valid image observations exist in the video window")
     aia_cache: dict[str, Any] = {}
     radio_fit_cache: dict[tuple[Any, ...], Any] = {}
     skipped: list[dict[str, Any]] = []
@@ -486,63 +597,53 @@ def build_dynamic_composite_video(
     with TemporaryDirectory(prefix="aia-radio-dynamic-video-") as temp_text:
         temp_dir = Path(temp_text)
         frame_paths: list[Path] = []
-        for primary_candidate in primary_frames:
-            anchor = primary_candidate.obs_time.replace(tzinfo=UTC)
-            try:
-                primary_frame, _, _ = select_radio_frame_from_candidates(
-                    (primary_candidate,),
-                    anchor,
-                    max_dt_seconds=0.0,
-                )
-                top = _build_matched_top_panel(
-                    request,
-                    primary_frame=primary_frame,
-                    wavelengths=wavelengths,
-                    radio_frequencies=frequencies,
-                    radio_candidates=radio_candidates,
-                    aia_catalog=aia_catalog,
-                    aia_cache=aia_cache,
-                    radio_fit_cache=radio_fit_cache,
-                    aia_max_dt_seconds=float(aia_match_tolerance_seconds),
-                    radio_match_tolerance_seconds=float(radio_match_tolerance_seconds),
-                    max_aia_pixels=max_aia_pixels,
-                    gaussian_overrides=gaussian_overrides,
-                    dpi=dpi,
-                    display_extent_arcsec=display_extent_arcsec,
-                    extended_canvas_color=extended_canvas_color,
-                )
-            except Exception as exc:
-                skipped.append(
-                    {
-                        "primary_radio_time_utc": anchor.isoformat(),
-                        "reason": str(exc),
-                        "missing_sources": (
-                            [exc.source] if isinstance(exc, _FrameMatchError) else []
-                        ),
-                    }
-                )
-                continue
+        for row in plan.rows:
+            anchor = pd.Timestamp(row.time.utc).tz_localize("UTC")
+            primary_selection = row.selections[radio_source_id(frequencies[0])]
+            primary_frame = (
+                primary_selection.frame.payload if primary_selection.frame else None
+            )
+            top = _build_matched_top_panel(
+                request,
+                primary_frame=primary_frame,
+                plan_row=row,
+                wavelengths=wavelengths,
+                radio_frequencies=frequencies,
+                radio_candidates=radio_candidates,
+                aia_catalog=aia_catalog,
+                aia_cache=aia_cache,
+                radio_fit_cache=radio_fit_cache,
+                aia_max_dt_seconds=float(aia_match_tolerance_seconds),
+                radio_match_tolerance_seconds=float(radio_match_tolerance_seconds),
+                max_aia_pixels=max_aia_pixels,
+                gaussian_overrides=gaussian_overrides,
+                dpi=dpi,
+                display_extent_arcsec=display_extent_arcsec,
+                extended_canvas_color=extended_canvas_color,
+            )
             dynamic_result = replace(result, top_image=top.image_png)
             frame = render_composite_result(
                 dynamic_result,
                 map_time=anchor,
                 metric=metric,
                 dpi=int(dpi),
-                display_time_range_utc=(start, end),
+                display_time_range_utc=display_time_range_utc or (start, end),
             )
             frame_path = temp_dir / f"frame_{len(frame_paths):05d}.png"
             frame_path.write_bytes(frame.image_png)
             frame_paths.append(frame_path)
             frame_metadata.append(
                 {
-                    "primary_radio_time_utc": anchor.isoformat(),
+                    "primary_radio_time_utc": (
+                        primary_selection.frame.time.utc
+                        if primary_selection.frame
+                        else None
+                    ),
+                    "output_time_utc": row.time.utc,
+                    "output_frame_id": row.output_frame.frame_id,
                     "top_panel": dict(top.metadata),
+                    "time_match": match_row_metadata(row),
                 }
-            )
-        if len(frame_paths) < 2:
-            raise ValueError(
-                "Fewer than two fully matched dynamic frames remain after "
-                f"skipping {len(skipped)} incomplete observation(s)"
             )
         video_path = temp_dir / "aia_radio_composite.mp4"
         encoded = write_video_from_paths(
@@ -555,13 +656,30 @@ def build_dynamic_composite_video(
         )
         if not encoded or not video_path.is_file():
             raise RuntimeError("MP4 encoder did not produce a video")
+        _resolve_composite_match_plan(
+            request,
+            frequencies=frequencies,
+            wavelengths=wavelengths,
+            pair_tolerance=pair_time_tolerance_sec,
+            aia_tolerance=aia_match_tolerance_seconds,
+            radio_tolerance=radio_match_tolerance_seconds,
+            time_start=start_stamp,
+            time_end=end_stamp,
+            match_plan=plan,
+        )
         video_mp4 = video_path.read_bytes()
     metadata = {
         "product": "aia-radio-composite-video",
-        "top_panel_mode": "dynamic_radio_first_multi_aia",
-        "timeline_mode": "primary_radio_observations_no_interpolation",
-        "time_start_utc": start.isoformat(),
-        "time_end_utc": end.isoformat(),
+        "top_panel_mode": "dynamic_longest_image_timeline_multi_aia",
+        "timeline_mode": "monotone_full_coverage_no_interpolation",
+        "master_source_id": plan.master_source_id,
+        "output_source_id": plan.output_source_id,
+        "source_order": list(plan.source_order),
+        "match_plan_fingerprint": plan.fingerprint,
+        "match_plan_summary": plan.to_dict()["summary"],
+        "match_plan": plan.to_dict(),
+        "time_start_utc": start_stamp.utc,
+        "time_end_utc": end_stamp.utc,
         "reference_radio_frequency_mhz": frequencies[0],
         "radio_frequencies_mhz": list(frequencies),
         "aia_waves": list(wavelengths),
@@ -744,6 +862,9 @@ def build_top_panel(
     display_extent_arcsec: tuple[float, float, float, float] | None = None,
     extended_canvas_color: str = "black",
     dpi: int = 160,
+    match_plan: SequenceMatchPlan | None = None,
+    time_start: datetime | str | None = None,
+    time_end: datetime | str | None = None,
 ) -> TopPanelArtifact:
     """Build the phase-four AIA background plus radio Gaussian artifact."""
 
@@ -752,25 +873,31 @@ def build_top_panel(
         radio_frequencies_mhz,
     )
     wavelengths = _normalized_aia_waves(request, aia_waves)
-    radio_candidates = {
-        frequency: load_radio_candidates(
-            replace(request, radio_frequency=frequency),
-            pair_time_tolerance_sec=pair_time_tolerance_sec,
-        )
-        for frequency in radio_frequencies
-    }
-    primary_frame, _, _ = select_radio_frame_from_candidates(
-        radio_candidates[radio_frequencies[0]],
-        request.aia_time,
-        max_dt_seconds=radio_max_dt_seconds,
-    )
-    return _build_matched_top_panel(
+    plan, radio_candidates, aia_catalog = _resolve_composite_match_plan(
         request,
-        primary_frame=primary_frame,
+        frequencies=radio_frequencies,
+        wavelengths=wavelengths,
+        pair_tolerance=pair_time_tolerance_sec,
+        aia_tolerance=aia_max_dt_seconds,
+        radio_tolerance=radio_max_dt_seconds,
+        time_start=time_start,
+        time_end=time_end,
+        match_plan=match_plan,
+    )
+    if not plan.rows:
+        raise ValueError("No valid observation frames are available")
+    target = normalize_time(request.aia_time).tai_ns
+    row = min(
+        plan.rows, key=lambda item: (abs(item.time.tai_ns - target), item.time.tai_ns)
+    )
+    top = _build_matched_top_panel(
+        request,
+        primary_frame=None,
+        plan_row=row,
         wavelengths=wavelengths,
         radio_frequencies=radio_frequencies,
         radio_candidates=radio_candidates,
-        aia_catalog=scan_aia_catalog(request),
+        aia_catalog=aia_catalog,
         aia_cache={},
         radio_fit_cache={},
         aia_max_dt_seconds=min(
@@ -783,6 +910,18 @@ def build_top_panel(
         dpi=dpi,
         display_extent_arcsec=display_extent_arcsec,
         extended_canvas_color=extended_canvas_color,
+    )
+    return replace(
+        top,
+        metadata={
+            **dict(top.metadata),
+            "match_plan_fingerprint": plan.fingerprint,
+            "master_source_id": plan.master_source_id,
+            "output_source_id": plan.output_source_id,
+            "source_order": list(plan.source_order),
+            "output_time_utc": row.time.utc,
+            "output_frame_id": row.output_frame.frame_id,
+        },
     )
 
 
@@ -803,17 +942,30 @@ def _build_matched_top_panel(
     dpi: int,
     display_extent_arcsec: tuple[float, float, float, float] | None,
     extended_canvas_color: str,
+    plan_row: Any = None,
 ) -> TopPanelArtifact:
     """Match all selected inputs to one real primary-radio observation."""
 
-    if primary_frame.obs_time is None:
+    if plan_row is None and primary_frame.obs_time is None:
         raise ValueError("Primary radio frame is missing an observation time")
-    anchor = primary_frame.obs_time.replace(tzinfo=UTC)
+    anchor = (
+        pd.Timestamp(plan_row.time.utc).tz_localize("UTC")
+        if plan_row is not None
+        else primary_frame.obs_time.replace(tzinfo=UTC)
+    )
+    row_metadata = match_row_metadata(plan_row) if plan_row is not None else None
     primary_frequency = float(radio_frequencies[0])
     radios = []
     for frequency in radio_frequencies:
         candidates = radio_candidates[float(frequency)]
-        if float(frequency) == primary_frequency:
+        if plan_row is not None:
+            selection = plan_row.selections[radio_source_id(frequency)]
+            if selection.frame is None:
+                continue
+            frame = _materialize_radio_candidate(selection.frame.payload)
+            delta_seconds = abs(selection.delta_ns) / 1e9
+            candidate_count = len(candidates)
+        elif float(frequency) == primary_frequency:
             frame = primary_frame
             delta_seconds = 0.0
             candidate_count = len(candidates)
@@ -832,6 +984,7 @@ def _build_matched_top_panel(
                     str(exc),
                 ) from exc
         cache_key = (
+            selection.frame.frame_id if plan_row is not None else None,
             str(frame.path.resolve(strict=False)),
             int(frame.hdu_index),
             float(frame.freq_mhz),
@@ -870,24 +1023,72 @@ def _build_matched_top_panel(
             aia_time=anchor,
         )
         try:
-            aias.append(
-                load_aia_selection(
-                    aia_request,
-                    max_dt_seconds=aia_max_dt_seconds,
-                    max_pixels=max_aia_pixels,
-                    catalog=aia_catalog,
-                    background_cache=aia_cache,
-                )
+            selected_record = None
+            if plan_row is not None:
+                selection = plan_row.selections[aia_source_id(wavelength)]
+                if selection.frame is None:
+                    extent = display_extent_arcsec or (-1000.0, 1000.0, -1000.0, 1000.0)
+                    background = AiaBackground(
+                        "",
+                        np.full((2, 2), np.nan),
+                        np.array(
+                            [
+                                extent[0] * 0.75 + extent[1] * 0.25,
+                                extent[0] * 0.25 + extent[1] * 0.75,
+                            ]
+                        ),
+                        np.array(
+                            [
+                                extent[2] * 0.75 + extent[3] * 0.25,
+                                extent[2] * 0.25 + extent[3] * 0.75,
+                            ]
+                        ),
+                        "NO DATA",
+                        None,
+                        str(wavelength),
+                    )
+                    aias.append(
+                        AiaSelection(
+                            background,
+                            anchor,
+                            anchor,
+                            0.0,
+                            0,
+                            row_metadata["sources"][aia_source_id(wavelength)],
+                        )
+                    )
+                    continue
+                selected_record = selection.frame.payload
+            loaded = load_aia_selection(
+                aia_request,
+                max_dt_seconds=aia_max_dt_seconds,
+                max_pixels=max_aia_pixels,
+                catalog=aia_catalog,
+                background_cache=aia_cache,
+                selected_record=selected_record,
             )
+            if row_metadata is not None:
+                loaded = replace(
+                    loaded,
+                    delta_seconds=abs(selection.delta_ns) / 1e9,
+                    match_metadata=row_metadata["sources"][aia_source_id(wavelength)],
+                )
+            aias.append(loaded)
         except Exception as exc:
             raise _FrameMatchError(
                 f"AIA {int(wavelength)} Å",
                 str(exc),
             ) from exc
-    return render_top_panel(
+    top = render_top_panel(
         tuple(aias),
         tuple(radios),
         dpi=dpi,
         display_extent_arcsec=display_extent_arcsec,
         extended_canvas_color=extended_canvas_color,
+        anchor_time_utc=anchor,
+        allow_missing_radio=plan_row is not None,
+        time_match=row_metadata,
     )
+    if row_metadata is not None:
+        top = replace(top, metadata={**dict(top.metadata), "time_match": row_metadata})
+    return top

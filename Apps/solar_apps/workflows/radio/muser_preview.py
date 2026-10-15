@@ -10,25 +10,20 @@ from pathlib import Path
 import numpy as np
 from astropy.io import fits
 from astropy.time import Time
-
 from solar_toolkit.aia.background import scan_aia_folder
 from solar_toolkit.radio.dart_spectrogram import (
+    discover_dart_spectrogram_files,
     extract_dart_narrowband_lightcurves,
     read_dart_spectrogram_window,
-    discover_dart_spectrogram_files,
 )
 from solar_toolkit.radio.muser import (
-    read_muser_spectrum,
-    read_muser_images,
-    peak_level,
     hpc_grid,
+    peak_level,
+    read_muser_spectrum,
 )
 from solar_toolkit.radio.muser_comparison import (
     FrameRef,
     index_images,
-    pair_dart,
-    load_dart_sum,
-    select_peak_frame,
 )
 
 COLORS = ("#00e5ff", "#ff9b35", "#65ff6a", "#ff65c8", "#b69cff", "#ffe047")
@@ -116,67 +111,86 @@ def _spectrum(ax, time, freq, data, bounds, target, title, label, color_limits=N
 
 
 def build_preview(config, output):
+    config = dict(config, label=config.get("label", "Radio/AIA comparison"))
     import matplotlib
 
     matplotlib.use("Agg")
+    import astropy.units as u
     import matplotlib.dates as mdates
     import matplotlib.pyplot as plt
+    import sunpy.map
+    from astropy.coordinates import SkyCoord
     from matplotlib.lines import Line2D
     from matplotlib.ticker import FuncFormatter
-    import astropy.units as u
-    from astropy.coordinates import SkyCoord
-    import sunpy.map
 
+    if config.get("make_video"):
+        config["remove_missing_times"] = False
     output = Path(output)
     output.mkdir(parents=True, exist_ok=False)
     requested_fov = _requested_fov(config)
     frequencies = _requested_frequencies(config)
     colors = tuple(COLORS[i % len(COLORS)] for i in range(len(frequencies)))
-    config = dict(
-        config,
-        frequencies_mhz=frequencies,
-        label=config.get("label", "Radio/AIA comparison"),
-    )
     if config.get("remove_missing_times") and not config.get("cso_files"):
         raise ValueError("Missing-time compaction requires CSO source inputs")
     mdir = Path(config["muser_directory"])
     specpaths = list(mdir.glob("*spec.PWR_I*.fits"))
     if len(specpaths) != 1:
-        raise ValueError("Select one MUSER input directory with one PWR_I spectrum")
+        raise ValueError("Select one MUSER event directory with one PWR_I spectrum")
     spec = read_muser_spectrum(specpaths[0])
     bounds = [float(spec.time.unix[0]), float(spec.time.unix[-1])]
+    from solar_toolkit.time import normalize_time
+
+    from .muser_video import (
+        build_video_match_plan,
+        video_image_time_window,
+        video_source_ids,
+    )
+
+    window = video_image_time_window(config, [spec.time[0], spec.time[-1]])
+    # Keep the user's exact image window separate from the spectral plotting axis.
+    config["image_time_start"] = (
+        normalize_time(window["time_start"]).utc
+        if window["time_start"] is not None
+        else None
+    )
+    config["image_time_end"] = (
+        normalize_time(window["time_end"]).utc
+        if window["time_end"] is not None
+        else None
+    )
+    window = video_image_time_window(config)
+    image_bounds = [
+        (
+            float(Time(config[key], scale="utc").unix)
+            if config[key] is not None
+            else bounds[index]
+        )
+        for index, key in enumerate(("image_time_start", "image_time_end"))
+    ]
+    if image_bounds[0] >= image_bounds[1]:
+        image_bounds = list(
+            bounds
+        )  # finite score/display fallback; image eligibility remains open
+    for index, key in enumerate(("spectrogram_time_start", "spectrogram_time_end")):
+        if config.get(key) is not None:
+            bounds[index] = float(
+                Time(normalize_time(config[key]).utc, scale="utc").unix
+            )
     print("Indexing MUSER and DART FITS headers", flush=True)
     mi = index_images((mdir / "img_fits").glob("*.fits"))
-    if not mi:
-        raise ValueError("No MUSER image frames")
     dart = []
     for freq in frequencies:
         d = Path(config["dart_directory"]) / f"{freq:g}MHz"
-        pairs = pair_dart(
-            index_images((d / "LL").glob("*.fits")),
-            index_images((d / "RR").glob("*.fits")),
-        )
-        if not pairs:
-            raise ValueError(f"No DART LL/RR pairs for {freq:g} MHz")
+        pairs = _pair_dart_in_window(d, freq, window)
         dart.append(pairs)
-    for group in [mi, *dart]:
-        bounds[0] = max(bounds[0], group[0].seconds)
-        bounds[1] = min(bounds[1], group[-1].seconds)
-    if bounds[0] >= bounds[1]:
-        raise ValueError("No shared time coverage")
     aia = []
     for wave in (171, 304):
         table = scan_aia_folder(
             Path(config["aia_directory"]) / str(wave), recursive=True
         )
         table = table.loc[np.isclose(table.wavelength.astype(float), wave)]
-        aia.append(
-            [
-                FrameRef(float(Time(t.to_pydatetime()).unix), (Path(p),))
-                for p, t in zip(table.path, table.obs_time)
-            ]
-        )
-    trange = tuple(Time(bounds, format="unix").isot)
+        aia.append(index_images(table.path))
+    trange = tuple(Time(image_bounds, format="unix").isot)
     curves = extract_dart_narrowband_lightcurves(
         config["spectrum_directory"],
         frequencies,
@@ -185,24 +199,47 @@ def build_preview(config, output):
     )
     st = np.array([t.timestamp() for t in curves.time_utc])
     score = np.mean([c.stokes_i_db for c in curves.curves], axis=0)
-    bounds = [max(bounds[0], st[0]), min(bounds[1], st[-1])]
-    target, refs, score_index = select_peak_frame(st, score, mi, dart, aia, bounds)
+    config["frequencies_mhz"] = list(frequencies)
+    plan = build_video_match_plan(config, mi, dart, aia)
+    source_ids = video_source_ids(config)
+    target, refs, score_index, preview_row = _select_plan_preview(
+        plan, st, score, source_ids
+    )
+    from solar_toolkit.radio.time_matching import selection_metadata
+
+    preview_match = selection_metadata(plan.rows[preview_row], plan=plan)
     print("Selected UTC", Time(target, format="unix").isot, flush=True)
-    planes = read_muser_images(refs[0].paths[0])
     overlays, overlay_meta = [], []
-    inputs = {specpaths[0], refs[0].paths[0]}
+    inputs = {specpaths[0]}
+    matched_frequencies = []
+    from solar_toolkit.radio.time_matching import materialize_radio_frame
+    from solar_toolkit.time import TimeFrame
+
     for k, freq in enumerate(frequencies):
-        mf, image, header, beam = min(planes, key=lambda p: abs(p[0] - freq))
-        if abs(mf - freq) > 5:
-            raise ValueError(f"No MUSER channel within 5 MHz of {freq}")
-        ds = load_dart_sum(refs[k + 1])
-        for instrument, data, hdr, f, style in [
-            ("MUSER", image, header, mf, "-"),
-            ("DART", ds.image, ds.header, freq, "--"),
-        ]:
+        band_images = []
+        mf, beam = float("nan"), None
+        ref = refs[k]
+        if ref is not None:
+            mf = ref.payload["frequency_mhz"]
+            image, header = materialize_radio_frame(
+                TimeFrame(ref.frame_id, ref.time, ref.payload)
+            )
+            beam = {key: header.get(key) for key in ("BMAJ", "BMIN", "BPA")}
+            band_images.append(("MUSER", image, header, mf, "-"))
+            inputs.update(ref.paths)
+        matched_frequencies.append(mf)
+        ref = refs[len(frequencies) + k]
+        if ref is not None:
+            data, header = materialize_radio_frame(
+                TimeFrame(ref.frame_id, ref.time, ref.payload)
+            )
+            band_images.append(("DART", data, header, freq, "--"))
+            inputs.update(ref.paths)
+        for instrument, data, hdr, f, style in band_images:
             x, y = hpc_grid(hdr, data.shape)
             level = peak_level(data)
             overlays.append((x, y, data, level, colors[k], style))
+            source_id = f"{instrument}:{freq:g}"
             overlay_meta.append(
                 {
                     "instrument": instrument,
@@ -211,15 +248,35 @@ def build_preview(config, output):
                     "level": level,
                     "unit": hdr.get("BUNIT"),
                     "beam": beam if instrument == "MUSER" else None,
-                    "delta_seconds": refs[0 if instrument == "MUSER" else k + 1].seconds
-                    - target,
+                    "delta_seconds": plan.rows[preview_row]
+                    .selections[source_id]
+                    .delta_ns
+                    / 1e9,
+                    "time_match": preview_match["selections"][source_id],
                 }
             )
-        inputs.update(refs[k + 1].paths)
     maps = []
     aia_meta = []
     for wave, ref in zip((171, 304), refs[-2:]):
-        m = sunpy.map.Map(ref.paths[0])
+        if ref is None:
+            maps.append(None)
+            aia_meta.append(
+                {
+                    "wave_angstrom": wave,
+                    "status": "no_data",
+                    "path": None,
+                    "utc": None,
+                    "delta_seconds": None,
+                }
+            )
+            continue
+        from solar_toolkit.radio.time_matching import materialize_radio_frame
+        from solar_toolkit.time import TimeFrame
+
+        pixels, header = materialize_radio_frame(
+            TimeFrame(ref.frame_id, ref.time, ref.payload)
+        )
+        m = sunpy.map.Map((pixels, header))
         if str(m.meta.get("CTYPE1", "")).upper() != "HPLN-TAN":
             raise ValueError("AIA must have helioprojective coordinates")
         if requested_fov is not None:
@@ -239,12 +296,19 @@ def build_preview(config, output):
             {
                 "wave_angstrom": wave,
                 "path": str(ref.paths[0]),
-                "utc": Time(ref.seconds, format="unix").isot,
-                "delta_seconds": ref.seconds - target,
+                "utc": ref.time.utc + "Z",
+                "delta_seconds": plan.rows[preview_row]
+                .selections[f"AIA:{wave}"]
+                .delta_ns
+                / 1e9,
+                "time_match": preview_match["selections"][f"AIA:{wave}"],
             }
         )
     # Determine a common FOV from actual interpolated contour vertices and solar limb.
-    radius = max(float(m.rsun_obs.to_value(u.arcsec)) for m in maps)
+    radius = max(
+        (float(m.rsun_obs.to_value(u.arcsec)) for m in maps if m is not None),
+        default=960.0,
+    )
     limits = [-radius, radius, -radius, radius]
     scratch, ax = plt.subplots()
     distant = []
@@ -262,12 +326,12 @@ def build_preview(config, output):
                 or vertices_all[:, 1].min() > ymax
             ):
                 outside_view.append(
-                    f'{overlay_meta[index]["instrument"]} {overlay_meta[index]["frequency_mhz"]:.2f} MHz'
+                    f"{overlay_meta[index]['instrument']} {overlay_meta[index]['frequency_mhz']:.2f} MHz"
                 )
         for vertices in cs.allsegs[0]:
             if len(vertices):
                 if np.max(np.hypot(vertices[:, 0], vertices[:, 1])) > 2 * radius:
-                    name = f'{overlay_meta[index]["instrument"]} {overlay_meta[index]["frequency_mhz"]:.2f} MHz'
+                    name = f"{overlay_meta[index]['instrument']} {overlay_meta[index]['frequency_mhz']:.2f} MHz"
                     if name not in distant:
                         distant.append(name)
                 limits = [
@@ -287,19 +351,29 @@ def build_preview(config, output):
     for k, (wave, m) in enumerate(zip((171, 304), maps)):
         ax = fig.add_subplot(gs[0, k])
         ax.set_facecolor("black")
-        x, y = hpc_grid(m.wcs.to_header(), m.data.shape)
-        values = np.log10(np.maximum(m.data.astype(float), 0) + 1)
-        finite = values[np.isfinite(values)]
-        ax.pcolormesh(
-            x,
-            y,
-            values,
-            shading="nearest",
-            cmap=f"sdoaia{wave}",
-            vmin=np.percentile(finite, 1),
-            vmax=np.percentile(finite, 99.7),
-            rasterized=True,
-        )
+        if m is not None:
+            x, y = hpc_grid(m.wcs.to_header(), m.data.shape)
+            values = np.log10(np.maximum(m.data.astype(float), 0) + 1)
+            finite = values[np.isfinite(values)]
+            ax.pcolormesh(
+                x,
+                y,
+                values,
+                shading="nearest",
+                cmap=f"sdoaia{wave}",
+                vmin=np.percentile(finite, 1),
+                vmax=np.percentile(finite, 99.7),
+                rasterized=True,
+            )
+        else:
+            ax.text(
+                0.5,
+                0.5,
+                f"AIA {wave}: no observation",
+                transform=ax.transAxes,
+                ha="center",
+                color="white",
+            )
         for xx, yy, data, level, color, style in overlays:
             ax.contour(
                 xx,
@@ -317,14 +391,17 @@ def build_preview(config, output):
             xlim=limits[:2], ylim=limits[2:], aspect="equal", xlabel="Solar X [arcsec]"
         )
         ax.set_ylabel("Solar Y [arcsec]" if k == 0 else "")
-        ax.set_title(f'AIA {wave} Å  |  {aia_meta[k]["utc"][11:]} UTC', fontsize=12)
+        utc = aia_meta[k]["utc"]
+        ax.set_title(
+            f"AIA {wave} Å  |  {utc[11:] + ' UTC' if utc else 'no data'}", fontsize=12
+        )
         handles = [
             Line2D(
                 [],
                 [],
                 color=colors[j],
                 lw=2,
-                label=f'M {overlay_meta[2*j]["frequency_mhz"]:.2f} / D {f:g} MHz',
+                label=f"M {matched_frequencies[j]:.2f} / D {f:g} MHz",
             )
             for j, f in enumerate(frequencies)
         ]
@@ -349,7 +426,6 @@ def build_preview(config, output):
         stime, sfreq, sdata, cso_meta = read_cso_total_window(
             config["cso_files"], bounds, shared_freq
         )
-        missing_cso_columns = ~np.any(np.isfinite(sdata), axis=0)
         if not config.get("relative_background_db"):
             with np.errstate(divide="ignore", invalid="ignore"):
                 sdata = np.where(sdata > 0, np.log10(sdata), np.nan)
@@ -382,37 +458,11 @@ def build_preview(config, output):
     ti = (spec.time.unix >= bounds[0]) & (spec.time.unix <= bounds[1])
     data = spec.data[np.ix_(fi, ti)]
     original_bounds = list(bounds)
-    original_target = target
     mtime = spec.time.unix[ti]
-    display_meta = None
-    mlabel = "10 log10(power) [arbitrary reference]"
-    mbar = "Power [dB, arb.]"
-    mlimits = slimits = None
-    if config.get("relative_background_db"):
-        if not config.get("cso_files"):
-            raise ValueError("Relative mode requires linear CSO source inputs")
-        from solar_toolkit.radio.spectrum_display import relative_background_db
-
-        data, mmode = relative_background_db(data, mtime)
-        sdata, smode = relative_background_db(
-            sdata, stime, config.get("display_gap_seconds", 0.8)
-        )
-        mlabel = mbar = slabel = "Enhancement above background [dB]"
-        mlimits = [0.0, float(np.nanpercentile(data, 99.5))]
-        slimits = [0.0, float(np.nanpercentile(sdata, 99.5))]
-        display_meta = {
-            "MUSER": mmode,
-            "CSO": smode,
-            "color_limit_rule": "0 to positive-data 99.5th percentile, independently for each panel",
-            "absolute_flux_equivalence": False,
-        }
-    else:
-        with np.errstate(divide="ignore", invalid="ignore"):
-            data = np.where(data > 0, 10 * np.log10(data), np.nan)
     removed_intervals = []
     time_formatter = None
     if config.get("remove_missing_times"):
-        missing = missing_cso_columns
+        missing = ~np.any(np.isfinite(sdata) & (sdata > 0), axis=0)
         cadence = float(cso_meta["time_bin_seconds"])
         runs = np.split(
             np.flatnonzero(missing),
@@ -456,6 +506,31 @@ def build_preview(config, output):
                 restore(Time(mdates.num2date(x)).unix), format="unix"
             ).strftime("%H:%M:%S")
         )
+    display_meta = None
+    mlabel = "10 log10(power) [arbitrary reference]"
+    mbar = "Power [dB, arb.]"
+    mlimits = slimits = None
+    if config.get("relative_background_db"):
+        if not config.get("cso_files"):
+            raise ValueError("Relative mode requires linear CSO source inputs")
+        from solar_toolkit.radio.spectrum_display import relative_background_db
+
+        data, mmode = relative_background_db(data, mtime)
+        sdata, smode = relative_background_db(
+            sdata, stime, config.get("display_gap_seconds", 0.8)
+        )
+        mlabel = mbar = slabel = "Enhancement above background [dB]"
+        mlimits = [0.0, float(np.nanpercentile(data, 99.5))]
+        slimits = [0.0, float(np.nanpercentile(sdata, 99.5))]
+        display_meta = {
+            "MUSER": mmode,
+            "CSO": smode,
+            "color_limit_rule": "0 to positive-data 99.5th percentile, independently for each panel",
+            "absolute_flux_equivalence": False,
+        }
+    else:
+        with np.errstate(divide="ignore", invalid="ignore"):
+            data = np.where(data > 0, 10 * np.log10(data), np.nan)
     ax = fig.add_subplot(gs[1, :2])
     art, mm = _spectrum(
         ax,
@@ -504,8 +579,7 @@ def build_preview(config, output):
         )
         subtitle += "\n" + description + ": " + ", ".join(distant)
     fig.suptitle(
-        f'{config["label"]}  |  {Time(original_target, format="unix").isot} UTC\n'
-        + subtitle,
+        f"{config['label']}  |  {plan.rows[preview_row].time.utc} UTC\n" + subtitle,
         fontsize=13,
     )
     png = output / "preview.png"
@@ -523,6 +597,7 @@ def build_preview(config, output):
             original_bounds,
             removed_intervals,
             colors,
+            plan=plan,
         )
     plt.close(fig)
     # Full hashes of selected imaging files; huge DART spectral originals have stat provenance.
@@ -532,7 +607,7 @@ def build_preview(config, output):
     ]
     meta = {
         "config": config,
-        "reference_utc": Time(original_target, format="unix").isot,
+        "reference_utc": plan.rows[preview_row].time.utc + "Z",
         "time_bounds_utc": Time(original_bounds, format="unix").isot.tolist(),
         "removed_time_intervals_utc": [
             Time(x, format="unix").isot.tolist() for x in removed_intervals
@@ -545,7 +620,9 @@ def build_preview(config, output):
         "selection": {
             "bandwidth_mhz": 2,
             "frequencies_mhz": frequencies,
-            "score_mean_source_db": float(score[score_index]),
+            "score_mean_source_db": (
+                float(score[score_index]) if score_index is not None else None
+            ),
             "radio_tolerance_s": 0.1,
             "aia_tolerance_s": 12,
         },
@@ -556,14 +633,15 @@ def build_preview(config, output):
         "dart_polarization_policy": "Existing toolkit parent LL/RR labels override generic StokesI header; RR+LL",
         "inputs": [{"path": str(p), "sha256": _digest(p)} for p in sorted(inputs)],
         "spectrum_display": display_meta,
-        "source_units": {
-            "MUSER": spec.unit,
-            "CSO": cso_meta["unit"] if cso_meta is not None else None,
-        },
+        "source_units": {"MUSER": spec.unit, "CSO": "SolarFluxUnit(SFU)"},
         "cso_spectrum": cso_meta,
-        "selection_score_source": "DART original Stokes I dB; unchanged selection rule",
+        "selection_score_source": "Immutable image-plan row nearest the highest finite in-window DART original Stokes I dB sample; middle plan row when no score exists",
         "dart_spectrum_inputs": spectral_inputs,
         "preview_sha256": _digest(png),
+        "time_match_plan": plan.to_dict(),
+        "preview_row_index": preview_row,
+        "time_match": preview_match,
+        "image_window_utc": plan.to_dict()["window"],
         "quality_notes": {
             "distant_contours_retained": distant,
             "contours_outside_view": outside_view,
@@ -603,6 +681,68 @@ def main(argv=None):
     args = parser.parse_args(argv)
     build_preview(json.loads(args.config.read_text()), args.output)
     return 0
+
+
+def _pair_dart_in_window(directory, frequency, window):
+    from solar_toolkit.radio.time_matching import index_radio_frames, pair_radio_frames
+
+    rr = index_radio_frames(
+        (directory / "RR").glob("*.fits"), frequency_mhz=frequency, polarization="RR"
+    )
+    ll = index_radio_frames(
+        (directory / "LL").glob("*.fits"), frequency_mhz=frequency, polarization="LL"
+    )
+    paired = pair_radio_frames(rr, ll, tolerance_seconds=0.1, **window)
+    return [
+        FrameRef(
+            float(Time(frame.time.utc, scale="utc").unix),
+            tuple(Path(path) for path in frame.payload["paths"]),
+            stamp=frame.time,
+            payload=dict(frame.payload, frame_id=frame.frame_id),
+        )
+        for frame in paired
+    ]
+
+
+def _select_plan_preview(plan, spectrum_times, score, source_ids):
+    """Select a representative immutable plan row; never rematch its sources."""
+    from solar_toolkit.time import normalize_time
+
+    if not plan.rows:
+        raise ValueError("No valid image observations in the selected UTC interval")
+    samples = [
+        (index, normalize_time(float(value), format="unix"))
+        for index, value in enumerate(spectrum_times)
+        if np.isfinite(value) and np.isfinite(score[index])
+    ]
+    window = plan.to_dict()["window"]
+    start = normalize_time(window["start_utc"]).tai_ns if window["start_utc"] else None
+    end = normalize_time(window["end_utc"]).tai_ns if window["end_utc"] else None
+    samples = [
+        (index, stamp)
+        for index, stamp in samples
+        if (start is None or stamp.tai_ns >= start)
+        and (end is None or stamp.tai_ns < end)
+    ]
+    score_index, peak = (
+        min(samples, key=lambda item: (-score[item[0]], item[0]))
+        if samples
+        else (None, None)
+    )
+    row_index = (
+        min(
+            range(len(plan.rows)),
+            key=lambda index: (abs(plan.rows[index].time.tai_ns - peak.tai_ns), index),
+        )
+        if peak is not None
+        else len(plan.rows) // 2
+    )
+    row = plan.rows[row_index]
+    refs = [
+        row.selections[source].frame.payload if row.selections[source].frame else None
+        for source in source_ids
+    ]
+    return float(Time(row.time.utc, scale="utc").unix), refs, score_index, row_index
 
 
 if __name__ == "__main__":

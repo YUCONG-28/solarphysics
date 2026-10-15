@@ -8,7 +8,6 @@ Qt canvas behavior without introducing a second scientific model.
 from __future__ import annotations
 
 import math
-from datetime import timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -32,7 +31,11 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from solar_apps.frontends.image_composer.matching import nearest_record
+from solar_apps.frontends.image_composer.matching import (
+    freeze_match_plan,
+    select_plan_frame,
+    in_window_records,
+)
 from solar_apps.frontends.image_composer.models import LayoutSlot
 
 from .components import load_preview_pixmap
@@ -359,11 +362,25 @@ class ComposerCanvasControls:
         self.project.slots.append(slot)
         self._add_graphics_item(slot)
         self._mark_dirty()
+        if (
+            self.project.matching.time_start is not None
+            or self.project.matching.time_end is not None
+        ):
+            self.set_current_time(record.timestamp_text or record.timestamp)
         return slot
 
     def _add_graphics_item(self, slot: LayoutSlot) -> None:
         folder = self.project.folder_map().get(slot.folder_id)
         record = folder.record_by_ordinal(slot.preview_ordinal) if folder else None
+        if record and (
+            self.project.matching.time_start is not None
+            or self.project.matching.time_end is not None
+        ):
+            try:
+                if record not in in_window_records(self.project, folder):
+                    record = None
+            except ValueError:
+                record = None
         pixmap = self._slot_pixmap(slot, record.path if record is not None else None)
         item = SlotGraphicsItem(self, slot, pixmap)
         self.scene.addItem(item)
@@ -591,29 +608,144 @@ class ComposerCanvasControls:
             self._items[slot.id].setZValue(slot.z_index)
         self._mark_dirty()
 
-    def set_current_time(self, current_time_utc) -> None:  # type: ignore[no-untyped-def]
-        current = current_time_utc.astimezone(timezone.utc).replace(tzinfo=None)
-        updated = 0
+    def set_current_time(self, current_time_utc, *, matched_locators=None) -> None:  # type: ignore[no-untyped-def]
+        if not self.project.slots:
+            return
+        try:
+            plan = freeze_match_plan(self.project)
+            if not plan:
+                self.clear_sync_selection()
+                self.sync_status.setText(
+                    "No valid images in the selected UTC time window; export is unavailable."
+                )
+                return
+            frame = select_plan_frame(plan, current_time_utc)
+            explicit = {
+                folder.id: matched_locators["composer-" + folder.id.replace("_", "-")]
+                for folder in self.project.folders
+                if matched_locators is not None
+                and "composer-" + folder.id.replace("_", "-") in matched_locators
+            }
+            global_scope = bool(explicit)
+            compatible = []
+            if explicit:
+                # The locator tuple disambiguates equal-time real frames during Previous/Next.
+                compatible = [
+                    row
+                    for row in plan
+                    if all(
+                        (
+                            str(row.matches[folder_id].record.path.resolve())
+                            if folder_id in row.matches
+                            else None
+                        )
+                        == locator
+                        for folder_id, locator in explicit.items()
+                    )
+                ]
+                if compatible:
+                    frame = compatible[0]
+            records = {
+                folder_id: match.record for folder_id, match in frame.matches.items()
+            }
+            for folder_id, locator in explicit.items():
+                if locator is None:
+                    records.pop(folder_id, None)
+                    continue
+                folder = self.project.folder_map()[folder_id]
+                record = next(
+                    (
+                        record
+                        for record in in_window_records(self.project, folder)
+                        if str(record.path.resolve()) == str(locator)
+                    ),
+                    None,
+                )
+                if record is None:
+                    self.clear_sync_selection()
+                    raise ValueError(
+                        "Global sync reference is outside the Composer window or selected valid inputs."
+                    )
+                records[folder_id] = record
+        except (OSError, ValueError) as exc:
+            self.sync_status.setText(str(exc))
+            self.record_diagnostic(exc)
+            return
         for slot in self.project.slots:
-            folder = self.project.folder_map().get(slot.folder_id)
-            if folder is None or not folder.selected_records():
-                continue
-            record = nearest_record(folder, folder.selected_records(), current)
-            slot.preview_ordinal = record.ordinal
-            slot.preview_relative_path = record.path.name
-            self._items[slot.id].set_pixmap(self._slot_pixmap(slot, record.path))
-            updated += 1
-        rendered = current_time_utc.isoformat().replace("+00:00", "Z")
-        self.sync_status.setText(f"UTC sync: {rendered}; updated {updated} layer(s)")
+            record = records.get(slot.folder_id)
+            if record is None:
+                slot.preview_ordinal = 0
+                slot.preview_relative_path = ""
+                self._items[slot.id].set_pixmap(self._slot_pixmap(slot, None))
+            else:
+                slot.preview_ordinal = record.ordinal
+                slot.preview_relative_path = record.path.name
+                self._items[slot.id].set_pixmap(self._slot_pixmap(slot, record.path))
+        self._refresh_match_folders(select_id=plan.master_folder_id)
+        flagged = sum(match.over_tolerance for match in frame.matches.values())
+        if global_scope and not compatible:
+            self.sync_status.setText(
+                "Global UTC sync: exact global plan references; Composer export uses its own selected window."
+            )
+        else:
+            scope = "Global UTC sync" if global_scope else "Composer export preview UTC"
+            self.sync_status.setText(
+                f"{scope}: {frame.output_timestamp_text}; output frame {frame.attempt_index}/{len(plan)}; root {self.project.folder_map()[plan.master_folder_id].name}; output {self.project.folder_map()[plan.output_folder_id].name}; {flagged} timing gap(s) flagged"
+            )
 
     @staticmethod
     def _slot_pixmap(slot: LayoutSlot, path: Path | None) -> QPixmap:
         if path is None:
-            return QPixmap()
+            pixmap = QPixmap(max(1, round(slot.width)), max(1, round(slot.height)))
+            pixmap.fill(QColor("#282c34"))
+            painter = QPainter(pixmap)
+            painter.setPen(QColor("#e1e4eb"))
+            painter.drawText(pixmap.rect(), Qt.AlignmentFlag.AlignCenter, "No data")
+            painter.end()
+            return pixmap
         return load_preview_pixmap(
             path,
             QSize(max(1, round(slot.width)), max(1, round(slot.height))),
         )
+
+    def clear_sync_selection(self) -> None:
+        """Clear global browsing references without changing the saved window."""
+
+        for slot in self.project.slots:
+            slot.preview_ordinal = 0
+            slot.preview_relative_path = ""
+            item = self._items.get(slot.id)
+            if item is not None:
+                item.set_pixmap(self._slot_pixmap(slot, None))
+        self.sync_status.setText(
+            "Global UTC sync: no valid images in the global window; Composer export uses its own selected window."
+        )
+
+    def show_export_preview(self) -> None:
+        """Restore the dedicated preview from the Composer's frozen export plan."""
+
+        try:
+            plan = freeze_match_plan(self.project)
+            if not plan:
+                self.set_current_time("1970-01-01T00:00:00Z")
+                return
+            output_slot = next(
+                slot
+                for slot in self.project.slots
+                if slot.folder_id == plan.output_folder_id
+            )
+            frame = next(
+                (
+                    row
+                    for row in plan
+                    if row.output_record.ordinal == output_slot.preview_ordinal
+                ),
+                plan[0],
+            )
+            self.set_current_time(frame.output_timestamp_text)
+        except (OSError, ValueError) as exc:
+            self.sync_status.setText(str(exc))
+            self.record_diagnostic(exc)
 
 
 __all__ = [

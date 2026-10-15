@@ -167,12 +167,17 @@ def extract_radio_2d_data(
         用于后续精确坐标变换（ICRS → HPC）。
     """
     try:
-        with _workflow().fits.open(fits_path) as hdu:
-            data = hdu[0].data
-            while data.ndim > 2:
-                data = data[0]
-            data = np.squeeze(data)
-            header = hdu[0].header.copy()
+        if getattr(fits_path, "logical_frame", None) is not None:
+            from solar_toolkit.radio.time_matching import materialize_radio_frame
+
+            data, header = materialize_radio_frame(fits_path.logical_frame)
+        else:
+            with fits.open(fits_path) as hdu:
+                data = hdu[0].data
+                while data.ndim > 2:
+                    data = data[0]
+                data = np.squeeze(data)
+                header = hdu[0].header.copy()
 
         dtype = np.float32 if use_float32 else np.float64
         data = data.astype(dtype)
@@ -234,6 +239,8 @@ def extract_radio_2d_data(
         return data, ra_map, dec_map, header, None
 
     except Exception as e:
+        if getattr(fits_path, "logical_frame", None) is not None:
+            raise
         print(f"读取 FITS 文件失败 {fits_path}: {e}")
         return None, None, None, None, None
 

@@ -188,3 +188,123 @@ application.processEvents()
     assert result["reloaded_resolved"] is True
     assert result["theme_mode"] == theme_mode
     assert result["rendered"] is True
+
+
+@pytest.mark.parametrize("theme", ["light", "dark", "auto"])
+def test_main_window_registers_real_composer_sources_and_browses_fixed_plan(
+    tmp_path: Path,
+    theme: str,
+) -> None:
+    images = tmp_path / "images"
+    dense = images / "dense"
+    sparse = images / "sparse"
+    dense.mkdir(parents=True)
+    sparse.mkdir()
+    Image.new("RGB", (40, 20), "red").save(
+        dense / "frame_20000101_044830.123456789.png"
+    )
+    Image.new("RGB", (40, 20), "green").save(
+        dense / "frame_20000101_044831.123456790.png"
+    )
+    Image.new("RGB", (40, 20), "blue").save(sparse / "frame_20000101_044840.png")
+    script = r"""
+import json
+import sys
+from pathlib import Path
+from PIL import Image
+from PyQt6.QtCore import QPointF
+from PyQt6.QtWidgets import QApplication
+from solar_apps.frontends.app_v1.window import AppV1MainWindow
+from solar_apps.frontends.image_composer.matching import build_match_plan
+from solar_apps.platform.layout import RuntimeLayout
+
+root, local, theme = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3]
+application = QApplication(["app-v1-composer-timeline"])
+layout = RuntimeLayout.discover(Path.cwd().parent, environ={"SOLAR_APPS_LOCAL_ROOT": str(local)})
+window = AppV1MainWindow(layout, initial_theme=theme, composer_allowed_roots=(root,))
+window.show()
+panel = window.module_pages["image-composer"].phase4_panel
+first = panel.add_folder(root / "dense")
+panel.add_slot(first.id, QPointF(0, 0))
+second = panel.add_folder(root / "sparse")
+panel.add_slot(second.id, QPointF(100, 0))
+coordinator = window.time_coordinator
+assert len(coordinator.sources) == 2
+assert coordinator.base_source_id == "composer-" + second.id.replace("_", "-")
+assert coordinator.output_source_id == "composer-" + first.id.replace("_", "-")
+assert panel.match_master.currentData() == second.id
+assert panel.match_output.currentData() == first.id
+selection = coordinator.step(1)
+first_ordinals = [slot.preview_ordinal for slot in panel.project.slots]
+coordinator.step(1)
+second_ordinals = [slot.preview_ordinal for slot in panel.project.slots]
+coordinator.step(-1)
+assert [slot.preview_ordinal for slot in panel.project.slots] == first_ordinals
+plan = build_match_plan(panel.project)
+assert len(plan) == 2
+assert plan.master_folder_id == second.id and plan.output_folder_id == first.id
+assert [row.output_record.ordinal for row in plan] == [1, 2]
+assert all(row.master_record.ordinal == 1 for row in plan)
+assert panel.project.sequence_plan == plan.to_dict()
+assert first_ordinals == [1, 1] and second_ordinals == [2, 1]
+assert "timing gap(s) flagged" in panel.sync_status.text()
+assert coordinator.current_time_text.endswith(".123456789Z")
+panel.match_time_start.setText("2000-01-01T04:48:30.123456790Z")
+panel.match_time_end.setText("2000-01-01T04:48:31.123456791Z")
+panel._matching_changed()
+bounded = build_match_plan(panel.project)
+assert len(bounded) == 1
+assert bounded[0].master_record.ordinal == 2
+assert second.id not in bounded[0].matches
+assert panel.project.slots[1].preview_ordinal == 0
+assert not panel._items[panel.project.slots[1].id].image.pixmap().isNull()
+assert bounded.summary["sources"][first.id]["outside_window_frame_count"] == 1
+panel.match_time_start.setText("2000-01-02T00:00:00Z")
+panel.match_time_end.setText("2000-01-02T00:01:00Z")
+panel._matching_changed()
+assert len(build_match_plan(panel.project)) == 0
+assert "No valid images" in panel.sync_status.text()
+assert all(slot.preview_ordinal == 0 for slot in panel.project.slots)
+panel.match_time_start.clear()
+panel.match_time_end.clear()
+panel._matching_changed()
+coordinator.step(1)
+coordinator.set_time_window("2000-01-01T04:48:30Z", "2000-01-01T04:48:32Z")
+coordinator.step(1)
+assert panel.project.slots[1].preview_ordinal == 0
+assert "Global UTC sync" in panel.sync_status.text()
+assert "own selected window" in panel.sync_status.text()
+own_plan = build_match_plan(panel.project)
+assert all(second.id in row.matches for row in own_plan)
+assert panel.project.sequence_plan == own_plan.to_dict()
+panel.show_export_preview()
+assert panel.project.slots[1].preview_ordinal == 1
+assert "Composer export preview UTC" in panel.sync_status.text()
+coordinator.set_time_window(None, None)
+coordinator.step(1)
+changed = first.records[0].path
+Image.new("RGB", (44, 24), "yellow").save(changed)
+panel.set_current_time(coordinator.current_time_utc)
+assert "stale" in panel.sync_status.text().lower()
+assert panel.rescan_sources() is True
+assert "Rebuilt UTC matching" in panel.sync_status.text()
+assert build_match_plan(panel.project).fingerprint != plan.fingerprint
+window.set_theme(theme)
+application.processEvents()
+print("APP_V1_COMPOSER " + json.dumps({"theme": theme, "sources": len(coordinator.sources), "rows": len(plan)}))
+panel._dirty = False
+window.close()
+application.processEvents()
+"""
+    completed = subprocess.run(
+        [sys.executable, "-c", script, str(images), str(tmp_path / "Local"), theme],
+        cwd=APPS_ROOT,
+        env={**os.environ, "QT_QPA_PLATFORM": "offscreen", "PYTHONNOUSERSITE": "1"},
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=60,
+    )
+    assert completed.returncode == 0, completed.stderr
+    assert PREFIX in completed.stdout

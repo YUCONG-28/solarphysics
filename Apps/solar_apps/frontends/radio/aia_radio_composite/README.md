@@ -3,8 +3,12 @@
 `aia-radio-composite` is a retained Streamlit adapter that composes existing
 AIA, radio, ROI and spectrum APIs. It displays AIA panels with radio Gaussian
 overlays, radio-source ROI light curves and a DART/CSO spectrum on a shared UTC
-axis. The first selected radio frequency supplies the video timeline; incomplete
-matches are skipped and scientific samples are not interpolated.
+axis. After filtering the image UTC window, streams form an ascending-count
+hierarchy: the smallest is the root, and the largest supplies every output frame
+and its observed UTC. Preview and video share exact references from a fixed
+full-coverage monotone plan. Ancestors may repeat, empty streams remain explicit,
+and scientific samples are not interpolated. Time tolerance flags a difference
+instead of discarding an output row.
 
 ## Package boundaries
 
@@ -13,6 +17,7 @@ matches are skipped and scientific samples are not interpolated.
 | `cli.py` | Managed Miniforge process launch |
 | `app.py` | Streamlit controls, UI state and allowed-root path selection |
 | `application.py` | Request validation, adapter orchestration and exports |
+| `sequence.py` | Logical image streams and fixed plans from `solar_toolkit.time` |
 | `models/` | Request, result, time-alignment and normalized spectrum contracts |
 | `adapters/` | Calls to existing library and workflow APIs |
 | `rendering/` | Plotly interaction and static composition from in-memory values |
@@ -39,4 +44,6 @@ scientific products do not belong in this package.
 
 See the [Apps guide](../../../../README.md) for installation and the
 [AIA/radio usage guide](../../../../../docs/aia_radio_composite.md) for input
-formats, controls and outputs.
+formats, controls and outputs. The [time matching guide](../../../../../docs/time_matching.md)
+defines parent-child nearest selection, full-coverage constraints and accumulated
+output-relative time differences.

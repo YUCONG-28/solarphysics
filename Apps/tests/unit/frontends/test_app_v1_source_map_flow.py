@@ -31,6 +31,10 @@ def test_flow_worker_uses_native_source_map_request_schema(
             "2",
             "--end-idx",
             "5",
+            "--image-time-start",
+            "2025-01-24T04:48:30Z",
+            "--image-time-end",
+            "2025-01-24T04:49:00Z",
             "--output-dir",
             str(output),
             "--allowed-roots",
@@ -45,6 +49,9 @@ def test_flow_worker_uses_native_source_map_request_schema(
     assert config["config"].endswith("synthetic_radio_config")
     assert config["start_idx"] == 2
     assert config["end_idx"] == 5
+    assert config["image_time_start"] == "2025-01-24T04:48:30Z"
+    assert config["image_time_end"] == "2025-01-24T04:49:00Z"
+    assert config["image_window_use_indices"] is True
     assert config["cmap"] == "hot"
     assert "display" not in config
     assert "features" not in config

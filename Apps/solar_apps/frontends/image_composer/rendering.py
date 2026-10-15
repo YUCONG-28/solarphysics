@@ -12,12 +12,12 @@ from pathlib import Path
 from uuid import uuid4
 
 import numpy as np
-from PIL import Image, ImageColor, ImageOps
+from PIL import Image, ImageColor, ImageDraw, ImageOps
 
 from .matching import (
     FrameMatch,
     MatchPlanError,
-    build_match_plan,
+    freeze_match_plan,
     iter_match_rows,
     validate_project,
 )
@@ -42,6 +42,17 @@ CSV_FIELDS = (
     "master_time_source",
     "master_offset_seconds",
     "master_corrected_timestamp",
+    "output_folder_id",
+    "output_folder",
+    "output_file",
+    "output_ordinal",
+    "output_timestamp",
+    "output_corrected_timestamp",
+    "parent_source_id",
+    "parent_frame_id",
+    "parent_delta_ns",
+    "parent_is_nearest",
+    "parent_coverage_forced",
     "slot_id",
     "slot_z_index",
     "source_folder_id",
@@ -55,6 +66,14 @@ CSV_FIELDS = (
     "delta_seconds",
     "abs_delta_seconds",
     "over_tolerance",
+    "delta_ns",
+    "reused",
+    "use_count",
+    "missing_data",
+    "time_start_utc",
+    "time_end_utc",
+    "overflow_policy",
+    "plan_fingerprint",
 )
 
 
@@ -143,11 +162,14 @@ def compose_frame(
             slot.folder_id
         )
         if record is None:
-            raise ExportError(f"No matched image for slot {slot.id}")
-        image = load_oriented_rgba(record.path)
-        tile = render_slot_tile(
-            image, max(1, round(slot.width)), max(1, round(slot.height)), slot.fit
-        )
+            tile = render_no_data_tile(
+                max(1, round(slot.width)), max(1, round(slot.height))
+            )
+        else:
+            image = load_oriented_rgba(record.path)
+            tile = render_slot_tile(
+                image, max(1, round(slot.width)), max(1, round(slot.height)), slot.fit
+            )
         if slot.opacity < 1:
             alpha = tile.getchannel("A").point(
                 lambda value: max(0, min(255, round(value * slot.opacity)))
@@ -170,6 +192,17 @@ def compose_frame(
     return canvas.convert("RGB")
 
 
+def render_no_data_tile(width: int, height: int) -> Image.Image:
+    """Show an explicit gap instead of borrowing an out-of-window image."""
+
+    tile = Image.new("RGBA", (width, height), (40, 44, 52, 255))
+    draw = ImageDraw.Draw(tile)
+    draw.text(
+        (width / 2, height / 2), "No data", fill=(225, 228, 235, 255), anchor="mm"
+    )
+    return tile
+
+
 def export_project(
     project: ComposerProject,
     *,
@@ -190,7 +223,7 @@ def export_project(
     if not output_path.parent.is_dir():
         raise ExportError(f"Output folder does not exist: {output_path.parent}")
 
-    plan = build_match_plan(project)
+    plan = freeze_match_plan(project)
     csv_path = output_path.with_name(f"{output_path.stem}_matches.csv")
     frames_path = output_path.with_name(f"{output_path.stem}_frames")
     temp_video = output_path.with_name(
@@ -207,7 +240,11 @@ def export_project(
         _write_match_csv(temp_csv, iter_match_rows(project, plan))
         if emitted == 0:
             os.replace(temp_csv, csv_path)
-            progress(len(plan), len(plan), "No frames met the strict tolerance.")
+            progress(
+                len(plan),
+                len(plan),
+                "No valid images in the selected UTC time window; video was not exported.",
+            )
             return ExportResult(
                 status="no_frames",
                 video_path=None,

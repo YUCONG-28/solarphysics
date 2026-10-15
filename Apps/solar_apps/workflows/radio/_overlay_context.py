@@ -315,6 +315,9 @@ class Config:
     radio_start_idx: int | None = None
     radio_end_idx: int | None = None
     multi_band_time_tolerance_seconds: float = 0.1
+    image_time_start: str | None = None
+    image_time_end: str | None = None
+    image_index_sources: list[str] | None = None
 
     # AIA radio overlay mode. "gaussian" preserves the historical fit path;
     # "raw" directly maps the radio image onto the AIA cutout grid.

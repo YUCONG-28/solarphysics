@@ -9,6 +9,10 @@ from importlib import import_module
 from typing import Any
 
 _COMMANDS = {
+    "time-matching-acceptance": (
+        "solar_apps.workflows.radio.time_matching_acceptance",
+        "main",
+    ),
     "muser-preview": ("solar_apps.workflows.radio.muser_preview", "main"),
     "centers": ("solar_apps.workflows.radio.centers_application", "main"),
     "overlay": ("solar_apps.workflows.radio.overlay_cli", "main"),

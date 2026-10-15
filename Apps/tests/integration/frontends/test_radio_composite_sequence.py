@@ -15,28 +15,30 @@ import numpy as np
 import pandas as pd
 import pytest
 from PIL import Image
-
-from solar_apps.frontends.radio.composite_figure import composite_sequence
-from solar_apps.frontends.radio.composite_figure.composite_sequence import (
-    SEQUENCE_SCHEMA_VERSION,
-    CompositeSequenceCancelled,
-    SequenceExportOptions,
-    common_candidate_time_coverage,
-    export_composite_sequences,
-    group_candidates_by_frequency,
-    prepare_single_panel_render,
-    resolve_single_band_frequency_source,
-    render_source_map_candidate,
-    roi_intersects_source_map,
-    select_sequence_candidates,
-)
-from solar_apps.frontends.radio.source_map import worker as source_map_worker
 from solar_toolkit.radio.dart_spectrogram import (
     DartNarrowbandCurve,
     DartNarrowbandResult,
 )
 from solar_toolkit.radio.roi_lightcurve import RadioRoi
 from solar_toolkit.visualization import media
+
+from solar_apps.frontends.radio.composite_figure import composite_sequence
+from solar_apps.frontends.radio.composite_figure.composite_sequence import (
+    SEQUENCE_SCHEMA_VERSION,
+    CompositeSequenceCancelled,
+    SequenceExportOptions,
+    build_native_sequence_plan,
+    common_candidate_time_coverage,
+    export_composite_sequences,
+    group_candidates_by_frequency,
+    planned_native_candidate,
+    prepare_single_panel_render,
+    render_source_map_candidate,
+    resolve_single_band_frequency_source,
+    roi_intersects_source_map,
+    select_sequence_candidates,
+)
+from solar_apps.frontends.radio.source_map import worker as source_map_worker
 
 
 def _candidate(frequency: float, observed: datetime, index: int) -> dict:
@@ -152,7 +154,7 @@ def test_single_band_source_resolves_event_band_and_polarization_levels(
     )
 
 
-def test_candidate_grouping_common_intersection_and_stride_use_real_times() -> None:
+def test_candidate_grouping_union_coverage_preserves_all_real_times() -> None:
     start = datetime(2000, 1, 1, 4, 48, 30, tzinfo=UTC)
     candidates = [
         *[
@@ -167,8 +169,8 @@ def test_candidate_grouping_common_intersection_and_stride_use_real_times() -> N
 
     grouped = group_candidates_by_frequency(candidates, [149.0, 164.0])
     assert common_candidate_time_coverage(grouped) == (
-        start + timedelta(seconds=1),
-        start + timedelta(seconds=3),
+        start,
+        pd.Timestamp(start) + pd.Timedelta(seconds=4, nanoseconds=1),
     )
     selected = select_sequence_candidates(
         grouped[149.0],
@@ -177,8 +179,7 @@ def test_candidate_grouping_common_intersection_and_stride_use_real_times() -> N
         stride=2,
     )
     assert [item["observation_time"] for item in selected] == [
-        (start + timedelta(seconds=1)).isoformat(),
-        (start + timedelta(seconds=3)).isoformat(),
+        (start + timedelta(seconds=index)).isoformat() for index in range(1, 4)
     ]
 
 
@@ -327,7 +328,7 @@ def test_sequence_export_writes_one_validated_video_and_png_set_per_frequency(
         reference_time=start + timedelta(seconds=1),
         polarization="RR",
         time_start=start,
-        time_end=start + timedelta(seconds=2),
+        time_end=pd.Timestamp(start) + pd.Timedelta(seconds=2, nanoseconds=1),
         request_signature="a" * 64,
         source_context={"radio_directory": "synthetic"},
         options=SequenceExportOptions(fps=10.0, stride=1, dpi=100),
@@ -398,7 +399,8 @@ def test_sequence_export_writes_one_validated_video_and_png_set_per_frequency(
         assert all(item.compress_type == zipfile.ZIP_STORED for item in mp4_records)
         metadata = json.loads(archive.read("radio-composite-metadata.json"))
     assert metadata["time_range"]["interpolation"] == "none"
-    assert metadata["time_range"]["default_policy"].startswith("intersection")
+    assert metadata["time_range"]["default_policy"].startswith("union")
+    assert metadata["time_range"]["spectra_clip_image_timeline"] is False
 
 
 def test_sequence_uses_matching_dart_curve_and_csv_for_each_frequency(
@@ -559,7 +561,7 @@ def test_sequence_output_modes_are_independent_and_compatible(
         reference_time=start,
         polarization="RR",
         time_start=start,
-        time_end=start + timedelta(seconds=1),
+        time_end=pd.Timestamp(start) + pd.Timedelta(seconds=1, nanoseconds=1),
         request_signature="d" * 64,
         source_context={},
         options=SequenceExportOptions(
@@ -743,7 +745,7 @@ def test_sequence_normalizes_a_same_aspect_source_map_resolution_change(
         reference_time=start,
         polarization="RR",
         time_start=start,
-        time_end=start + timedelta(seconds=1),
+        time_end=pd.Timestamp(start) + pd.Timedelta(seconds=1, nanoseconds=1),
         request_signature="e" * 64,
         source_context={},
         options=SequenceExportOptions(dpi=72, save_video=True, save_frames=True),
@@ -796,7 +798,7 @@ def test_sequence_rejects_a_source_map_aspect_ratio_change(tmp_path: Path) -> No
             reference_time=start,
             polarization="RR",
             time_start=start,
-            time_end=start + timedelta(seconds=1),
+            time_end=pd.Timestamp(start) + pd.Timedelta(seconds=1, nanoseconds=1),
             request_signature="e" * 64,
             source_context={},
             options=SequenceExportOptions(dpi=72, save_video=False, save_frames=True),
@@ -859,7 +861,7 @@ def test_sequence_rejects_source_map_panel_geometry_drift(
             reference_time=start,
             polarization="RR",
             time_start=start,
-            time_end=start + timedelta(seconds=1),
+            time_end=pd.Timestamp(start) + pd.Timedelta(seconds=1, nanoseconds=1),
             request_signature="f" * 64,
             source_context={},
             options=SequenceExportOptions(dpi=72, save_video=False, save_frames=True),
@@ -917,7 +919,7 @@ def test_sequence_export_produces_ffprobe_valid_mp4(tmp_path: Path) -> None:
         reference_time=start,
         polarization="RR",
         time_start=start,
-        time_end=start + timedelta(seconds=1),
+        time_end=pd.Timestamp(start) + pd.Timedelta(seconds=1, nanoseconds=1),
         request_signature="c" * 64,
         source_context={},
         options=SequenceExportOptions(fps=2.0, dpi=72),
@@ -935,3 +937,286 @@ def test_sequence_and_source_map_worker_share_the_matplotlib_lock() -> None:
     assert (
         composite_sequence._FIGURE_RENDER_LOCK is source_map_worker.FIGURE_RENDER_LOCK
     )
+
+
+def test_native_plan_keeps_upstream_master_nanoseconds_and_exact_pair_quality(
+    tmp_path: Path,
+) -> None:
+    from solar_toolkit.time import normalize_time
+
+    candidate = {
+        "id": "upstream-row",
+        "mode": "multi_band",
+        "slot": [["rr.fits", "ll.fits"]],
+        "paths": ["rr.fits", "ll.fits"],
+        "frequencies_mhz": [149.0],
+        "observation_time": "2025-01-24T04:48:30.123456789Z",
+        "time_match": {
+            "algorithm_version": 3,
+            "master_time_utc": "2025-01-24T04:48:30.123456789Z",
+            "master_time_tai_ns": normalize_time(
+                "2025-01-24T04:48:30.123456789Z"
+            ).tai_ns,
+            "selections": {
+                "band:0000": {
+                    "frame_id": "rr+ll",
+                    "actual_time_utc": "2025-01-24T04:48:31.123456790Z",
+                    "delta_ns": 1000000001,
+                    "within_tolerance": False,
+                    "reused": True,
+                }
+            },
+        },
+    }
+    plan = build_native_sequence_plan([candidate], 149.0)
+    exact = planned_native_candidate(plan.rows[0], plan)
+    assert exact["time_match"]["selections"] == candidate["time_match"]["selections"]
+    assert exact["observation_time"].endswith(".123456789Z")
+    cfg, prepared = prepare_single_panel_render(
+        {}, exact, 149.0, transform="linear", output_directory=tmp_path
+    )
+    assert prepared["mode"] == "multi_band"
+    assert prepared["slot"] == [["rr.fits", "ll.fits"]]
+    assert cfg["_time_match"] == prepared["time_match"]
+    assert (
+        cfg["_time_match"]["master_time_utc"] == exact["time_match"]["master_time_utc"]
+    )
+    assert cfg["_time_match"]["selections"]["band:0000"]["paths"] == [
+        "rr.fits",
+        "ll.fits",
+    ]
+    assert cfg["_time_match"]["selections"]["band:0000"]["delta_ns"] == 1000000001
+
+
+def test_native_export_preserves_all_master_rows_outside_spectrum_and_stride(
+    tmp_path: Path,
+) -> None:
+    start = datetime(2025, 1, 24, 4, 48, 30, tzinfo=UTC)
+    candidates = [
+        _candidate(149.0, start + timedelta(seconds=offset), index)
+        for index, offset in enumerate((4, -2, 0))
+    ]
+    seen = []
+
+    def fake_render(config, candidate, frequency, transform, output_dir, sequence):
+        seen.append(candidate)
+        return _map_png(), _map_metadata(), {}
+
+    bundle = export_composite_sequences(
+        tmp_path,
+        source_configs={149.0: {}},
+        candidates_by_frequency={149.0: candidates},
+        radio_curves={149.0: _radio_curve(start, 149.0)},
+        dart_result=_dart(start),
+        roi=RadioRoi.from_box(-2, -2, 2, 2),
+        reference_frequency_mhz=149.0,
+        reference_time=start,
+        polarization="RR",
+        time_start=start - timedelta(seconds=2),
+        time_end=pd.Timestamp(start) + pd.Timedelta(seconds=4, nanoseconds=1),
+        request_signature="d" * 64,
+        source_context={},
+        options=SequenceExportOptions(
+            stride=3, save_video=False, save_frames=True, dpi=72
+        ),
+        render_candidate=fake_render,
+        generated_at=start,
+    )
+    directory = bundle.frame_directories[149.0].parent
+    manifest = json.loads((directory / "frame-manifest.json").read_text())
+    matching = json.loads((directory / "matching-plan.json").read_text())
+    assert manifest["frame_count"] == len(seen) == matching["summary"]["row_count"] == 3
+    assert manifest["options"]["stride"] == 1
+    assert manifest["options"]["requested_stride"] == 3
+    times = [row["observation_time_tai_ns"] for row in manifest["frames"]]
+    assert times == sorted(times)
+    assert [row["dart_coverage_contains_master"] for row in manifest["frames"]] == [
+        False,
+        True,
+        False,
+    ]
+    assert all(
+        row["matching_plan_fingerprint"] == matching["input_fingerprint"]
+        for row in manifest["frames"]
+    )
+    assert all(
+        candidate["time_match"]["master_time_utc"] == frame["observation_time_utc"]
+        for candidate, frame in zip(seen, manifest["frames"], strict=True)
+    )
+
+
+def test_native_export_rejects_a_stale_preview_before_rendering(tmp_path: Path) -> None:
+    start = datetime(2025, 1, 24, 4, 48, 30, tzinfo=UTC)
+    candidates = [
+        _candidate(149.0, start + timedelta(seconds=index), index) for index in range(2)
+    ]
+    with pytest.raises(ValueError, match="stale"):
+        export_composite_sequences(
+            tmp_path,
+            source_configs={149.0: {}},
+            candidates_by_frequency={149.0: candidates},
+            radio_curves={149.0: _radio_curve(start, 149.0)},
+            dart_result=_dart(start),
+            roi=RadioRoi.from_box(-2, -2, 2, 2),
+            reference_frequency_mhz=149.0,
+            reference_time=start,
+            polarization="RR",
+            time_start=start,
+            time_end=start + timedelta(seconds=1),
+            request_signature="e" * 64,
+            source_context={},
+            options=SequenceExportOptions(),
+            expected_plan_fingerprints={149.0: "outdated"},
+        )
+    assert not list(tmp_path.rglob("*.png"))
+
+
+def test_native_window_preserves_submicrosecond_boundaries_and_equal_epochs() -> None:
+    early = _candidate(149, datetime(2025, 1, 24, tzinfo=UTC), 0)
+    later = _candidate(149, datetime(2025, 1, 24, tzinfo=UTC), 1)
+    early["observation_time"] = "2025-01-24T04:48:30.123456789Z"
+    later["observation_time"] = "2025-01-24T04:48:30.123456790Z"
+    start, end = common_candidate_time_coverage({149.0: [later, early]})
+    assert end.value - start.value == 2
+    from solar_apps.frontends.radio.composite_figure.composite_figure_app import (
+        _utc_datetime as ui_utc,
+    )
+
+    assert ui_utc(end.isoformat()).value == end.value
+    selected = select_sequence_candidates([later, early], start, end)
+    assert [item["id"] for item in selected] == [early["id"], later["id"]]
+    assert (
+        len(
+            select_sequence_candidates([later, early], start, later["observation_time"])
+        )
+        == 1
+    )
+    start, end = common_candidate_time_coverage({149.0: [early, early]})
+    assert end.value - start.value == 1
+    assert len(select_sequence_candidates([early, early], start, end)) == 2
+
+
+def test_single_panel_timing_selects_exact_frequency_paths_not_first_member(
+    tmp_path: Path,
+) -> None:
+    candidate = {
+        "id": "multi",
+        "mode": "multi_band",
+        "paths": ["149.fits", "164.fits"],
+        "slot": ["149.fits", "164.fits"],
+        "frequencies_mhz": [149.0, 164.0],
+        "observation_time": "2025-01-24T04:48:30Z",
+        "time_match": {
+            "master_time_utc": "2025-01-24T04:48:30Z",
+            "selections": {
+                "aia:171": {
+                    "paths": ["aia.fits"],
+                    "actual_time_utc": "2025-01-24T04:48:29Z",
+                },
+                "band:0001": {
+                    "paths": ["164.fits"],
+                    "actual_time_utc": "2025-01-24T04:48:31Z",
+                },
+                "band:0000": {
+                    "paths": ["149.fits"],
+                    "actual_time_utc": "2025-01-24T04:48:30.123456789Z",
+                },
+            },
+        },
+    }
+    cfg, prepared = prepare_single_panel_render(
+        {}, candidate, 149.0, transform="linear", output_directory=tmp_path
+    )
+    assert prepared["slot"] == ["149.fits"]
+    assert list(cfg["_time_match"]["selections"]) == ["band:0000"]
+    assert cfg["_time_match"]["master_time_utc"] == "2025-01-24T04:48:30Z"
+
+
+def test_single_panel_reindexes_exact_locator_from_third_band_after_json(
+    tmp_path: Path,
+) -> None:
+    import importlib
+
+    from astropy.io import fits
+
+    importlib.import_module("solar_apps.workflows.radio.source_map_workflow")
+    from solar_toolkit.radio.time_matching import (
+        index_radio_frames,
+        materialize_radio_frame,
+    )
+
+    from solar_apps.workflows.radio._source_map_selection import (
+        _logical_locator,
+        _restore_source_map_slot,
+    )
+
+    path = tmp_path / "multiple.fits"
+    header = fits.Header(
+        {
+            "DATE-OBS": "2025-01-24T04:48:30.000000001Z",
+            "FREQ": 149.0,
+            "FREQUNIT": "MHz",
+            "POLAR": "RR",
+            "BUNIT": "K",
+        }
+    )
+    later = header.copy()
+    later["FREQ"] = 190.0
+    fits.HDUList(
+        [
+            fits.PrimaryHDU(),
+            fits.ImageHDU(np.ones((3, 3)), header),
+            fits.ImageHDU(np.full((3, 3), 7.0), later),
+        ]
+    ).writeto(path)
+    frames = index_radio_frames([path])
+    wanted = next(frame for frame in frames if frame.payload["hdu_index"] == 2)
+    first = next(frame for frame in frames if frame.payload["hdu_index"] == 1)
+
+    def selection(frame, index):
+        return {
+            "frame_id": frame.frame_id,
+            "actual_time_utc": frame.time.utc + "Z",
+            "paths": [str(path)],
+            "slot_item_index": index,
+            "locator": _logical_locator(frame),
+            "delta_ns": 0,
+            "within_tolerance": True,
+            "reused": False,
+        }
+
+    candidate = {
+        "id": "three-bands",
+        "mode": "multi_band",
+        "frequencies_mhz": [149.0, 164.0, 190.0],
+        "slot": [str(path), "unneeded164.fits", str(path)],
+        "paths": [str(path), "unneeded164.fits", str(path)],
+        "observation_time": wanted.time.utc + "Z",
+        "time_match": {
+            "algorithm_version": 3,
+            "master_time_utc": wanted.time.utc + "Z",
+            "selections": {
+                "band:0000": selection(first, 0),
+                "band:0002": selection(wanted, 2),
+            },
+        },
+    }
+    cfg, prepared = prepare_single_panel_render(
+        {},
+        candidate,
+        190.0,
+        transform="linear",
+        output_directory=tmp_path,
+    )
+    metadata = json.loads(json.dumps(prepared["time_match"]))
+    assert list(metadata["selections"]) == ["band:0002"]
+    assert metadata["selections"]["band:0002"]["slot_item_index"] == 0
+    assert metadata["selections"]["band:0002"]["locator"] == json.loads(
+        json.dumps(candidate["time_match"]["selections"]["band:0002"]["locator"])
+    )
+    assert candidate["time_match"]["selections"]["band:0002"]["slot_item_index"] == 2
+    restored = _restore_source_map_slot(prepared["slot"], metadata, cfg=cfg)
+    assert len(restored) == 1
+    assert restored[0].logical_frame.frame_id == wanted.frame_id
+    data, _ = materialize_radio_frame(restored[0].logical_frame)
+    np.testing.assert_array_equal(data, np.full((3, 3), 7.0))

@@ -4,24 +4,11 @@ from __future__ import annotations
 
 import argparse
 import json
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
-
-from solar_apps.platform.layout import RuntimeLayout
-from solar_apps.ui.state import (
-    bind_streamlit_fields,
-    frontend_path_memory,
-    frontend_state_store,
-)
-from solar_apps.ui.streamlit_paths import (
-    PathAccessPolicy,
-    render_native_path_input,
-    resolve_streamlit_allowed_roots,
-)
-from solar_apps.ui.theme import render_streamlit_theme
 from solar_toolkit.radio.roi_lightcurve import RadioRoi, radio_roi_from_json
 
 from solar_apps.frontends.radio.aia_radio_composite import FRONTEND_ID
@@ -29,7 +16,10 @@ from solar_apps.frontends.radio.aia_radio_composite.adapters import (
     DEFAULT_ROI_FREQUENCIES_MHZ,
 )
 from solar_apps.frontends.radio.aia_radio_composite.application import (
+    AIA_VIDEO_MATCH_TOLERANCE_SECONDS,
+    RADIO_VIDEO_MATCH_TOLERANCE_SECONDS,
     build_composite,
+    build_composite_match_plan,
     build_dynamic_composite_video,
     build_roi_lightcurve,
     build_spectrum_flux_curves,
@@ -52,6 +42,18 @@ from solar_apps.frontends.radio.aia_radio_composite.rendering import (
     radio_roi_from_selection,
     write_composite_artifacts,
 )
+from solar_apps.platform.layout import RuntimeLayout
+from solar_apps.ui.state import (
+    bind_streamlit_fields,
+    frontend_path_memory,
+    frontend_state_store,
+)
+from solar_apps.ui.streamlit_paths import (
+    PathAccessPolicy,
+    render_native_path_input,
+    resolve_streamlit_allowed_roots,
+)
+from solar_apps.ui.theme import render_streamlit_theme
 
 __all__ = ["build_parser", "main"]
 
@@ -90,6 +92,8 @@ UI_FIELD_KEYS = (
     "gaussian_contour_percent",
     "radio_display_low_percentile",
     "radio_display_high_percentile",
+    "image_time_start",
+    "image_time_end",
     "flux_time_start",
     "flux_time_end",
     "spectrum_time_start",
@@ -165,6 +169,16 @@ def _run_streamlit_app(argv: list[str] | None = None) -> None:
     st.session_state.setdefault(
         "radio_frequencies",
         [int(st.session_state.get("radio_frequency", 149))],
+    )
+    # Migrate a saved event window once; subsequent display changes cannot
+    # change which original observations are eligible for image matching.
+    st.session_state.setdefault(
+        "image_time_start",
+        st.session_state.get("flux_time_start", ""),
+    )
+    st.session_state.setdefault(
+        "image_time_end",
+        st.session_state.get("flux_time_end", ""),
     )
     _restore_confirmed_roi(st)
     st.title("AIA + Radio Composite")
@@ -457,6 +471,17 @@ def _run_streamlit_app(argv: list[str] | None = None) -> None:
                     key="radio_display_high_percentile",
                 )
             )
+        with st.expander("Image UTC window", expanded=True):
+            image_time_start = st.text_input(
+                "Image UTC start (inclusive)", key="image_time_start"
+            )
+            image_time_end = st.text_input(
+                "Image UTC end (exclusive)", key="image_time_end"
+            )
+            st.caption(
+                "Enter both UTC bounds. Only original observations inside this window are matched. "
+                "Flux and spectrum display windows do not change image selection."
+            )
         with st.expander("UTC display windows", expanded=True):
             flux_time_start = st.text_input(
                 "Flux UTC start",
@@ -490,8 +515,9 @@ def _run_streamlit_app(argv: list[str] | None = None) -> None:
                 )
             )
             st.caption(
-                "Dynamic mode creates one frame per real observation of the "
-                "first selected radio frequency. FPS controls playback only."
+                "Images are matched in ascending frame-count order within the image window. "
+                "The smallest source is the root; the largest supplies every output frame. "
+                "Each child image keeps one fixed parent. FPS controls playback only."
             )
         display_extent_arcsec = (
             (hpln_min, hpln_max, hplt_min, hplt_max) if use_custom_fov else None
@@ -537,6 +563,15 @@ def _run_streamlit_app(argv: list[str] | None = None) -> None:
         st.warning(f"Complete or correct the inputs to continue: {exc}")
         request = None
     try:
+        image_time_range = _validated_utc_range(
+            image_time_start,
+            image_time_end,
+            label="Image UTC window",
+        )
+    except Exception as exc:
+        st.warning(f"Correct the image UTC window to continue: {exc}")
+        image_time_range = None
+    try:
         flux_time_range = _validated_utc_range(
             flux_time_start,
             flux_time_end,
@@ -570,7 +605,7 @@ def _run_streamlit_app(argv: list[str] | None = None) -> None:
         ):
             raise ValueError("Spectrum intensity minimum must be below the maximum")
         if request is not None and not (
-            aligned_time_range[0] <= request.aia_time <= aligned_time_range[1]
+            aligned_time_range[0] <= request.aia_time < aligned_time_range[1]
         ):
             raise ValueError(
                 "Reference UTC must lie inside the combined flux/spectrum "
@@ -587,6 +622,16 @@ def _run_streamlit_app(argv: list[str] | None = None) -> None:
             "frequency_range_mhz": spectrum_display_frequency_range,
             "intensity_range": spectrum_display_intensity_range,
             "flux_plot_layout": flux_plot_layout,
+            "flux_time_range_utc": (
+                [value.isoformat() for value in flux_time_range]
+                if flux_time_range is not None
+                else None
+            ),
+            "spectrum_time_range_utc": (
+                [value.isoformat() for value in spectrum_time_range]
+                if spectrum_time_range is not None
+                else None
+            ),
         },
         sort_keys=True,
     )
@@ -622,6 +667,13 @@ def _run_streamlit_app(argv: list[str] | None = None) -> None:
             "display_extent_arcsec": display_extent_arcsec,
             "extended_canvas_color": extended_canvas_color,
             "gaussian_overrides": gaussian_overrides,
+            "image_time_range_utc": (
+                [value.isoformat() for value in image_time_range]
+                if image_time_range is not None
+                else None
+            ),
+            "aia_match_tolerance_seconds": AIA_VIDEO_MATCH_TOLERANCE_SECONDS,
+            "radio_match_tolerance_seconds": RADIO_VIDEO_MATCH_TOLERANCE_SECONDS,
         },
         sort_keys=True,
     )
@@ -629,6 +681,7 @@ def _run_streamlit_app(argv: list[str] | None = None) -> None:
     if previous_top_signature is not None and previous_top_signature != top_signature:
         for key in (
             "aia_radio_top",
+            "aia_radio_match_plan",
             "aia_radio_result",
             "aia_radio_artifact",
             "aia_radio_video_artifact",
@@ -639,32 +692,74 @@ def _run_streamlit_app(argv: list[str] | None = None) -> None:
     st.subheader("Panel 1 — AIA + Radio Gaussian")
     if st.button(
         "Build top panel",
-        disabled=request is None,
+        disabled=request is None or image_time_range is None,
         type="primary",
     ):
         try:
-            st.session_state["aia_radio_top"] = build_top_panel(
+            for key in (
+                "aia_radio_top",
+                "aia_radio_match_plan",
+                "aia_radio_result",
+                "aia_radio_artifact",
+                "aia_radio_video_artifact",
+            ):
+                st.session_state.pop(key, None)
+            match_plan = build_composite_match_plan(
                 request,
+                radio_frequencies_mhz=radio_frequencies,
+                aia_waves=aia_waves,
+                time_start=image_time_range[0],
+                time_end=image_time_range[1],
+                aia_match_tolerance_seconds=AIA_VIDEO_MATCH_TOLERANCE_SECONDS,
+                radio_match_tolerance_seconds=RADIO_VIDEO_MATCH_TOLERANCE_SECONDS,
+            )
+            top = build_top_panel(
+                request,
+                match_plan=match_plan,
+                time_start=image_time_range[0],
+                time_end=image_time_range[1],
+                aia_max_dt_seconds=AIA_VIDEO_MATCH_TOLERANCE_SECONDS,
+                radio_max_dt_seconds=RADIO_VIDEO_MATCH_TOLERANCE_SECONDS,
                 radio_frequencies_mhz=radio_frequencies,
                 aia_waves=aia_waves,
                 display_extent_arcsec=display_extent_arcsec,
                 extended_canvas_color=extended_canvas_color,
                 gaussian_overrides=gaussian_overrides,
             )
+            st.session_state["aia_radio_match_plan"] = match_plan
+            st.session_state["aia_radio_top"] = top
         except Exception as exc:
             st.error(f"Top-panel generation failed: {exc}")
     top = st.session_state.get("aia_radio_top")
+    match_plan = st.session_state.get("aia_radio_match_plan")
+    if match_plan is not None and (
+        getattr(match_plan, "output_source_id", None) is None
+        or match_plan.to_dict().get("algorithm_version") != 3
+    ):
+        for key in (
+            "aia_radio_top",
+            "aia_radio_match_plan",
+            "aia_radio_video_artifact",
+        ):
+            st.session_state.pop(key, None)
+        top = match_plan = None
+        st.info(
+            "Time matching changed. Build the top panel again to create the image hierarchy."
+        )
     reference_display_time = None
     if top is not None:
-        reference_value = top.metadata.get("reference_radio_time_utc")
+        reference_value = top.metadata.get("output_time_utc") or top.metadata.get(
+            "reference_radio_time_utc"
+        )
         if reference_value:
-            reference_display_time = pd.Timestamp(reference_value).to_pydatetime()
+            reference_display_time = _utc_datetime(reference_value)
     if top is not None:
         st.image(
             top.image_png,
             caption="AIA background + radio Gaussian preview",
             width="stretch",
         )
+    if top is not None and (top.radio_frame is not None or top.radio_frames):
         st.markdown("#### Radio source ROI selection")
         st.caption(
             "Draw the ROI on the first selected frequency's matched radio FITS "
@@ -718,6 +813,12 @@ def _run_streamlit_app(argv: list[str] | None = None) -> None:
         if _session_roi(st) is not None:
             st.success("Radio-source ROI confirmed in HPLN/HPLT arcsec.")
             st.json(_session_roi(st).to_json_dict(), expanded=False)
+    elif top is not None:
+        st.info(
+            "No radio image is available in this UTC window. The AIA preview "
+            "retains the missing-source flags. An existing confirmed ROI may be "
+            "used; choose a window with radio images to select a new ROI."
+        )
     else:
         st.info(
             "Build the top panel, then draw and confirm a box or lasso ROI "
@@ -992,16 +1093,22 @@ def _run_streamlit_app(argv: list[str] | None = None) -> None:
             or not curve_frequencies
             or flux_time_range is None
             or spectrum_time_range is None
+            or match_plan is None
         ),
         type="primary",
     ):
         try:
+            st.session_state.pop("aia_radio_artifact", None)
+            st.session_state.pop("aia_radio_result", None)
+            st.session_state.pop("aia_radio_video_artifact", None)
             result, artifact = build_composite(
                 request,
                 confirmed_roi,
                 frequencies_mhz=curve_frequencies,
                 radio_frequencies_mhz=radio_frequencies,
                 aia_waves=aia_waves,
+                match_plan=match_plan,
+                match_time_range_utc=image_time_range,
                 spectrum_bands=matched_bands,
                 roi_time_range_utc=flux_time_range,
                 spectrum_time_range_utc=spectrum_time_range,
@@ -1069,11 +1176,18 @@ def _run_streamlit_app(argv: list[str] | None = None) -> None:
                 st.error(f"Artifact save failed: {exc}")
 
     result = st.session_state.get("aia_radio_result")
-    if result is not None and aligned_time_range is not None:
+    if (
+        result is not None
+        and aligned_time_range is not None
+        and image_time_range is not None
+    ):
         video_signature = json.dumps(
             {
                 "result": result.to_metadata_dict(),
-                "time_range": [value.isoformat() for value in aligned_time_range],
+                "image_time_range": [value.isoformat() for value in image_time_range],
+                "display_time_range": [
+                    value.isoformat() for value in aligned_time_range
+                ],
                 "fps": video_fps,
                 "metric": metric,
                 "aia_waves": [int(value) for value in aia_waves],
@@ -1083,6 +1197,9 @@ def _run_streamlit_app(argv: list[str] | None = None) -> None:
                 "spectrum_display_frequency_range": spectrum_display_frequency_range,
                 "spectrum_display_intensity_range": spectrum_display_intensity_range,
                 "gaussian_overrides": gaussian_overrides,
+                "match_plan_fingerprint": (
+                    match_plan.fingerprint if match_plan is not None else None
+                ),
             },
             sort_keys=True,
         )
@@ -1095,22 +1212,30 @@ def _run_streamlit_app(argv: list[str] | None = None) -> None:
         st.session_state["_video_signature"] = video_signature
         st.markdown("#### Synchronized MP4 video")
         st.caption(
-            "The first selected radio frequency supplies the real observation "
-            "timeline. Every frame rematches all selected radio frequencies "
-            "and AIA wavelengths; incomplete times are skipped. FPS changes "
-            "playback speed only, with no interpolation or repeated frames."
+            "The smallest image source is the root; matching follows ascending frame counts, "
+            "and the largest source supplies the complete output timeline. "
+            "Preview and export use the same fixed plan within the selected UTC "
+            "window (start included, end excluded). Other images may repeat and "
+            "never move backward; missing or distant matches retain quality flags. "
+            "FPS changes playback speed only. Build the top panel again to refresh "
+            "changed inputs."
         )
-        if st.button("Generate MP4 video", type="primary"):
+        if st.button("Generate MP4 video", type="primary", disabled=match_plan is None):
             try:
+                st.session_state.pop("aia_radio_video_artifact", None)
                 with st.spinner("Rendering synchronized video frames..."):
                     st.session_state["aia_radio_video_artifact"] = (
                         build_dynamic_composite_video(
                             result,
                             request,
+                            match_plan=match_plan,
                             aia_waves=aia_waves,
                             radio_frequencies_mhz=radio_frequencies,
-                            time_start=aligned_time_range[0],
-                            time_end=aligned_time_range[1],
+                            time_start=image_time_range[0],
+                            time_end=image_time_range[1],
+                            display_time_range_utc=aligned_time_range,
+                            aia_match_tolerance_seconds=AIA_VIDEO_MATCH_TOLERANCE_SECONDS,
+                            radio_match_tolerance_seconds=RADIO_VIDEO_MATCH_TOLERANCE_SECONDS,
                             display_extent_arcsec=display_extent_arcsec,
                             extended_canvas_color=extended_canvas_color,
                             gaussian_overrides=gaussian_overrides,
@@ -1212,7 +1337,7 @@ def _restore_confirmed_roi(st: Any) -> None:
     try:
         decoded = json.loads(str(payload))
         roi = radio_roi_from_json(decoded)
-    except (TypeError, ValueError, json.JSONDecodeError):
+    except TypeError, ValueError, json.JSONDecodeError:
         st.session_state["confirmed_roi_json"] = ""
         return
     st.session_state["aia_radio_confirmed_roi"] = roi.to_json_dict()
@@ -1227,7 +1352,7 @@ def _session_spectrum_band(st: Any) -> SpectrumBand | None:
             float(payload["low_mhz"]),
             float(payload["high_mhz"]),
         )
-    except (KeyError, TypeError, ValueError):
+    except KeyError, TypeError, ValueError:
         return None
 
 
@@ -1273,7 +1398,7 @@ def _restore_confirmed_spectrum_band(st: Any) -> None:
             float(decoded["low_mhz"]),
             float(decoded["high_mhz"]),
         )
-    except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+    except KeyError, TypeError, ValueError, json.JSONDecodeError:
         st.session_state["confirmed_spectrum_band_json"] = ""
         return
     st.session_state["aia_radio_confirmed_spectrum_band"] = band.to_dict()
@@ -1288,7 +1413,7 @@ def _ensure_spectrum_band_defaults(st: Any, spectrum: SpectrumWindow) -> None:
         current = SpectrumBand(float(current_low), float(current_high))
         current.observed_indices(spectrum.frequency_mhz)
         return
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         pass
     frequencies = spectrum.frequency_mhz
     observed_low = float(frequencies[0])
@@ -1379,16 +1504,10 @@ def _clear_spectrum_state(
 
 
 def _utc_datetime(value: str | datetime) -> datetime:
-    if isinstance(value, datetime):
-        parsed = value
-    else:
-        text = str(value).strip()
-        if text.endswith(("Z", "z")):
-            text = f"{text[:-1]}+00:00"
-        parsed = datetime.fromisoformat(text)
+    parsed = pd.Timestamp(value)
     if parsed.tzinfo is None:
-        return parsed.replace(tzinfo=UTC)
-    return parsed.astimezone(UTC)
+        return parsed.tz_localize("UTC")
+    return parsed.tz_convert("UTC")
 
 
 def _gaussian_display_overrides(
@@ -1424,6 +1543,8 @@ def _validated_utc_range(
 
     parsed_start = _utc_datetime(start)
     parsed_end = _utc_datetime(end)
+    if pd.isna(parsed_start) or pd.isna(parsed_end):
+        raise ValueError(f"{label} requires finite start and end UTC timestamps")
     if parsed_start >= parsed_end:
         raise ValueError(f"{label} start must be before end")
     return parsed_start, parsed_end
