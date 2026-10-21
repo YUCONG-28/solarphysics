@@ -72,3 +72,38 @@ def test_reads_lightweight_aia_background_grid(tmp_path):
     assert background.y_arcsec.tolist() == pytest.approx([0.0, 4.0])
     assert background.obs_time == pd.Timestamp("2000-01-01T04:48:37")
     assert "171" in background.label
+
+
+@pytest.mark.parametrize(
+    "tolerance", [np.nan, np.inf, -1, True, np.bool_(True), [1], None]
+)
+@pytest.mark.parametrize("empty", [False, True])
+def test_nearest_aia_rejects_invalid_tolerance_before_empty_table(tolerance, empty):
+    table = (
+        pd.DataFrame(columns=["path", "obs_time"])
+        if empty
+        else pd.DataFrame(
+            {
+                "path": ["synthetic.fits"],
+                "obs_time": [pd.Timestamp("2000-01-01T00:00:00")],
+            }
+        )
+    )
+    with pytest.raises(ValueError, match="max_dt_seconds"):
+        find_nearest_aia(table, "2000-01-01T01:00:00", max_dt_seconds=tolerance)
+
+
+def test_nearest_aia_zero_tolerance_requires_an_exact_instant():
+    table = pd.DataFrame(
+        {"path": ["synthetic.fits"], "obs_time": [pd.Timestamp("2000-01-01T00:00:00")]}
+    )
+    assert (
+        find_nearest_aia(table, "2000-01-01T00:00:00Z", max_dt_seconds=0).status
+        == "matched"
+    )
+    assert (
+        find_nearest_aia(
+            table, "2000-01-01T00:00:00.000000001Z", max_dt_seconds=0
+        ).status
+        == "too_far"
+    )

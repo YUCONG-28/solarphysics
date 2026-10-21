@@ -154,7 +154,21 @@ def find_nearest_aia(
     *,
     max_dt_seconds: float = 3600.0,
 ) -> NearestAIA:
-    """Find the AIA row closest to ``frame_time`` within a maximum time gap."""
+    """Find the nearest AIA row within a finite nonnegative scalar gap in seconds.
+
+    Invalid tolerances, including booleans, raise ``ValueError`` before table
+    inspection. Zero accepts an exact instant only; missing tables still return
+    ``no_files`` when the tolerance is valid.
+    """
+
+    try:
+        if isinstance(max_dt_seconds, (bool, np.bool_)) or np.ndim(max_dt_seconds):
+            raise ValueError("not a numeric scalar")
+        tolerance = float(max_dt_seconds)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError("max_dt_seconds must be a finite nonnegative scalar") from exc
+    if not np.isfinite(tolerance) or tolerance < 0:
+        raise ValueError("max_dt_seconds must be a finite nonnegative scalar")
 
     if aia_table is None or aia_table.empty:
         return NearestAIA(status="no_files", reason="AIA table is empty.")
@@ -177,7 +191,7 @@ def find_nearest_aia(
     best_index = diffs.idxmin()
     best_delta = float(diffs.loc[best_index])
     row = aia_table.loc[best_index]
-    if best_delta > float(max_dt_seconds):
+    if best_delta > tolerance:
         return NearestAIA(
             status="too_far",
             path=str(row["path"]),

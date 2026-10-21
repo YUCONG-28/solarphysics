@@ -4,48 +4,62 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import math
 from typing import Any
 
 import yaml
 
+from ..time import normalize_time
+
 
 def validate_time_range(start_time: dt.datetime, end_time: dt.datetime) -> bool:
-    """Validate that ``start_time`` strictly precedes ``end_time``."""
+    """Validate strictly increasing complete times on the integer TAI clock.
 
-    if start_time >= end_time:
+    Naive datetimes use UTC. Aware datetimes and explicitly scaled timestamps
+    use the shared time normalizer rather than mixed timezone arithmetic.
+    """
+
+    start_ns = normalize_time(start_time).tai_ns
+    end_ns = normalize_time(end_time).tai_ns
+    if start_ns >= end_ns:
         raise ValueError(
             f"Start time ({start_time}) must precede end time ({end_time})"
         )
-
-    time_diff = (end_time - start_time).total_seconds()
-    if time_diff <= 0:
-        raise ValueError(f"Time difference must be positive; got {time_diff} seconds")
     return True
 
 
 def validate_frequency_range(f_start: float, f_end: float) -> bool:
-    """Validate a strictly increasing, non-negative frequency range in MHz."""
+    """Validate a strictly increasing, finite positive frequency range in MHz."""
 
+    try:
+        if isinstance(f_start, bool) or isinstance(f_end, bool):
+            raise ValueError("boolean frequency")
+        f_start, f_end = float(f_start), float(f_end)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError("Frequencies must be finite positive numbers in MHz") from exc
+    if not all(math.isfinite(value) and value > 0 for value in (f_start, f_end)):
+        raise ValueError("Frequencies must be finite positive numbers in MHz")
     if f_start >= f_end:
         raise ValueError(
             f"Start frequency ({f_start} MHz) must be less than end frequency "
             f"({f_end} MHz)"
         )
-    if f_start < 0 or f_end < 0:
-        raise ValueError(
-            f"Frequencies must be non-negative; got {f_start} - {f_end} MHz"
-        )
     return True
 
 
 class SolarDataConfig:
-    """Legacy unified configuration object for solar-data workflows."""
+    """Legacy workflow configuration; callers must supply paths and ROI bounds.
+
+    Data/output directories and the scientific ROI default to ``None``. This
+    compatibility container preserves explicit caller settings without guessing
+    a machine layout or reusing a historical event's region.
+    """
 
     def __init__(self, config_dict: dict[str, Any] | None = None):
         self.defaults = {
-            "data_dir": "D:/solar_data",
-            "output_dir": "D:/solar_data/output",
-            "roi_bounds": (-700, -100, -100, 400),
+            "data_dir": None,
+            "output_dir": None,
+            "roi_bounds": None,
             "dpi": 300,
             "fig_width": 10.0,
             "use_parallel": True,
@@ -73,7 +87,7 @@ class SolarDataConfig:
                 json.dump(config_dict, handle, indent=2, ensure_ascii=False)
         elif filepath.endswith((".yaml", ".yml")):
             with open(filepath, "w", encoding="utf-8") as handle:
-                yaml.dump(
+                yaml.safe_dump(
                     config_dict,
                     handle,
                     default_flow_style=False,

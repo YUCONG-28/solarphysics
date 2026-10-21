@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 
 from .height_comparison import model_label
-from .io import ensure_output_dir
+from .io import ensure_output_dir, truthy
 from .newkirk import newkirk_height_from_frequency_mhz
 
 __all__ = [
@@ -429,14 +429,7 @@ def _has_columns(df: pd.DataFrame, columns: list[str]) -> bool:
 
 
 def _truthy(value) -> bool:
-    if isinstance(value, str):
-        return value.strip().lower() in {"1", "true", "yes", "y", "ok"}
-    try:
-        if pd.isna(value):
-            return False
-    except (TypeError, ValueError):
-        pass
-    return bool(value)
+    return truthy(value)
 
 
 def _model_pairs(df: pd.DataFrame):

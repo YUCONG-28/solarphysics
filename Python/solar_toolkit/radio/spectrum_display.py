@@ -13,10 +13,28 @@ __all__ = ["relative_background_db", "compact_spectrum_time"]
 
 
 def relative_background_db(data, time, max_gap_seconds=0.0, background_percentile=20.0):
-    """Return 10 log10(I / per-channel P20) and provenance of estimated cells.
+    """Express a spectrum relative to its own per-frequency background.
 
-    Only bounded interior runs whose bracketing times are within the configured
-    tolerance are estimated linearly in linear intensity. Never compress time.
+    ``data`` is a 2-D frequency-by-time intensity array; ``time`` is its
+    strictly increasing UTC Unix-second axis. Values must be in a common
+    linear unit. The returned copy is ``10 * log10(I / B(f))`` in relative dB,
+    where ``B(f)`` is ``background_percentile`` (default 20) of the original
+    finite, positive samples in each frequency row. The percentile is computed
+    before gap estimation; it is not an absolute flux calibration.
+
+    Nonfinite and nonpositive samples are missing for this logarithmic display.
+    A channel with no positive samples remains NaN. Optional gap estimation
+    fills only bounded interior missing runs whose bracketing times differ by
+    at most ``max_gap_seconds`` (plus the retained microsecond allowance),
+    using linear intensity rather than dB. A zero configured gap retains only
+    that numerical allowance. Leading/trailing gaps remain missing and the
+    original UTC axis is retained.
+
+    Returns ``(relative_db, metadata)`` with the original array shape. Metadata
+    records the selected percentile, per-channel linear baselines, estimated
+    cell/column counts and remaining missing cells. Inputs are not modified.
+    Shape/time-order mismatches raise ``ValueError``; invalid percentile
+    arguments follow NumPy percentile validation.
     """
     values = np.asarray(data, dtype=float).copy()
     times = np.asarray(time, dtype=float)
@@ -39,7 +57,10 @@ def relative_background_db(data, time, max_gap_seconds=0.0, background_percentil
         out = 10 * np.log10(values / baseline[:, None])
     return out, {
         "unit": "dB above per-frequency background",
-        "definition": "10 log10(I / B(f)); B(f)=20th percentile of positive original samples in displayed window",
+        "definition": (
+            "10 log10(I / B(f)); "
+            f"B(f)=percentile {background_percentile:g} of positive original samples in displayed window"
+        ),
         "background_percentile": background_percentile,
         "background_linear": baseline.tolist(),
         "max_bracketing_gap_seconds": max_gap_seconds,
@@ -61,7 +82,29 @@ def _utc(epoch):
 def compact_spectrum_time(
     arrays, target, *, allow_outside_window=False, allow_missing_time=False
 ):
-    """Omit all-empty time columns for display, preserving their UTC mapping."""
+    """Remove entirely missing columns from a display, retaining UTC provenance.
+
+    ``arrays`` must provide a frequency-by-time ``intensity`` array and a
+    strictly increasing ``time_edges_unix`` vector with one more element than
+    the time dimension. Edges and ``target`` use absolute UTC Unix seconds.
+    A column is retained if any value is finite, including zero or negative
+    values; this function does not apply the positive-only logarithmic policy
+    of :func:`relative_background_db`.
+
+    Returns ``(field, display_edges, retained, marker, metadata)``. ``field``
+    copies retained columns unchanged; ``retained`` maps them to original
+    column indices. ``display_edges`` concatenates their original widths in
+    elapsed seconds from zero, so it is not a continuous UTC axis. ``marker``
+    is the target's position on that display axis. Metadata retains real UTC
+    segments, removal counts, hashes and cursor-roundtrip diagnostics.
+
+    An entirely missing spectrum, invalid edge shape/order or a target without
+    retained data raises ``ValueError``. ``allow_outside_window`` and
+    ``allow_missing_time`` permit their respective target cases with a ``None``
+    marker and explicit status; they do not invent a position. A target equal
+    to the final original edge belongs to the final bin. Source arrays and
+    original UTC values are not modified or interpolated.
+    """
     values = arrays["intensity"]
     real_edges = np.asarray(arrays["time_edges_unix"], dtype=float)
     if real_edges.shape != (values.shape[1] + 1,) or np.any(np.diff(real_edges) <= 0):

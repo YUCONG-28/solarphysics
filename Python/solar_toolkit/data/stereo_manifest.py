@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import os
 from pathlib import Path
 
 from astropy.io import fits
@@ -31,13 +32,19 @@ def read_metadata(path: Path) -> dict[str, str]:
 def make_relative_symlink(target: Path, link: Path) -> None:
     """Create a relative symlink without replacing ordinary files."""
 
+    target = target.resolve()
     if link.is_symlink():
         if link.resolve() == target.resolve():
             return
         link.unlink()
     elif link.exists():
         raise FileExistsError(f"Refusing to replace non-symlink: {link}")
-    link.symlink_to(Path("..") / ".." / target.name)
+    try:
+        relative_target = Path(os.path.relpath(target, start=link.parent.resolve()))
+    except ValueError:
+        # Windows cannot express a relative path between different drives.
+        relative_target = target
+    link.symlink_to(relative_target)
 
 
 def build_manifest(

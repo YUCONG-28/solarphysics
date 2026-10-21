@@ -25,12 +25,15 @@ import re
 import subprocess
 import sys
 import tempfile
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlparse
 
-import tomllib
+try:
+    import tomllib
+except ModuleNotFoundError:  # Python 3.10 uses the supported TOML backport.
+    import tomli as tomllib
 
 try:
     from packaging.markers import default_environment
@@ -988,7 +991,7 @@ def _verify_runtime(args: argparse.Namespace) -> int:
     result = {
         "schema": "solarphysics-environment-replay/v1",
         "target": args.target,
-        "verified_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+        "verified_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         "environment_lock_sha256": receipt["environment_lock_sha256"],
         "source_files": _source_hashes(),
         "editable_projects": editable_projects,

@@ -1,4 +1,4 @@
-"""Batch original-image PNGs and MP4 using a frozen approved spectral figure."""
+"""Export original-image comparison frames and video with explicit spectral input."""
 
 from __future__ import annotations
 

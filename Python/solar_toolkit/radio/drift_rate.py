@@ -18,7 +18,7 @@ from dataclasses import dataclass
 import matplotlib.dates as mdates
 import numpy as np
 
-from .io import DRIFT_RATE_DIAGNOSTIC_FIELDS
+from .io import DRIFT_RATE_DIAGNOSTIC_FIELDS, _sample_float
 from .io import drift_output_path as _drift_output_path
 from .io import parse_datetime_value as _parse_datetime_value
 from .spectrogram import _date_num_to_datetime
@@ -115,11 +115,11 @@ def _calculate_drift_rate_from_line(
     if t_end is _UNSET_DRIFT_TIME:
         t_end = _drift_line_time(line, "t_end")
     if profile.strict_frequency_fields:
-        f_start = float(line["f_start_mhz"])
-        f_end = float(line["f_end_mhz"])
+        f_start = _sample_float(line["f_start_mhz"])
+        f_end = _sample_float(line["f_end_mhz"])
     else:
-        f_start = float(line.get("f_start_mhz"))
-        f_end = float(line.get("f_end_mhz"))
+        f_start = _sample_float(line.get("f_start_mhz"))
+        f_end = _sample_float(line.get("f_end_mhz"))
     warning = ""
     if profile.sort_endpoints_by_time and t_end < t_start:
         t_start, t_end = t_end, t_start
@@ -127,7 +127,13 @@ def _calculate_drift_rate_from_line(
         warning = "endpoints_sorted_by_time"
     duration_s = float((t_end - t_start).total_seconds())
     bandwidth_mhz = float(f_end - f_start)
-    if abs(duration_s) <= profile.zero_duration_tolerance_s:
+    if not np.isfinite([f_start, f_end]).all() or min(f_start, f_end) <= 0:
+        drift_rate = np.nan
+        quality_flag = "invalid_frequency"
+        warning = ";".join(
+            filter(None, [warning, "frequency_must_be_finite_and_positive"])
+        )
+    elif abs(duration_s) <= profile.zero_duration_tolerance_s:
         if profile.zero_duration_policy == "raise":
             raise ValueError(
                 f"Cannot calculate drift rate for zero-duration line: {line}"
@@ -164,7 +170,12 @@ def _calculate_drift_rate_from_line(
 
 
 def calculate_drift_rate_from_line(line: dict) -> DriftRateResult:
-    """Calculate df/dt with sorted-endpoint semantics."""
+    """Calculate MHz/s from UTC endpoints without modifying ``line``.
+
+    Endpoints are sorted by time. Nonpositive/nonfinite frequencies and a zero
+    duration produce NaN drift with an explicit quality flag; malformed times
+    raise ValueError. A positive drift is retained with a diagnostic warning.
+    """
 
     return _calculate_drift_rate_from_line(line)
 

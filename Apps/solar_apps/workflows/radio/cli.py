@@ -20,9 +20,6 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
-    if not args or args[0] in {"-h", "--help"}:
-        build_parser().print_help()
-        return 0
     from .dispatcher import main as dispatcher_main
 
     result = dispatcher_main(args)

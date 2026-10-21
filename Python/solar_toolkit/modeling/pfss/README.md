@@ -8,7 +8,7 @@ not a missing-dependency fallback.
 
 ## Scientific contract
 
-- `prepare_boundary` rejects missing cells, incomplete latitude/longitude
+- `prepare_boundary` rejects missing or explicitly masked cells, incomplete latitude/longitude
   coverage, unknown units, known LOS products and unsupported WCS. It converts
   field units to G and canonicalizes HMI's special latitude units exactly once.
   Axis-aligned global CAR maps use conservative cell overlap in sin(latitude)
@@ -77,10 +77,12 @@ CAR reprojection, idempotent HMI metadata, occultation, exact projection, branch
 ambiguity, Newkirk degeneracy and incomplete/tampered bundles. Existing source
 geometry tests cover timestamps, burst crossings and weak intersections.
 
-The optional profile is `environment/pfss-requirements.txt`. Linux has its own
-`environment/locks/linux-64-py314` wheel hashes; the existing Mac lock remains
-unchanged. A matching installed version list alone is not a replay receipt.
-Do not claim the main compute environment was replaced by the sealed replay.
+Optional backend requirements are listed in
+[`environment/pfss-requirements.txt`](../../../../environment/pfss-requirements.txt).
+Use the lock for the actual target platform, following the
+[environment guide](../../../../environment/README.md). A matching installed
+version list alone is not a replay receipt; exact-environment verification also
+requires the hash-verified installation and detached runtime receipt.
 
 The adapter is original project code. The external backend is licensed
 GPL-3.0-or-later (sunkit-magex); streamtracer declares GPLv3 in its package classifiers. This does not

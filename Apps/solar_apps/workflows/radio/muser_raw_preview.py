@@ -1,4 +1,4 @@
-"""Four independently matched original images, CSO spectrum and SFU lightcurve."""
+"""Compose four- or six-panel original-image comparisons with CSO diagnostics."""
 
 from __future__ import annotations
 

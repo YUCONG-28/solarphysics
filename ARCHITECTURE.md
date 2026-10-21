@@ -1,14 +1,16 @@
 # Repository architecture
 
 The repository has public code partitions and a private runtime
-partition. Observation-year directories and `overview/` are local data, not
-source partitions.
+partition. Scientific observations and research records belong in private
+storage, outside the public source partitions.
 
 ```text
 solarphysics/
 |-- Python/             reusable solar_toolkit library
 |-- Apps/               application interfaces and workflow orchestration
 |-- tools/              general maintenance utilities
+|-- docs/               technical guide navigation and methods
+|-- environment/        target-platform artifact locks and replay guidance
 `-- Local/              ignored configuration, state, workspaces and outputs
 ```
 

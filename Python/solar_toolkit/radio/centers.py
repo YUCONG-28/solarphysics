@@ -15,6 +15,7 @@ import warnings
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
+from numbers import Integral
 from pathlib import Path
 
 import numpy as np
@@ -239,11 +240,21 @@ def _frequency_to_mhz(value: float, unit: str) -> float:
 
 
 def parse_datetime_value(value: object) -> datetime | None:
-    """Parse config/reference times as naive UTC; observation reads require a clock."""
+    """Parse config/reference times as naive UTC, or return None if invalid.
+
+    Exact integers use the compact calendar-text convention, for example
+    ``20000101044829509`` is 2000-01-01 04:48:29.509 UTC. Unlabelled numeric
+    epochs, floats and booleans are not accepted; a float may already have lost
+    compact timestamp digits. Observation reads require a clock.
+    """
     from solar_toolkit.time import normalize_time
 
     if value is None or str(value).strip().lower() in {"", "none", "nan", "nat"}:
         return None
+    if isinstance(value, (bool, np.bool_)):
+        return None
+    if isinstance(value, Integral):
+        value = str(value)
     if isinstance(value, date) and not isinstance(value, datetime):
         return datetime.combine(value, datetime.min.time())
     if isinstance(value, str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", value.strip()):

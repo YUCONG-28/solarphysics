@@ -90,6 +90,9 @@ jobs:
       - name: Check committed public source
         run: python ../tools/public_source_policy.py
 
+      - name: Validate sealed environment locks and source bindings offline
+        run: python ../tools/environment_lock.py check --require-artifact-hashes
+
       - name: Verify installed dependencies
         run: python -m pip check
 

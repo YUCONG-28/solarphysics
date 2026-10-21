@@ -19,7 +19,9 @@ from solar_toolkit.visualization.image_naming import (
 
 def test_format_utc_time_converts_timezone_and_truncates_subseconds() -> None:
     value = dt.datetime(
-        2000, 1, 1,
+        2000,
+        1,
+        1,
         12,
         48,
         30,
@@ -33,6 +35,20 @@ def test_format_utc_time_converts_timezone_and_truncates_subseconds() -> None:
 def test_format_utc_time_accepts_numpy_datetime64() -> None:
     value = np.datetime64("2000-01-01T04:48:30.999999999")
     assert format_utc_filename_time(value) == "20000101T044830Z"
+
+
+@pytest.mark.parametrize(
+    "scale,clock", [("utc", "00:00:00.999999"), ("tai", "00:00:32.999999")]
+)
+def test_filename_astropy_times_are_converted_to_utc(scale, clock):
+    from astropy.time import Time
+
+    stamp = Time(f"2000-01-01T{clock}", scale=scale)
+    assert format_utc_filename_time(stamp) == "20000101T000000Z"
+
+
+def test_filename_labelled_tai_string_is_converted_to_utc():
+    assert format_utc_filename_time("2000.01.01_00:00:32_TAI") == "20000101T000000Z"
 
 
 @pytest.mark.parametrize(

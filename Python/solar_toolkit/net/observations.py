@@ -848,7 +848,13 @@ def _quantity_wavelength(
     *,
     supported: Sequence[int] = (),
 ) -> int:
-    raw = getattr(value, "value", value)
+    to_value = getattr(value, "to_value", None)
+    if callable(to_value):
+        import astropy.units as u
+
+        raw = to_value(u.AA)
+    else:
+        raw = getattr(value, "value", value)
     if hasattr(raw, "__len__") and not isinstance(raw, str):
         values = [float(item) for item in raw]
         if supported and values:
@@ -1125,6 +1131,8 @@ def _hash_file(path: Path) -> str:
 def _read_download_index(path: Path) -> dict[str, str]:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(payload, dict):
+            return {}
         values = payload.get("sha256_by_path", {})
         if not isinstance(values, dict):
             return {}

@@ -13,20 +13,32 @@ from typing import Any
 
 import numpy as np
 
-from solar_toolkit.time import parse_time
+from solar_toolkit.time import normalize_time
 
 from .coordinates import calculate_fits_extent_from_header
 
 
 def get_map_obs_time(map_or_header: Any):
-    """Return observation time from a SunPy Map-like object or header."""
+    """Return naive UTC at microsecond resolution from a map or FITS header.
+
+    Astropy time scales and FITS ``TIMESYS`` are converted, not discarded.
+    Date-only headers require ``TIME-OBS``/``TIME_OBS``; incomplete or invalid
+    times raise ``ValueError``. Missing observation metadata raises ``KeyError``.
+    """
 
     if hasattr(map_or_header, "date") and map_or_header.date is not None:
-        return parse_time(str(map_or_header.date.isot))
-    header = _header_from(map_or_header)
-    for key in ("DATE-OBS", "DATE_OBS", "date-obs", "date_obs"):
+        return normalize_time(map_or_header.date).to_datetime()
+    header = {
+        str(key).upper(): value for key, value in _header_from(map_or_header).items()
+    }
+    for key in ("DATE-OBS", "DATE_OBS"):
         if key in header:
-            return parse_time(header[key])
+            value = header[key]
+            if isinstance(value, str) and len(value.strip()) == 10:
+                clock = header.get("TIME-OBS", header.get("TIME_OBS"))
+                if clock is not None:
+                    value = f"{value.strip()}T{str(clock).strip()}"
+            return normalize_time(value, scale=header.get("TIMESYS")).to_datetime()
     raise KeyError("Missing DATE-OBS/DATE_OBS metadata")
 
 

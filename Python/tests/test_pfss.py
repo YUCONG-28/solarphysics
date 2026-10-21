@@ -130,6 +130,30 @@ def test_axis_flip_preserves_world_field():
     assert report["flipped_axes"] == [0, 1]
 
 
+def test_boundary_rejects_finite_but_masked_observations():
+    import sunpy.map
+
+    source = synthetic_map()
+    mask = np.zeros(source.data.shape, dtype=bool)
+    mask[3, 4] = True
+    masked = sunpy.map.Map(source.data, source.meta, mask=mask)
+    with pytest.raises(ValueError, match="masked"):
+        prepare_boundary(masked, nphi=36, ns=18, component="Br")
+    assert masked.mask[3, 4]
+
+
+def test_boundary_accepts_an_all_false_mask():
+    import sunpy.map
+
+    source = synthetic_map()
+    masked = sunpy.map.Map(
+        source.data, source.meta, mask=np.zeros(source.data.shape, bool)
+    )
+    result, _ = prepare_boundary(masked, nphi=36, ns=18, component="Br")
+    expected, _ = prepare_boundary(source, nphi=36, ns=18, component="Br")
+    np.testing.assert_array_equal(result.data, expected.data)
+
+
 def test_failure_not_closed():
     p = np.array([[1, 0, 0], [1.2, 0, 0], [2.5, 0, 0]])
     assert validate_line(p, rss=2.5, polarity=1)["classification"] == "open_positive"

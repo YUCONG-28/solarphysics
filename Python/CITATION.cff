@@ -1,6 +1,7 @@
 cff-version: 1.2.0
 message: "If you use this toolkit in your research, please cite it as below."
-title: "Python for Solar Physics: Multi-wavelength Data Processing Toolkit"
+type: software
+title: "Solar Physics Toolkit: Scientific Python Library"
 authors:
   - family-names: "Li"
     given-names: "Y."

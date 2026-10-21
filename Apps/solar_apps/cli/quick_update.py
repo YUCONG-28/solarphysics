@@ -10,6 +10,7 @@ private data, generated artifacts, or unrelated changes.
 from __future__ import annotations
 
 import argparse
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -86,6 +87,45 @@ def _quick_check(repo_root: Path) -> int:
     return _python_checks(repo_root)
 
 
+def _require_feature_branch(repo_root: Path) -> int:
+    result = _git(repo_root, "symbolic-ref", "--quiet", "--short", "HEAD", capture=True)
+    branch = result.stdout.strip() if result.returncode == 0 else ""
+    if not branch or branch == "main":
+        print(
+            "quick: error: use a feature branch; main and detached HEAD are not writable",
+            file=sys.stderr,
+        )
+        return 1
+    return 0
+
+
+def _save_preflight(repo_root: Path) -> int:
+    if _require_feature_branch(repo_root):
+        return 1
+    staged = _git(repo_root, "diff", "--cached", "--name-only", "-z", capture=True)
+    if staged.returncode or staged.stdout:
+        print(
+            "quick: error: the index must be empty; existing staging is unchanged",
+            file=sys.stderr,
+        )
+        return 1
+    return 0
+
+
+def _unstage_selected(repo_root: Path, paths: list[str]) -> None:
+    """Undo only this command's staging; the entry index was verified empty."""
+    try:
+        result = _git(repo_root, "restore", "--staged", "--", *paths)
+        failed = result.returncode != 0
+    except OSError:
+        failed = True
+    if failed:
+        print(
+            "quick-save: error: could not unstage selected paths; inspect the index before retrying",
+            file=sys.stderr,
+        )
+
+
 def _quick_save(repo_root: Path, *, message: str, paths: list[str]) -> int:
     if not message.strip():
         print("quick-save: error: -m/--message is required", file=sys.stderr)
@@ -96,28 +136,39 @@ def _quick_save(repo_root: Path, *, message: str, paths: list[str]) -> int:
             file=sys.stderr,
         )
         return 2
-    if _git(repo_root, "add", "--", *paths).returncode != 0:
+    if _save_preflight(repo_root):
         return 1
-    offenders = _staged_has_private_content(repo_root)
-    if offenders:
-        print(
-            "quick-save: error: staged paths look private or generated:",
-            file=sys.stderr,
-        )
-        for offender in offenders:
-            print(f"  - {offender}", file=sys.stderr)
-        _git(repo_root, "restore", "--staged", "--", *paths)
-        return 1
-    print("$ git diff --cached --stat")
-    stat = _git(repo_root, "diff", "--cached", "--stat", capture=True)
-    print(stat.stdout if stat.stdout.strip() else "(nothing staged)")
-    if _git(repo_root, "commit", "-m", message).returncode != 0:
-        return 1
-    print("committed.")
-    return 0
+    committed = False
+    try:
+        if _git(repo_root, "add", "--", *paths).returncode != 0:
+            return 1
+        offenders = _staged_has_private_content(repo_root)
+        if offenders:
+            print(
+                "quick-save: error: staged paths look private or generated:",
+                file=sys.stderr,
+            )
+            for offender in offenders:
+                print(f"  - {offender}", file=sys.stderr)
+            return 1
+        print("$ git diff --cached --stat")
+        stat = _git(repo_root, "diff", "--cached", "--stat", capture=True)
+        if stat.returncode:
+            return 1
+        print(stat.stdout if stat.stdout.strip() else "(nothing staged)")
+        if _git(repo_root, "commit", "-m", message).returncode != 0:
+            return 1
+        committed = True
+        print("committed.")
+        return 0
+    finally:
+        if not committed:
+            _unstage_selected(repo_root, paths)
 
 
 def _quick_push(repo_root: Path) -> int:
+    if _save_preflight(repo_root):
+        return 1
     branch = _git(repo_root, "rev-parse", "--abbrev-ref", "HEAD", capture=True)
     branch_name = (branch.stdout or "").strip()
     if not branch_name:
@@ -131,13 +182,53 @@ def _quick_push(repo_root: Path) -> int:
         return 1
     if _git(repo_root, "push", "-u", "origin", branch_name).returncode != 0:
         return 1
-    print("pushed. creating a Pull Request against main...")
+    print("pushed. checking for an existing Pull Request against main...")
     import shutil
 
     gh = shutil.which("gh")
     if not gh:
         print("warning: gh CLI not found; open a PR on GitHub manually")
         return 0
+    existing = subprocess.run(
+        [
+            gh,
+            "pr",
+            "list",
+            "--head",
+            branch_name,
+            "--base",
+            "main",
+            "--state",
+            "open",
+            "--json",
+            "url",
+            "--limit",
+            "1",
+        ],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if existing.returncode:
+        print(
+            "quick-push: error: could not check existing Pull Requests; no new PR was created",
+            file=sys.stderr,
+        )
+        return 1
+    try:
+        pulls = json.loads(existing.stdout)
+        if not isinstance(pulls, list):
+            raise ValueError("Expected a pull-request list")
+        if pulls:
+            print(f"Pull Request: {pulls[0]['url']}")
+            return 0
+    except (ValueError, KeyError, TypeError):
+        print(
+            "quick-push: error: invalid Pull Request response; no new PR was created",
+            file=sys.stderr,
+        )
+        return 1
     return _run_checked(
         [gh, "pr", "create", "--base", "main", "--fill"],
         cwd=repo_root,
@@ -145,6 +236,8 @@ def _quick_push(repo_root: Path) -> int:
 
 
 def _quick_update(repo_root: Path, *, message: str, paths: list[str]) -> int:
+    if _save_preflight(repo_root):
+        return 1
     if _quick_check(repo_root) != 0:
         print("quick-update: checks failed; nothing committed", file=sys.stderr)
         return 1

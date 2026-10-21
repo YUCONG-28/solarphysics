@@ -3,7 +3,7 @@ name = "solar-physics-toolkit"
 dynamic = ["version"]
 description = "Reusable scientific libraries for multi-wavelength solar data analysis"
 authors = [
-    {name = "Severus / Lee / Ninghao"}
+    {name = "Y. Li"}
 ]
 readme = "README.md"
 license = "MIT"
@@ -34,6 +34,7 @@ quality-ml = [
 ]
 dev = [
     "build>=1.2.0",
+    "tomli>=2; python_version<'3.11'",
     "setuptools>=77",
     "wheel>=0.45",
     "pytest>=7.0.0",
@@ -65,7 +66,7 @@ Repository = "https://github.com/YUCONG-28/solarphysics.git"
 Issues = "https://github.com/YUCONG-28/solarphysics/issues"
 
 [build-system]
-requires = ["setuptools>=61.0", "wheel"]
+requires = ["setuptools>=77", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.dynamic]

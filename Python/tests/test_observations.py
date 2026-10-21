@@ -212,6 +212,48 @@ def test_stereo_vso_query_uses_secchi_detector_and_nominal_wavelengths(
     assert values["Source"] == "STEREO_A"
 
 
+@pytest.mark.parametrize("unit_name", ["AA", "nm"])
+def test_stereo_search_normalizes_equivalent_wavelength_units(monkeypatch, unit_name):
+    import astropy.units as u
+    from sunpy.net import Fido
+
+    observed = dt.datetime(2000, 1, 1, 4, 30, tzinfo=UTC)
+    wavelength = ([171, 175] * u.AA).to(getattr(u, unit_name))
+    monkeypatch.setattr(
+        Fido,
+        "search",
+        lambda *_args: [
+            [
+                {
+                    "Start Time": observed,
+                    "End Time": observed + dt.timedelta(seconds=2),
+                    "Wavelength": wavelength,
+                    "fileid": "secchi/L0/a/img/euvi/20000101/171.fts",
+                    "Size": 8_409_600 * u.byte,
+                }
+            ]
+        ],
+    )
+    query = replace(
+        _query(),
+        start_utc=observed,
+        end_utc=observed + dt.timedelta(minutes=1),
+        spacecraft=("stereo-a",),
+        wavelengths=(171,),
+    )
+    result = observations._search_stereo(query)
+    assert len(result) == 1
+    assert result[0].wavelength == 171
+    assert "/171/" in result[0].target_relative_path
+
+
+@pytest.mark.parametrize("payload", ["[]", "null", "false", "123", '"wrong type"'])
+def test_download_index_recovers_from_non_object_json(tmp_path, payload):
+    path = tmp_path / "index.json"
+    path.write_text(payload, encoding="utf-8")
+    assert observations._read_download_index(path) == {}
+
+
 def test_native_cadence_is_default_and_sampling_is_per_stream(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

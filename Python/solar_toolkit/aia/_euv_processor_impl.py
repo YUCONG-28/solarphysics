@@ -26,6 +26,7 @@ from astropy.coordinates import SkyCoord
 from sunpy.coordinates import propagate_with_solar_surface
 from tqdm import tqdm
 
+from solar_toolkit.map.operations import normalize_aia_exposure
 from solar_toolkit.visualization.image_naming import (
     ImageFilenameSpec,
     build_image_filename,
@@ -196,15 +197,7 @@ def _resolve_difference_params(
 
 
 def _load_exposure_normalized_map(path: Path) -> sunpy.map.GenericMap:
-    current_map = sunpy.map.Map(path)
-    exp_time = current_map.exposure_time.to_value(u.s)
-    if exp_time <= 0:
-        raise ValueError(f"{path.name}: abnormal exposure time ({exp_time}s)")
-
-    normalized_data = current_map.data / exp_time
-    meta = current_map.meta.copy()
-    meta["bunit"] = "DN / s"
-    return sunpy.map.Map(normalized_data, meta)
+    return normalize_aia_exposure(sunpy.map.Map(path))
 
 
 def _cutout_roi(
@@ -751,10 +744,6 @@ def _process_single_worker(
 
         current_map = sunpy.map.Map(file_path)
         _unused_wave_val = int(current_map.wavelength.value)
-        exp_time = current_map.exposure_time.to_value(u.s)
-
-        if exp_time <= 0:
-            return False, f"{file_path.name}: abnormal exposure time ({exp_time}s)"
 
         tx1, tx2, ty1, ty2 = cfg.roi_bounds
         dx = abs(tx2 - tx1)
@@ -769,8 +758,7 @@ def _process_single_worker(
             tr = SkyCoord(Tx=tx2 * u.arcsec, Ty=ty2 * u.arcsec, frame=frame)
             raw_cutout = current_map.submap(bl, top_right=tr)
 
-        normalized_data = raw_cutout.data / exp_time
-        cutout_map = sunpy.map.Map(normalized_data, raw_cutout.meta)
+        cutout_map = normalize_aia_exposure(raw_cutout)
 
         final_cmap, final_norm = _resolve_display_params(
             current_map, cfg.user_cmap, cfg.user_vmin, cfg.user_vmax
@@ -875,10 +863,6 @@ def _load_aia_cutout_panel(path: Path, expected_wave: int, cfg: AIAConfig) -> Pa
                 f"expected band {expected_wave}"
             )
 
-        exp_time = current_map.exposure_time.to_value(u.s)
-        if exp_time <= 0:
-            raise ValueError(f"{path.name}: abnormal exposure time ({exp_time}s)")
-
         tx1, tx2, ty1, ty2 = cfg.roi_bounds
         with propagate_with_solar_surface():
             frame = current_map.coordinate_frame
@@ -886,8 +870,7 @@ def _load_aia_cutout_panel(path: Path, expected_wave: int, cfg: AIAConfig) -> Pa
             tr = SkyCoord(Tx=tx2 * u.arcsec, Ty=ty2 * u.arcsec, frame=frame)
             raw_cutout = current_map.submap(bl, top_right=tr)
 
-        normalized_data = raw_cutout.data / exp_time
-        cutout_map = sunpy.map.Map(normalized_data, raw_cutout.meta)
+        cutout_map = normalize_aia_exposure(raw_cutout)
         final_cmap, final_norm = _resolve_display_params(
             current_map, cfg.user_cmap, cfg.user_vmin, cfg.user_vmax
         )

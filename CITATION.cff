@@ -1,0 +1,10 @@
+cff-version: 1.2.0
+message: "If you use this software in research, cite this repository and identify the version or commit used."
+type: software
+title: "Solar Physics Toolkit"
+authors:
+  - family-names: "Li"
+    given-names: "Y."
+    affiliation: "Shandong University"
+repository-code: "https://github.com/YUCONG-28/solarphysics"
+url: "https://github.com/YUCONG-28/solarphysics"

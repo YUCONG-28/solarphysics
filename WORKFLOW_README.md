@@ -1,23 +1,13 @@
-# 仓库维护流程
+# Repository maintenance workflow
 
-日常贡献从[贡献指南](CONTRIBUTING.md)开始。本页记录分支、选择性提交、快捷
-命令与独立发布工具。所有命令从仓库根目录执行；示例参数应替换为本次任务的值。
+Start with the [contribution guide](CONTRIBUTING.md) or its
+[Chinese counterpart](CONTRIBUTING.zh-CN.md). This guide covers branches,
+selective commits, pull requests and the separate release stages. Run commands
+from the repository root and replace example arguments with your own values.
 
-## 1. 工作区边界
+## Start a change
 
-科学库在 `Python/`，应用适配在 `Apps/`，维护工具在 `tools/`。
-公开内容只包括通用代码、测试、合成示例和必要说明。机器配置、观测数据、
-真实事件参数、研究进度、结果、个人路径、凭据和原始运行日志留在 `Local/`
-或仓库外。运行输出不得通过符号链接写入公开源码目录。
-
-修改前阅读适用的 `AGENTS.md`。已有未提交内容必须保留；忽略规则不代替暂存
-检查。代码、安装与测试说明分别见[架构](ARCHITECTURE.md)、
-[库开发说明](Python/CONTRIBUTING.md)和[应用开发说明](Apps/docs/development.md)。
-
-## 2. 开始工作
-
-先检查工作区。只有在当前目录干净、且切换不会影响已有工作时，才运行以下
-步骤；否则在独立工作目录继续。`--ff-only` 在历史分叉时停止。
+Inspect the working tree before switching branches. With a clean checkout:
 
 ```bash
 git status --short
@@ -26,13 +16,17 @@ git pull --ff-only origin main
 git switch -c docs/example-change
 ```
 
-分支名称应描述本次修改。不要把示例分支名复用于不相关的任务。
+Use a descriptive branch name for each change. Preserve existing local work;
+use a separate checkout when a branch switch would disturb it. A synchronized
+folder does not replace Git history; keep `.git` out of two-way file sync.
 
-## 3. 检查、暂存和提交
+## Check and commit selected files
 
-先运行与改动相关的测试；共享行为变化时扩大验证范围。开发使用 Miniforge
-`solarphysics_env_latest`，兼容环境只用于明确要求的比较。测试和构建输出
-使用本次运行独用的私有目录。
+Run the tests relevant to the change, then broaden validation when shared
+behavior changes. The [library](Python/CONTRIBUTING.md) and
+[Apps](Apps/docs/development.md) guides describe their checks. Development uses
+Miniforge `solarphysics_env_latest`; each test or build run needs its own private
+output directory.
 
 ```bash
 git diff
@@ -42,84 +36,109 @@ git diff --cached
 git commit -m "docs: clarify module composition"
 ```
 
-Windows 使用 `<miniforge-root>\Scripts\conda.exe` 执行相同的 `run -n` 参数。
-公共内容检查读取实际暂存的 Git 对象，支持删除操作与特殊文件名。它检查结构
-和内容边界；人工审阅与凭据检查仍需覆盖完整暂存差异。提交说明描述通用行为
-和验证结果，不附带研究记录或原始验证日志。
+On Windows, use `<miniforge-root>\Scripts\conda.exe` with the same `run -n`
+arguments. The public-source check reads staged Git objects, including deletions
+and unusual filenames. Review the complete staged diff and credential checks
+as well. Keep observations, event presets, research records, personal paths,
+credentials and raw run logs outside public source, as described in the
+[public content boundary](CONTRIBUTING.md#public-content-boundary).
 
-## 4. 推送与 PR
+## Review and merge
 
-检查后推送当前功能分支，创建面向 `main` 的 PR：
+Push the feature branch and open a pull request targeting `main`:
 
 ```bash
 git push -u origin HEAD
 ```
 
-PR 应说明具体问题、修改后的行为、兼容性影响、已运行的检查和未验证的部分。
-等待当前提交的 CI 通过，并处理审查意见。合并需要明确授权，不使用强制推送
-改写已公开的提交。
-
-分支落后时，获取最新远端引用并将 `origin/main` 合入当前功能分支：
+Describe the concrete problem, resulting behavior, compatibility effects and
+validation limits. Maintainers merge after review and the required CI checks
+pass for the current commit. Avoid force-pushing shared history. To incorporate
+new work from `main` into a feature branch:
 
 ```bash
 git fetch origin
 git merge origin/main
 ```
 
-逐项解决冲突后重新检查与测试；不要机械选择整边内容。
+Resolve conflicts deliberately and rerun affected checks. Once the pull request
+is merged, update a clean local `main` with `git pull --ff-only origin main`.
+Delete a completed local branch with `git branch -d <branch>` only after checking
+that its work is merged. Remote branch deletion is a separate repository action.
 
-## 5. 合并后的清理与撤销
-
-确认 PR 已合并后再同步 `main`：
-
-```bash
-git switch main
-git pull --ff-only origin main
-git branch --merged main
-```
-
-只有获得明确授权且确认目标分支已合并，才使用 `git branch -d <branch>`。
-删除远端分支也需要授权，再执行 `git push origin --delete <branch>`。
-
-取消暂存并保留文件内容：
+To unstage a file while keeping its contents:
 
 ```bash
 git restore --staged -- <path>
 ```
 
-不要通过硬重置、批量清理或强制删除来处理未确认的本地工作。若凭据已经进入
-提交，先停止推送、轮换凭据并单独处理历史；删除当前文件不能清除历史记录。
+Do not discard unreviewed work to make a checkout appear clean. If a credential
+has entered a commit, rotate it and address the history; deleting the current
+file does not remove older copies.
 
-## 6. 快捷维护命令
+## Quick maintenance commands
 
-这些命令使用已安装的应用维护入口。macOS 示例中的 `./Apps/run.sh` 在
-Windows 对应 `Apps\run.ps1`。
+These commands use the installed Apps maintenance entry point. On Windows,
+replace `./Apps/run.sh` with `Apps\run.ps1`.
 
-| 命令 | 当前行为 |
+| Command | Behavior |
 | --- | --- |
-| `tools quick check` | 对科学库运行 `pip check`、编译检查与 Ruff；不代替测试套件。 |
-| `tools quick save -m "<message>" -- <paths>` | 暂存指定路径、检查实际暂存内容、显示统计并提交整个暂存区。 |
-| `tools quick push` | 推送当前功能分支，并在 `gh` 可用时创建面向 `main` 的 PR；拒绝在 `main` 执行。 |
-| `tools quick update -m "<message>" -- <paths>` | 依次执行 `check`、`save`、`push`，任一步失败即停止。 |
+| `tools quick check` | Run library `pip check`, compilation and Ruff checks; this supplements the test suites. |
+| `tools quick save -m "<message>" -- <paths>` | Stage only the named paths, inspect public-source policy and commit the selected change. |
+| `tools quick push` | Push the feature branch and create or reuse its pull request when `gh` is available. |
+| `tools quick update -m "<message>" -- <paths>` | Run `check`, `save` and `push` in sequence, stopping on failure. |
 
-`save` 本身不限制分支，也不会等待交互式审阅；使用前按第 2 节创建功能分支，
-检查整个暂存区，避免已有无关内容一并提交。公开内容检查失败时，命令会取消
-本次指定路径的暂存。`update` 的分支拒绝发生在最后的 `push` 阶段，因此也
-必须先确认分支。这些工具不会执行 `git add .` 或强制推送。
+`save`, `push` and `update` reject `main`, detached HEAD and an existing staged change
+before running their work. This protects a previously prepared index; a failed
+save leaves the user's original staging intact. Inspect your diff before using
+these non-interactive helpers. They do not run `git add .` or force-push.
+Help and invalid command handling do not initialize the application runtime.
 
-## 7. 独立发布工具参考
+## Prepare a version pull request
 
-源代码更新与发布是分开的维护操作。只有明确决定发布时才使用 `tools release`；
-普通文档或源码 PR 不需要修改版本、打标签或创建 Release。
+A normal source or documentation pull request needs no version bump. When a
+version change is needed, use a clean feature branch. Preview the change first:
 
 ```bash
 ./Apps/run.sh tools release check
-./Apps/run.sh tools release run --bump patch --note "<release-note>"
+./Apps/run.sh tools release prepare --bump patch --note "<release-note>"
 ```
 
-`check` 要求当前为干净的 `main`，执行 `git fetch origin` 并核对远端同步与
-环境锁状态。`run` 默认为预览，`--bump` 接受 `patch`、`minor`、`major`。
-显式添加 `--execute` 才执行版本和发布修改：同步两份 `_version.py`，更新
-`Python/CHANGELOG.md` 的 `## Unreleased` 段，提交、创建标签、推送，并在
-`gh` 可用时创建 GitHub Release。正式执行前必须已获得发布授权，且相关测试
-已在功能分支通过后合并。保留此工具说明不代表任何产品已经发布。
+`check` and the default `prepare` are read-only and do not fetch remote refs.
+`check` uses the cached `origin/main`; `prepare` also inspects remote tags
+through a read-only lookup and requires a readable `origin` remote.
+`--bump` accepts `patch`, `minor` or `major`. After reviewing the preview:
+
+```bash
+./Apps/run.sh tools release prepare --bump patch --note "<release-note>" --execute
+```
+
+Execution updates only `Python/solar_toolkit/_version.py`,
+`Apps/solar_apps/_version.py` and `Python/CHANGELOG.md`. It does not commit,
+create a tag, push or create a GitHub Release. Review and validate those files,
+then use the normal save/push pull-request workflow. The old
+`tools release run --bump ... --note ...` spelling remains an alias for
+`prepare`, with the same limited behavior.
+
+## Publish an accepted version
+
+Publication is a distinct maintainer action after the version pull request is
+merged. Use a clean checkout of the full merged commit SHA; a detached release
+checkout is supported. Supply the version and that SHA explicitly:
+
+```bash
+./Apps/run.sh tools release publish --version <X.Y.Z> --commit <full-merged-commit-sha>
+```
+
+The default previews publication after checking that `main` contains the commit,
+that the committed versions and changelog match, that the commit belongs to an
+accepted pull request merged into `main`, that its required CI checks passed,
+and that strict environment-lock and existing-tag checks succeed. These checks
+use the selected commit; passing checks for another commit are insufficient.
+The publisher requires GitHub access through `gh` for remote verification.
+
+After reviewing that result, add `--execute` to create and push the version tag
+and create the GitHub Release. It does not edit source or make a release commit.
+A tag or Release already pointing at the same commit can be reused on retry;
+a conflicting target is rejected. This documentation does not itself publish
+any version.

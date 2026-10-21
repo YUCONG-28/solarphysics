@@ -148,9 +148,9 @@ def test_legacy_science_and_config_defaults_are_preserved(
 ):
     config = compatibility_module.SolarDataConfig()
     assert config.to_dict() == {
-        "data_dir": "D:/solar_data",
-        "output_dir": "D:/solar_data/output",
-        "roi_bounds": (-700, -100, -100, 400),
+        "data_dir": None,
+        "output_dir": None,
+        "roi_bounds": None,
         "dpi": 300,
         "fig_width": 10.0,
         "use_parallel": True,
@@ -193,5 +193,83 @@ def test_legacy_science_and_config_defaults_are_preserved(
         str(config_path)
     ).to_dict()
     expected = config.to_dict()
-    expected["roi_bounds"] = list(expected["roi_bounds"])
     assert reloaded == expected
+
+
+@pytest.mark.parametrize("suffix", ["yaml", "yml"])
+def test_default_configuration_yaml_round_trips_safely(
+    compatibility_module, tmp_path, suffix
+):
+    import yaml
+
+    config = compatibility_module.SolarDataConfig()
+    path = tmp_path / f"config.{suffix}"
+    config.save_to_file(str(path))
+    # Portable YAML must be readable by SafeLoader without Python-specific tags.
+    parsed = yaml.safe_load(path.read_text(encoding="utf-8"))
+    expected = config.to_dict()
+    assert parsed == expected
+    assert (
+        compatibility_module.SolarDataConfig.load_from_file(str(path)).to_dict()
+        == expected
+    )
+
+
+@pytest.mark.parametrize("suffix", ["json", "yaml", "yml"])
+def test_configuration_preserves_explicit_paths_and_portable_roi(
+    compatibility_module, tmp_path, suffix
+):
+    supplied = {
+        "data_dir": "synthetic/input",
+        "output_dir": "synthetic/output",
+        "roi_bounds": (-1, 1, -2, 2),
+    }
+    config = compatibility_module.SolarDataConfig(supplied)
+    assert all(config.to_dict()[key] == value for key, value in supplied.items())
+    path = tmp_path / f"explicit.{suffix}"
+    config.save_to_file(str(path))
+    restored = compatibility_module.SolarDataConfig.load_from_file(str(path)).to_dict()
+    expected = config.to_dict()
+    expected["roi_bounds"] = list(supplied["roi_bounds"])
+    assert restored == expected
+    assert supplied["roi_bounds"] == (-1, 1, -2, 2)
+
+
+def test_time_validation_compares_mixed_utc_representations(compatibility_module):
+    start = dt.datetime(2000, 1, 1)
+    end = dt.datetime(2000, 1, 1, 8, 0, 1, tzinfo=dt.timezone(dt.timedelta(hours=8)))
+    assert compatibility_module.validate_time_range(start, end)
+    with pytest.raises(ValueError, match="must precede"):
+        compatibility_module.validate_time_range(start, end - dt.timedelta(seconds=1))
+    with pytest.raises(ValueError, match="must precede"):
+        compatibility_module.validate_time_range(end, start)
+
+
+def test_time_validation_preserves_tai_scale_and_nanosecond_order(compatibility_module):
+    from astropy.time import Time
+
+    start = Time("2000-01-01T00:00:00.000000001", scale="utc")
+    end = Time("2000-01-01T00:00:00.000000002", scale="utc").tai
+    assert compatibility_module.validate_time_range(start, end)
+    with pytest.raises(ValueError, match="must precede"):
+        compatibility_module.validate_time_range(start, start.tai)
+
+
+@pytest.mark.parametrize(
+    ("start", "end"),
+    [
+        (float("nan"), 200),
+        (100, float("nan")),
+        (100, float("inf")),
+        (-float("inf"), 200),
+        (0, 200),
+        (-1, 200),
+        (True, 200),
+        (None, 200),
+    ],
+)
+def test_frequency_validation_rejects_non_finite_or_non_positive_values(
+    compatibility_module, start, end
+):
+    with pytest.raises(ValueError, match="finite positive"):
+        compatibility_module.validate_frequency_range(start, end)

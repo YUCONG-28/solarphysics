@@ -33,11 +33,17 @@ recreate and verify a sealed target-platform environment as described in the
 [environment lock manual](../environment/README.md), then install this checkout
 with `--no-deps --no-build-isolation`.
 
-All shell commands in this guide run from the unified repository root.
+All shell commands in this guide run from the unified repository root. Replace
+`<miniforge-root>` with your Miniforge installation directory. For a fresh
+setup, create the development environment before installing. If it already
+exists, inspect its Python version and skip `create`. The library supports
+Python 3.10 and later; the shared development environment uses Python 3.14.
+
 On macOS/Linux:
 
 ```bash
 MINIFORGE_CONDA="<miniforge-root>/bin/conda"
+"$MINIFORGE_CONDA" create -n solarphysics_env_latest -c conda-forge python=3.14 pip
 "$MINIFORGE_CONDA" run -n solarphysics_env_latest python -m pip install -e ./Python
 ```
 
@@ -45,6 +51,7 @@ On Windows:
 
 ```powershell
 $Conda = "<miniforge-root>\Scripts\conda.exe"
+& $Conda create -n solarphysics_env_latest -c conda-forge python=3.14 pip
 & $Conda run -n solarphysics_env_latest python -m pip install -e .\Python
 ```
 
@@ -99,6 +106,7 @@ index = nearest_time_index(
     target,
     [target - timedelta(seconds=1), target + timedelta(seconds=2)],
 )
+print(index)  # 0
 ```
 
 | Example | Inputs and role |
@@ -114,13 +122,14 @@ module does not download data, start an interface or execute an analysis.
 
 ## Scientific image filenames
 
-Automatically named scientific images use this deterministic contract:
+The `solar_toolkit.visualization.image_naming` API and workflows that
+explicitly adopt it use this deterministic contract:
 
 ```text
 NNNN_START[-END]_[generated_]INSTRUMENT_[CHANNEL]_[POLARIZATION]_PRODUCT_[QUALIFIER].ext
 ```
 
-`NNNN` is a four-digit sequence assigned in observation-time and declared
+`NNNN` is a sequence from `0001` through `9999`, assigned in observation-time and declared
 product order before parallel work starts. Times are UTC
 `YYYYMMDDTHHMMSSZ`, truncated to whole seconds; interval figures use their
 earliest and latest valid observation times, and difference figures use the
@@ -133,10 +142,14 @@ polarization/Stokes, product, then processing-qualifier order. Examples include
 `171a`, `223p5mhz`, `lcp`, `rcp`, `lcp_plus_rcp`, and `stokes_v_over_i`.
 `solar_toolkit.visualization.image_naming` exposes `ImageFilenameSpec`,
 `format_utc_filename_time()`, and `build_image_filename()` for the same
-contract. Existing callers that pass a complete output filename keep that name;
-directory-only automatic workflows generate a contract name. Legacy filename
-constants and `format_time_for_filename()` remain importable for compatibility,
-but automatic workflows do not use the legacy constants.
+contract. Callers that pass a complete output filename keep that name.
+A directory alone does not imply this naming policy for every retained API.
+Legacy filename constants and `format_time_for_filename()` remain importable.
+The retained AIA/radio composite exporter uses a caller-supplied stem (default
+`aia_radio_composite`) with collision suffixes such as `_002`; see its
+[output format](../docs/aia_radio_composite.md#输出格式). Videos, sidecars and
+other retained exporters follow their own documented format. New adopters
+should state their naming policy explicitly.
 
 Examples:
 
@@ -148,7 +161,7 @@ Examples:
 
 ## Verify
 
-Follow the repository [contributor setup](../CONTRIBUTING.en.md) to install the
+Follow the repository [contributor setup](../CONTRIBUTING.md) to install the
 development tools. Library-specific checks are described in
 [Python contribution guidance](CONTRIBUTING.md). From the repository root:
 
@@ -177,6 +190,7 @@ checks, and `examples/` holds the small compositions above. See the repository
 
 ## License and citation
 
-This Python partition is covered by [`LICENSE`](LICENSE). The repository root
-does not impose that license on other source partitions. Citation
-metadata is in [`CITATION.cff`](CITATION.cff).
+This Python partition is covered by [`LICENSE`](LICENSE). Other components
+retain the licenses described in the repository [license scope](../LICENSING.md).
+Library citation metadata is in [`CITATION.cff`](CITATION.cff); the repository
+also provides a [root citation entry](../CITATION.cff).

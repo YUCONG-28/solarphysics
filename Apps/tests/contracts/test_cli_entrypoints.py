@@ -142,10 +142,15 @@ def test_image_composer_compatibility_cli_redirects_to_app_v1(
 )
 def test_legacy_aliases_resolve_to_canonical_targets(
     monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
     legacy: list[str],
     target: str,
     forwarded: list[str],
 ) -> None:
+    config = tmp_path / "runtime/configs/paths.local.yaml"
+    config.parent.mkdir(parents=True)
+    config.write_text("apps:\n  allowed_roots: []\n", encoding="utf-8")
+    monkeypatch.setenv("SOLAR_APPS_LOCAL_ROOT", str(config.parents[1]))
     calls: list[tuple[str, list[str]]] = []
     monkeypatch.setattr(
         router,

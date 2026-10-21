@@ -3,8 +3,13 @@
 from __future__ import annotations
 
 import argparse
+import json
+import os
 import sys
 from collections.abc import Sequence
+from pathlib import Path
+
+import yaml
 
 from solar_apps.platform.environment import (
     UnsupportedPythonEnvironment,
@@ -13,6 +18,8 @@ from solar_apps.platform.environment import (
     launcher_program,
 )
 from solar_apps.platform.dispatch import forward_main
+from solar_apps.platform.layout import RuntimeLayout
+from solar_apps.platform.paths.allowed_roots import AllowedRootPolicyError
 from solar_apps.frontends.catalog import FRONTENDS
 
 FRONTEND_TARGETS = {item.id: item.entry_module for item in FRONTENDS}
@@ -123,6 +130,40 @@ def _translate_legacy(arguments: list[str]) -> list[str]:
     return arguments
 
 
+def _forward_target(
+    module: str, arguments: list[str], *, program: str, frontend: bool = False
+) -> int:
+    """Validate known runtime boundaries without initializing or hiding code errors."""
+    if not any(value in {"-h", "--help"} for value in arguments):
+        try:
+            layout = RuntimeLayout.discover()
+        except (OSError, RuntimeError, ValueError) as exc:
+            return _error(f"invalid private runtime configuration: {exc}")
+        config_override = os.environ.get("SOLAR_APPS_CONFIG") or os.environ.get(
+            "SOLAR_PHYSICS_CONFIG"
+        )
+        config_path = (
+            Path(config_override).expanduser()
+            if config_override
+            else layout.config_path
+        )
+        explicit_roots = "SOLAR_APPS_ALLOWED_ROOTS" in os.environ or any(
+            value == "--allowed-roots" or value.startswith("--allowed-roots=")
+            for value in arguments
+        )
+        if frontend and not explicit_roots and not config_path.is_file():
+            return _error(
+                "private runtime is not initialized; run "
+                + launcher_command("admin init")
+            )
+    try:
+        return forward_main(module, arguments, program=program)
+    except AllowedRootPolicyError as exc:
+        return _error(f"invalid allowed-root configuration: {exc}")
+    except (json.JSONDecodeError, yaml.YAMLError) as exc:
+        return _error(f"invalid application configuration: {exc}")
+
+
 def _dispatch_frontend(arguments: list[str]) -> int:
     if not arguments or arguments[0] in {"-h", "--help"}:
         _print_group_help("frontend")
@@ -131,10 +172,11 @@ def _dispatch_frontend(arguments: list[str]) -> int:
     target = FRONTEND_TARGETS.get(frontend)
     if target is None:
         return _error(f"unknown frontend {frontend!r}")
-    return forward_main(
+    return _forward_target(
         target,
         arguments,
         program=launcher_command(f"frontend {frontend}"),
+        frontend=True,
     )
 
 
@@ -144,7 +186,7 @@ def _dispatch_workflow(arguments: list[str]) -> int:
         return 0
     domain = arguments.pop(0)
     if domain in WORKFLOW_TARGETS:
-        return forward_main(
+        return _forward_target(
             WORKFLOW_TARGETS[domain],
             arguments,
             program=launcher_command(f"workflow {domain}"),
@@ -162,7 +204,7 @@ def _dispatch_workflow(arguments: list[str]) -> int:
     target = commands.get(command)
     if target is None:
         return _error(f"unknown {domain} workflow {command!r}")
-    return forward_main(
+    return _forward_target(
         target,
         arguments,
         program=launcher_command(f"workflow {domain} {command}"),
@@ -177,7 +219,7 @@ def _dispatch_tools(arguments: list[str]) -> int:
     target = TOOL_TARGETS.get(tool)
     if target is None:
         return _error(f"unknown tool {tool!r}")
-    return forward_main(
+    return _forward_target(
         target,
         arguments,
         program=launcher_command(f"tools {tool}"),
@@ -198,15 +240,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         return 0
     group = arguments.pop(0)
-    if group in {"frontend", "workflow"} or (
-        group == "tools" and (not arguments or arguments[0] != "health")
-    ):
-        try:
-            from .admin import initialize_runtime
-
-            initialize_runtime()
-        except OSError as exc:
-            return _error(f"could not initialize the private Local runtime: {exc}")
     if group == "frontend":
         return _dispatch_frontend(arguments)
     if group == "workflow":
@@ -214,12 +247,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     if group == "tools":
         return _dispatch_tools(arguments)
     if group == "admin":
-        from .admin import main as admin_main
-
         if not arguments or arguments[0] in {"-h", "--help"}:
             _print_group_help("admin")
             return 0
-        return admin_main(arguments)
+        return _forward_target(
+            "solar_apps.cli.admin", arguments, program=launcher_command("admin")
+        )
     return _error(f"unknown command group or legacy alias {group!r}")
 
 
