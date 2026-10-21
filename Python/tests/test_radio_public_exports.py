@@ -7,6 +7,23 @@ import importlib
 import pytest
 
 PUBLIC_EXPORTS = {
+    "cso_comparison": {
+        "CsoComparison",
+        "read_cso_comparison",
+        "normalize_spectrum_db",
+    },
+    "raw_comparison": {
+        "PreparedImage",
+        "observation_seconds",
+        "prepare_muser",
+        "prepare_aia",
+        "prepare_dart",
+    },
+    "muser_localization": {
+        "fit_radio_plane",
+        "evaluate_radio_model",
+        "nearest_time_matches",
+    },
     "time_matching": {
         "compatible_radio_payloads",
         "frame_for_item",

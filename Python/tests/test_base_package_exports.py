@@ -102,6 +102,7 @@ import pytest
                 "calculate_derivative": "solar_toolkit.xray_dem.processing",
                 "load_sxr_data": "solar_toolkit.xray_dem.sxr",
                 "smooth_flux_data": "solar_toolkit.xray_dem.processing",
+                "brightness_temperature": "solar_toolkit.xray_dem.brightness_temperature",
                 "hxi": "solar_toolkit.xray_dem.hxi",
                 "processing": "solar_toolkit.xray_dem.processing",
                 "sxr": "solar_toolkit.xray_dem.sxr",
