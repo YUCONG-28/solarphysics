@@ -6,6 +6,7 @@ import subprocess
 import sys
 import importlib.util
 import json
+import builtins
 from pathlib import Path
 
 import pytest
@@ -23,6 +24,36 @@ def lock_module():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def test_lock_tool_loads_without_python_311_imports(monkeypatch, lock_module) -> None:
+    """Exercise the 3.10 import path while using the designated test runtime."""
+    module_name = "public_environment_lock_legacy"
+    original_import = builtins.__import__
+    requested_backports = []
+
+    def legacy_import(name, globals=None, locals=None, fromlist=(), level=0):
+        if globals and globals.get("__name__") == module_name:
+            if name == "datetime" and "UTC" in fromlist:
+                raise ImportError("Python 3.10 has no datetime.UTC")
+            if name == "tomllib":
+                raise ModuleNotFoundError("Python 3.10 has no tomllib")
+            if name == "tomli":
+                requested_backports.append(name)
+                return lock_module.tomllib
+        return original_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.setattr(builtins, "__import__", legacy_import)
+    spec = importlib.util.spec_from_file_location(module_name, LOCK_TOOL)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    assert requested_backports == ["tomli"]
+    assert module.tomllib.loads('[project]\nname = "synthetic"\n') == {
+        "project": {"name": "synthetic"}
+    }
+    assert module.datetime.now(module.timezone.utc).utcoffset().total_seconds() == 0
 
 
 def test_exact_environment_gate_matches_committed_lock_state() -> None:
@@ -89,6 +120,17 @@ def test_lock_profiles_include_local_build_backends(lock_module) -> None:
 
     assert "setuptools>=77" in requirements
     assert "wheel" in requirements or "wheel>=0.45" in requirements
+
+
+def test_lock_profiles_declare_python_310_toml_backport(lock_module) -> None:
+    requirement = next(
+        requirement
+        for requirement in lock_module._source_requirements()
+        if requirement.name == "tomli"
+    )
+    assert requirement.specifier.contains("2.0.0")
+    assert requirement.marker.evaluate({"python_version": "3.10"})
+    assert not requirement.marker.evaluate({"python_version": "3.11"})
 
 
 def test_fresh_capture_invalidates_an_older_pip_seal(lock_module, tmp_path) -> None:
