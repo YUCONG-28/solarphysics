@@ -7,21 +7,21 @@ authors = [
 ]
 readme = "README.md"
 license = "MIT"
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 dependencies = [
-    "numpy>=1.24.0",
-    "scipy>=1.10.0",
-    "astropy>=5.3.0",
-    "sunpy[map,net]>=5.0.0",
+    "numpy>=2.0.0",
+    "scipy>=1.14.0",
+    "astropy>=8.0.1",
+    "sunpy[map,net]>=8.0.0",
     "mpl-animators>=1.2.0",
-    "matplotlib>=3.7.0",
-    "reproject>=0.10.0",
+    "matplotlib>=3.10.0",
+    "reproject>=0.14.0",
     # pims 0.7 is source-only; the artifact lock requires a replayable wheel.
     "pims==0.6.0",
-    "scikit-image>=0.21.0",
-    "pyyaml>=6.0.0",
-    "pandas>=2.0.0",
-    "tqdm>=4.65.0",
+    "scikit-image>=0.24.0",
+    "pyyaml>=6.0.1",
+    "pandas>=2.2.2",
+    "tqdm>=4.67.0",
 ]
 
 [project.optional-dependencies]
@@ -34,7 +34,6 @@ quality-ml = [
 ]
 dev = [
     "build>=1.2.0",
-    "tomli>=2; python_version<'3.11'",
     "setuptools>=77",
     "wheel>=0.45",
     "pytest>=7.0.0",
@@ -79,11 +78,11 @@ exclude = ["tests*", "examples*", "docs*"]
 
 [tool.black]
 line-length = 88
-target-version = ['py310', 'py311', 'py312']
+target-version = ['py312']
 
 [tool.ruff]
 line-length = 88
-target-version = "py310"
+target-version = "py312"
 
 [tool.ruff.lint]
 select = [
@@ -96,6 +95,11 @@ select = [
 ]
 ignore = [
     "E501",
+    # These supported spellings keep the version-floor change independent of
+    # unrelated UTC-alias and typing-syntax rewrites.
+    "UP017",
+    "UP040",
+    "UP047",
 ]
 
 [tool.isort]
@@ -109,7 +113,7 @@ python_files = ["test_*.py"]
 addopts = "-q -p no:cacheprovider"
 
 [tool.mypy]
-python_version = "3.10"
+python_version = "3.12"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true

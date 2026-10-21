@@ -19,6 +19,8 @@ from typing import Any
 import numpy as np
 from astropy.io import fits
 
+from solar_toolkit._utils.numeric import numeric_data
+
 __all__ = [
     "RawFileQualityRow",
     "RawQualityAnalysisResult",
@@ -182,10 +184,10 @@ def compute_raw_quality_metrics(
     data: np.ndarray,
     thresholds: RawQualityThresholds | None = None,
 ) -> RawQualityMetrics:
-    """Compute log-tail and bright-pixel morphology metrics for one image."""
+    """Compute image metrics, excluding masked and non-finite samples alike."""
 
     cfg = thresholds or RawQualityThresholds()
-    arr = np.squeeze(np.asarray(data, dtype=np.float64))
+    arr = np.squeeze(numeric_data(data))
     if arr.ndim != 2:
         raise ValueError(f"expected 2D FITS image, got {arr.ndim}D")
 

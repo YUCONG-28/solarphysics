@@ -111,6 +111,8 @@ def test_aia_header_index_preserves_exact_hdu_and_tai_scale(tmp_path):
             "T_OBS": "2020-01-01T04:48:37.000000001",
             "TIMESYS": "TAI",
             "WAVELNTH": 171,
+            "CTYPE1": "HPLN-TAN",
+            "CTYPE2": "HPLT-TAN",
             "CUNIT1": "arcsec",
             "CUNIT2": "arcsec",
             "CRPIX1": 1.0,

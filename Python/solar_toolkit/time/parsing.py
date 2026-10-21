@@ -22,30 +22,11 @@ def parse_time(value: str | dt.datetime | dt.date) -> dt.datetime:
     label. Use ``normalize_time`` when nanoseconds or leap seconds must survive.
     """
 
-    if isinstance(value, dt.datetime):
-        parsed = value
-    elif isinstance(value, dt.date):
-        parsed = dt.datetime.combine(value, dt.time())
-    else:
-        text = str(value).strip()
-        if re.search(r"(?:_TAI|\s+TAI)$", text, re.IGNORECASE):
-            from .precision import normalize_time
-
-            text = normalize_time(text).utc
-        elif re.search(r"(?:_UTC|\s+UTC)$", text, re.IGNORECASE):
-            text = re.sub(r"(?:_UTC|\s+UTC)$", "", text, flags=re.IGNORECASE)
-        if text.endswith("Z"):
-            text = f"{text[:-1]}+00:00"
-        try:
-            parsed = dt.datetime.fromisoformat(text)
-        except ValueError:
-            from .precision import normalize_time
-
-            parsed = normalize_time(text).to_datetime()
-
-    if parsed.tzinfo is not None:
-        parsed = parsed.astimezone(dt.timezone.utc).replace(tzinfo=None)
-    return parsed
+    if isinstance(value, dt.date) and not isinstance(value, dt.datetime):
+        return dt.datetime.combine(value, dt.time())
+    if isinstance(value, str) and re.fullmatch(r"\d{4}-?\d{2}-?\d{2}", value.strip()):
+        return dt.datetime.combine(dt.date.fromisoformat(value.strip()), dt.time())
+    return normalize_time(value).to_datetime()
 
 
 def parse_isot_time(time_str: str) -> dt.datetime:
@@ -64,10 +45,11 @@ def extract_timestamp_from_filename(filename: str) -> TimeStamp:
     """
 
     text = str(filename)
+    timestamp_text = text.replace("\\", "/").rsplit("/", 1)[-1]
     separated = re.search(
         r"(?<!\d)(\d{8}[T_-]\d{6}|\d{4}-\d{2}-\d{2}T\d{6})_(\d+)"
         r"(?:_(TAI|UTC))?(?!\d)",
-        text,
+        timestamp_text,
         re.IGNORECASE,
     )
     if separated:
@@ -114,7 +96,7 @@ def extract_timestamp_from_filename(filename: str) -> TimeStamp:
         r"(?<!\d)\d{14}(?:\.\d{1,9}|\d{1,9})?(?:_TAI|_UTC|Z)?(?!\d|\.\d)",
     ]
     for pattern in patterns:
-        match = re.search(pattern, text, re.IGNORECASE)
+        match = re.search(pattern, timestamp_text, re.IGNORECASE)
         if not match:
             continue
         try:

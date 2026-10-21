@@ -30,7 +30,7 @@ behavior. Users choose calibration and physical-model assumptions for their data
 
 ## Start with the library
 
-The scientific library supports Python 3.10 and later. Repository development
+The scientific library supports Python 3.12 and later. Repository development
 uses Python 3.14 in Miniforge’s `solarphysics_env_latest` environment. For a
 fresh clone, replace `<miniforge-root>` with your Miniforge installation
 directory and run from the repository root.

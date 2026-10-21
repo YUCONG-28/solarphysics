@@ -72,3 +72,72 @@ def test_radio_match_distinguishes_subsecond_frames(tmp_path, monkeypatch):
 
     assert best_path == paths[1]
     assert difference == pytest.approx(0.1)
+
+
+def test_radio_overlay_uses_world_grid_and_keeps_missing_pixels(tmp_path, monkeypatch):
+    from astropy.wcs import WCS
+    from solar_toolkit.map.coordinates import hpc_pixel_grid
+
+    header = fits.Header(
+        {
+            "CTYPE1": "HPLN-TAN",
+            "CTYPE2": "HPLT-TAN",
+            "CUNIT1": "deg",
+            "CUNIT2": "deg",
+            "CRPIX1": 2,
+            "CRPIX2": 2,
+            "CRVAL1": 0,
+            "CRVAL2": 0,
+            "CD1_1": 0.001,
+            "CD1_2": -0.002,
+            "CD2_1": 0.002,
+            "CD2_2": 0.001,
+        }
+    )
+    data = np.arange(9, dtype=float).reshape(3, 3)
+    data[1, 1] = np.nan
+    path = tmp_path / "radio.fits"
+    fits.PrimaryHDU(data, header).writeto(path)
+    before = path.read_bytes()
+    values, returned_header = overlay.load_radio(str(path), return_wcs=True)
+    coordinates = hpc_pixel_grid(returned_header, values.shape)
+    y, x = np.indices(values.shape)
+    longitude, latitude = WCS(returned_header).pixel_to_world_values(x, y)
+    expected_x = ((longitude + 180) % 360 - 180) * 3600
+    np.testing.assert_allclose(coordinates[0], expected_x, atol=1e-7)
+    np.testing.assert_allclose(coordinates[1], latitude * 3600, atol=1e-7)
+
+    class Axes:
+        def contour(self, *args, **kwargs):
+            self.args, self.kwargs = args, kwargs
+
+    ax = Axes()
+    monkeypatch.setitem(overlay.CONFIG, "radio_smooth_sigma", 0)
+    overlay._draw_radio_gradient(ax, values, [], radio_coordinates=coordinates)
+    np.testing.assert_array_equal(ax.args[0], coordinates[0])
+    np.testing.assert_array_equal(ax.args[1], coordinates[1])
+    np.testing.assert_array_equal(ax.args[2], data)
+    assert "extent" not in ax.kwargs
+    assert path.read_bytes() == before
+    # The legacy rectangular display must reject rotated coordinates.
+    with pytest.raises(ValueError):
+        overlay.load_radio(str(path))
+
+
+def test_radio_gradient_excludes_masked_extreme_and_constant_image(monkeypatch):
+    class Axes:
+        def contour(self, *args, **kwargs):
+            self.values = args[-1]
+
+    ax = Axes()
+    data = np.ma.array([[1, 2, 3], [4, 1e20, 6], [7, 8, 9]], mask=False)
+    data.mask[1, 1] = True
+    original = data.copy()
+    monkeypatch.setitem(overlay.CONFIG, "radio_smooth_sigma", 1)
+    overlay._draw_radio_gradient(ax, data, [0, 3, 0, 3])
+    assert np.isnan(ax.values[1, 1])
+    assert np.nanmax(ax.values) < 9
+    np.testing.assert_array_equal(data.data, original.data)
+    np.testing.assert_array_equal(data.mask, original.mask)
+    assert overlay._draw_radio_gradient(ax, np.ones((3, 3)), [0, 3, 0, 3]) == []
+    assert overlay._draw_radio_gradient(ax, np.full((3, 3), np.nan), [0, 3, 0, 3]) == []

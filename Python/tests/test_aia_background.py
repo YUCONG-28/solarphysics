@@ -15,6 +15,8 @@ from solar_toolkit.aia.background import (
 def _write_aia(path, obs_time: str, wavelength: int = 171) -> None:
     image = np.arange(16, dtype=float).reshape(4, 4)
     header = fits.Header()
+    header["CTYPE1"] = "HPLN-TAN"
+    header["CTYPE2"] = "HPLT-TAN"
     header["DATE-OBS"] = obs_time
     header["WAVELNTH"] = wavelength
     header["CRPIX1"] = 1.0
@@ -68,8 +70,10 @@ def test_reads_lightweight_aia_background_grid(tmp_path):
     )
 
     assert background.z.shape == (2, 2)
-    assert background.x_arcsec.tolist() == pytest.approx([0.0, 4.0])
-    assert background.y_arcsec.tolist() == pytest.approx([0.0, 4.0])
+    # Two display cells cover the original four-pixel footprint, with true
+    # regular angular center axes after full-WCS display resampling.
+    assert background.x_arcsec.tolist() == pytest.approx([1.0, 5.0], abs=1e-8)
+    assert background.y_arcsec.tolist() == pytest.approx([1.0, 5.0], abs=1e-8)
     assert background.obs_time == pd.Timestamp("2000-01-01T04:48:37")
     assert "171" in background.label
 

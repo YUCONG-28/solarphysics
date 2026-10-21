@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from .io import parse_datetime_value, truthy
+from .io import parse_timestamp_value, truthy
 from .newkirk import (
     effective_density_factor,
     newkirk_assumption_label,
@@ -85,7 +85,7 @@ def classify_source_type(row, config):
         if value is not None and str(value).strip():
             return str(value).strip()
 
-    time_value = parse_datetime_value(row.get("time"))
+    time_value = parse_timestamp_value(row.get("time"))
     freq = _row_frequency(row)
     if _matches_window_and_frequency(
         time_value,
@@ -439,16 +439,19 @@ def _time_in_window(value, window) -> bool:
     if value is None or not window:
         return False
     if isinstance(window, dict):
-        start = parse_datetime_value(window.get("start"))
-        end = parse_datetime_value(window.get("end"))
+        start = parse_timestamp_value(window.get("start"))
+        end = parse_timestamp_value(window.get("end"))
     else:
-        start = parse_datetime_value(window[0]) if len(window) >= 1 else None
-        end = parse_datetime_value(window[1]) if len(window) >= 2 else None
+        start = parse_timestamp_value(window[0]) if len(window) >= 1 else None
+        end = parse_timestamp_value(window[1]) if len(window) >= 2 else None
     if start is None or end is None:
         return False
-    if end < start:
+    value = parse_timestamp_value(value)
+    if value is None:
+        return False
+    if end.tai_ns < start.tai_ns:
         start, end = end, start
-    return start <= value <= end
+    return start.tai_ns <= value.tai_ns <= end.tai_ns
 
 
 def _frequency_in_range(freq, freq_range) -> bool:
@@ -474,7 +477,8 @@ def _gaussian_fit_success(row) -> bool:
     flag = str(row.get("quality_flag", "")).strip().lower()
     overlay = row.get("overlay_valid", True)
     trajectory = row.get("trajectory_valid", True)
-    return bool(flag in {"ok", ""} and truthy(overlay) and truthy(trajectory))
+    quality = flag == "ok" if "quality_flag" in row else True
+    return bool(quality and truthy(overlay) and truthy(trajectory))
 
 
 def _match_drift_selection(row, frequency_mhz: float, config: dict) -> dict:
@@ -483,7 +487,7 @@ def _match_drift_selection(row, frequency_mhz: float, config: dict) -> dict:
         selections = selections.to_dict("records")
     if not selections:
         return {"drift_label": "", "source_type": ""}
-    row_time = parse_datetime_value(row.get("time"))
+    row_time = parse_timestamp_value(row.get("time"))
     if row_time is None or not np.isfinite(frequency_mhz):
         return {"drift_label": "", "source_type": ""}
     time_tol = float(config.get("drift_time_tolerance_s", 1.0) or 0.0)
@@ -520,28 +524,9 @@ def _match_drift_selection(row, frequency_mhz: float, config: dict) -> dict:
 
 
 def _frequency_on_drift_selection(row_time, selection: dict, time_tolerance_s: float):
-    t_start = parse_datetime_value(selection.get("t_start"))
-    t_end = parse_datetime_value(selection.get("t_end"))
-    f_start = _float_or_nan(selection.get("f_start_mhz"))
-    f_end = _float_or_nan(selection.get("f_end_mhz"))
-    if (
-        t_start is None
-        or t_end is None
-        or not np.isfinite(f_start)
-        or not np.isfinite(f_end)
-    ):
-        return None
-    if t_end < t_start:
-        t_start, t_end = t_end, t_start
-        f_start, f_end = f_end, f_start
-    total = (t_end - t_start).total_seconds()
-    offset = (row_time - t_start).total_seconds()
-    if offset < -time_tolerance_s or offset > total + time_tolerance_s:
-        return None
-    if abs(total) <= 1e-12:
-        return 0.5 * (f_start + f_end)
-    fraction = min(1.0, max(0.0, offset / total))
-    return f_start + fraction * (f_end - f_start)
+    from .drift_rate import _frequency_on_drift_line
+
+    return _frequency_on_drift_line(row_time, selection, time_tolerance_s)
 
 
 def _source_type_from_selection(selection: dict) -> str:

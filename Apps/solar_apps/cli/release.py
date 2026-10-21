@@ -176,9 +176,11 @@ def _git(repo_root: Path, *args: str, dry_run: bool = False) -> str | None:
 REQUIRED_CHECKS = frozenset(
     {
         "Gitleaks (complete history)",
-        "Python public package (3.10)",
-        "Python public package (3.11)",
+        "Python public package (3.12 minimum)",
+        "Python public package (3.12)",
+        "Python public package (3.13)",
         "Python public package (3.14)",
+        "Sealed Linux environment (3.14)",
         "Apps (Windows Miniforge)",
         "Apps (macOS arm64 Miniforge)",
     }

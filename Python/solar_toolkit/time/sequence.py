@@ -8,7 +8,6 @@ from bisect import bisect_left
 from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
-from decimal import Decimal
 from types import MappingProxyType
 from typing import Any
 
@@ -261,10 +260,7 @@ def filter_time_frames(frames, *, time_start=None, time_end=None):
 
 
 def _tolerance_ns(seconds):
-    result = seconds_to_ns(seconds)
-    if Decimal(str(seconds)) < 0:
-        raise ValueError("tolerance_seconds must be nonnegative")
-    return result
+    return seconds_to_ns(seconds, nonnegative=True)
 
 
 def _full_coverage_indices(master, other):
@@ -353,9 +349,11 @@ def build_sequence_match_plan(
             }
         )
         effective[key] = [
-            (frame.match_time or frame.time).shift(stream.offset_seconds)
-            if offsets[key]
-            else (frame.match_time or frame.time)
+            (
+                (frame.match_time or frame.time).shift(stream.offset_seconds)
+                if offsets[key]
+                else (frame.match_time or frame.time)
+            )
             for _, frame in ordered[key]
         ]
     source_order = tuple(
@@ -483,9 +481,9 @@ def build_sequence_match_plan(
             "outside_window_frame_count": input_counts[key] - len(ordered[key]),
             "frame_count": len(ordered[key]),
             "used_frame_count": len(counts[key]),
-            "coverage_fraction": len(counts[key]) / len(ordered[key])
-            if ordered[key]
-            else None,
+            "coverage_fraction": (
+                len(counts[key]) / len(ordered[key]) if ordered[key] else None
+            ),
             "missing_count": sum(item.frame is None for item in selections),
             "outside_tolerance_count": sum(
                 item.within_tolerance is False for item in selections

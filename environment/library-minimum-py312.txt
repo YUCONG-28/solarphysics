@@ -1,0 +1,14 @@
+# Minimum direct runtime dependencies of the scientific library on Python 3.12.
+# This is a CI compatibility constraint, not a sealed artifact/environment lock.
+numpy==2.0.0
+scipy==1.14.0
+astropy==8.0.1
+sunpy==8.0.0
+mpl-animators==1.2.0
+matplotlib==3.10.0
+reproject==0.14.0
+pims==0.6.0
+scikit-image==0.24.0
+pyyaml==6.0.1
+pandas==2.2.2
+tqdm==4.67.0

@@ -38,6 +38,56 @@ def _top_png() -> bytes:
     return output.getvalue()
 
 
+def test_expanded_gaussian_evaluates_native_model_through_inverse_wcs():
+    from astropy.wcs import WCS
+    from solar_toolkit.modeling.gaussian import elliptical_gaussian_2d
+
+    from solar_apps.frontends.radio.aia_radio_composite.rendering.composite_renderer import (
+        _expanded_gaussian_model,
+    )
+
+    header = {
+        "CTYPE1": "HPLN-TAN",
+        "CTYPE2": "HPLT-TAN",
+        "CUNIT1": "deg",
+        "CUNIT2": "deg",
+        "CRPIX1": 8,
+        "CRPIX2": 8,
+        "CRVAL1": 0.01,
+        "CRVAL2": -0.01,
+        "CD1_1": 0.001,
+        "CD1_2": -0.002,
+        "CD2_1": 0.002,
+        "CD2_2": 0.001,
+    }
+    result = SimpleNamespace(
+        amplitude=12,
+        center_pixel=(8.2, 6.8),
+        sigma_pixel=(2.1, 1.4),
+        theta_rad=0.3,
+        coordinate_header=header,
+    )
+    x, y, model = _expanded_gaussian_model(
+        result,
+        (-100, 100, -100, 100),
+        (16, 16),
+        "lower",
+        (-80, 150, -150, 80),
+        samples_per_axis=80,
+    )
+    xp, yp = WCS(header).world_to_pixel_values(x / 3600, y / 3600)
+    expected = elliptical_gaussian_2d(
+        (xp, yp),
+        12,
+        8.2,
+        6.8,
+        2.1,
+        1.4,
+        0.3,
+    )
+    np.testing.assert_allclose(model, expected, rtol=1e-12, atol=1e-12)
+
+
 def _result() -> tuple[CompositeResult, datetime]:
     start = datetime(2000, 1, 1, 4, 48, 30, tzinfo=UTC)
     curve = pd.DataFrame(

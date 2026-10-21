@@ -11,7 +11,6 @@ from __future__ import annotations
 import datetime as dt
 import re
 from collections.abc import Callable, Iterable, Sequence
-from decimal import Decimal
 from typing import TypeVar
 
 from .parsing import parse_time
@@ -31,9 +30,7 @@ def nearest_by_time(
 
     limit = None
     if max_diff_seconds is not None:
-        limit = seconds_to_ns(max_diff_seconds)
-        if Decimal(str(max_diff_seconds)) < 0:
-            raise ValueError("max_diff_seconds must be finite and nonnegative")
+        limit = seconds_to_ns(max_diff_seconds, nonnegative=True)
     if not items:
         return None
     target = _timestamp_ns(target_time)

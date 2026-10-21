@@ -32,6 +32,7 @@ _SUBMODULES = {
     "frequency_priority_diagnostics": "solar_toolkit.radio.frequency_priority_diagnostics",
     "gaussian": "solar_toolkit.radio.gaussian",
     "gaussian_background": "solar_toolkit.radio.gaussian_background",
+    "gaussian_coordinates": "solar_toolkit.radio.gaussian_coordinates",
     "gaussian_diagnostics": "solar_toolkit.radio.gaussian_diagnostics",
     "gaussian_fit": "solar_toolkit.radio.gaussian_fit",
     "gaussian_io": "solar_toolkit.radio.gaussian_io",

@@ -37,112 +37,42 @@ def _workflow():
 
 
 def _parse_flexible_datetime(date_str: str) -> datetime | None:
-    """灵活解析各种时间字符串格式，返回 datetime 或 None"""
-    date_str = date_str.strip()
+    """Parse shared calendar formats and the explicit legacy short-date format.
 
-    # ── 17 位纯数字格式（YYYYMMDDHHMMSSmmm）─────────────────
-    if len(date_str) == 17 and date_str.isdigit():
+    Six-digit dates mean YYYYMD. Seven-digit dates retain the historical
+    YYYYMDD-first interpretation, falling back to YYYYDDD only when that
+    calendar date is invalid. No fractional digits or trailing text are cut.
+    """
+    import pandas as pd
+
+    from solar_toolkit.radio._time import table_timestamp
+
+    result = table_timestamp(date_str)
+    if not pd.isna(result):
+        return result
+    match = re.fullmatch(r"(\d{6,7})_(\d{6})(?:_(\d{1,9}))?", str(date_str).strip())
+    if match is None:
+        return None
+    date_part, clock, fraction = match.groups()
+    year = int(date_part[:4])
+    try:
+        date = datetime(year, int(date_part[4:5]), int(date_part[5:]))
+    except ValueError:
+        if len(date_part) != 7:
+            return None
         try:
-            return datetime(
-                int(date_str[0:4]),
-                int(date_str[4:6]),
-                int(date_str[6:8]),
-                int(date_str[8:10]),
-                int(date_str[10:12]),
-                int(date_str[12:14]),
-                int(date_str[14:17]) * 1000,
-            )
-        except Exception:
-            pass
-
-    # ── 下划线分隔格式（YYYYJJJ_HHMMSS_SSS 或 YYYYmDD_HHMMSS）──
-    if "_" in date_str:
-        parts = date_str.split("_")
-        if len(parts) >= 2:
-            date_part, time_part = parts[0], parts[1]
-            if len(date_part) in {6, 7}:
-                year = int(date_part[:4])
-                parsed_date = None
-                if len(date_part) == 6:
-                    try:
-                        parsed_date = datetime(
-                            year, int(date_part[4:5]), int(date_part[5:6])
-                        )
-                    except ValueError:
-                        pass
-                try:
-                    if parsed_date is None and len(date_part) == 7:
-                        parsed_date = datetime(
-                            year, int(date_part[4:5]), int(date_part[5:7])
-                        )
-                except ValueError:
-                    pass
-                if parsed_date is None:
-                    try:
-                        parsed_date = datetime(year, 1, 1) + timedelta(
-                            days=int(date_part[4:]) - 1
-                        )
-                    except Exception:
-                        pass
-                if parsed_date is not None and len(time_part) == 6:
-                    microsecond = 0
-                    if len(parts) > 2 and parts[2]:
-                        microsecond = (
-                            _workflow()._parse_millisecond_suffix(parts[2]) * 1000
-                        )
-                    return datetime(
-                        parsed_date.year,
-                        parsed_date.month,
-                        parsed_date.day,
-                        int(time_part[0:2]),
-                        int(time_part[2:4]),
-                        int(time_part[4:6]),
-                        microsecond,
-                    )
-
-    # ── 规范化小数部分 ────────────────────────────────────────
-    if "." in date_str:
-        integer_part, decimal_part = date_str.split(".", 1)
-        date_str = f"{integer_part}.{decimal_part.ljust(6, '0')[:6]}"
-
-    # ── 逐一尝试标准格式 ──────────────────────────────────────
-    for fmt in _DATETIME_FMTS:
-        try:
-            s = date_str
-            if ".%f" in fmt and "." not in s:
-                s = s + ".0"
-            if "." in s and ".%f" in fmt:
-                ip, dp = s.split(".", 1)
-                s = f"{ip}.{dp.ljust(6, '0')[:6]}"
-            return datetime.strptime(s, fmt)
+            date = datetime.strptime(date_part, "%Y%j")
+            if date.year != year:
+                return None
         except ValueError:
-            continue
-
-    # ── 14+ 位纯数字兜底 ──────────────────────────────────────
-    if len(date_str) >= 14 and date_str[:14].isdigit():
-        try:
-            microsecond = 0
-            remaining = date_str[14:]
-            if remaining.startswith("."):
-                microsecond = int(remaining[1:].ljust(6, "0")[:6])
-            elif remaining.isdigit():
-                if len(remaining) == 3:
-                    microsecond = int(remaining) * 1000
-                else:
-                    microsecond = int(remaining.ljust(6, "0")[:6])
-            return datetime(
-                int(date_str[0:4]),
-                int(date_str[4:6]),
-                int(date_str[6:8]),
-                int(date_str[8:10]),
-                int(date_str[10:12]),
-                int(date_str[12:14]),
-                microsecond,
-            )
-        except Exception:
-            pass
-
-    return None
+            return None
+    text = (
+        date.strftime("%Y-%m-%d") + "T" + ":".join((clock[:2], clock[2:4], clock[4:]))
+    )
+    if fraction:
+        text += "." + fraction
+    result = table_timestamp(text)
+    return None if pd.isna(result) else result
 
 
 def parse_radio_time_from_filename(filename: str) -> datetime | None:
@@ -396,6 +326,8 @@ def _nearest_file_by_time(
     target_time: datetime,
     threshold_seconds: float,
 ) -> str | None:
+    from solar_toolkit.time import elapsed_seconds
+
     candidates = []
     for path in files:
         parsed_time = parser(path)
@@ -403,7 +335,7 @@ def _nearest_file_by_time(
             parsed_time = parser(os.path.basename(path))
         if parsed_time is None:
             continue
-        dt = abs((parsed_time - target_time).total_seconds())
+        dt = abs(elapsed_seconds(parsed_time, target_time))
         if dt <= threshold_seconds:
             candidates.append((dt, path))
     if not candidates:

@@ -46,12 +46,15 @@ import numpy as np  # noqa: E402
 from matplotlib.colors import TwoSlopeNorm  # noqa: E402
 
 from solar_apps.platform.config import apply_config_to_object  # noqa: E402
+from solar_toolkit.radio import cso_processing as _canonical_cso  # noqa: E402
 from solar_toolkit.radio import drift_rate as _canonical_drift_rate  # noqa: E402
 from solar_toolkit.radio._lazy_spectrogram import (  # noqa: E402
     LazySpectrogram,
     _find_range,
     read_cso_fits,
 )
+from solar_toolkit.radio._time import shift_datetime, table_timestamp  # noqa: E402
+from solar_toolkit.time import elapsed_seconds  # noqa: E402
 
 __all__ = [
     "AxisConfigManager",
@@ -299,10 +302,13 @@ def timing_decorator(func):
 
 def _as_datetime(value, name: str) -> datetime.datetime:
     """Accept datetime objects or ISO datetime strings in PlotConfig."""
-    if isinstance(value, datetime.datetime):
-        return value
-    if isinstance(value, str):
-        return datetime.datetime.fromisoformat(value)
+    import pandas as pd
+
+    if isinstance(value, (datetime.datetime, str)):
+        result = table_timestamp(value)
+        if not pd.isna(result):
+            return result
+        raise ValueError(f"{name} must be a valid complete calendar timestamp")
     raise TypeError(f"{name} must be datetime.datetime or ISO datetime string")
 
 
@@ -352,8 +358,8 @@ def _spec_time_bounds(
     t_min = float(np.nanmin(finite_time))
     t_max = float(np.nanmax(finite_time))
     return (
-        spec.dt_base + datetime.timedelta(seconds=t_min),
-        spec.dt_base + datetime.timedelta(seconds=t_max),
+        shift_datetime(spec.dt_base, t_min),
+        shift_datetime(spec.dt_base, t_max),
     )
 
 
@@ -415,10 +421,10 @@ def _validate_contiguous_time_coverage(
 
     intervals.sort(key=lambda item: item[0])
     current_end = t_start
-    tol = datetime.timedelta(seconds=float(tolerance_seconds))
+    tol = float(tolerance_seconds)
 
     for seg_start, seg_end, source_path in intervals:
-        if seg_start > current_end + tol:
+        if elapsed_seconds(current_end, seg_start) > tol:
             raise ValueError(
                 f"{polar_label} files do not fully cover the requested time range. "
                 f"Gap: {current_end.isoformat()} -> {seg_start.isoformat()}. "
@@ -426,7 +432,7 @@ def _validate_contiguous_time_coverage(
             )
         if seg_end > current_end:
             current_end = seg_end
-        if current_end >= t_end - tol:
+        if elapsed_seconds(current_end, t_end) <= tol:
             return
 
     raise ValueError(
@@ -448,8 +454,8 @@ def _estimate_raw_selection_mb(
         if window is None:
             continue
         t0, t1 = window
-        t0s = (t0 - spec.dt_base).total_seconds()
-        t1s = (t1 - spec.dt_base).total_seconds()
+        t0s = elapsed_seconds(spec.dt_base, t0)
+        t1s = elapsed_seconds(spec.dt_base, t1)
         ti0, ti1 = _find_range(spec.time, t0s, t1s)
         fi0, fi1 = _find_range(spec.freq, cfg.f_start, cfg.f_end)
         total_points += max(0, ti1 - ti0 + 1) * max(0, fi1 - fi0 + 1)
@@ -660,7 +666,7 @@ class AxisConfigManager:
                 major_locator = mdates.SecondLocator(interval=cfg.xtick_interval)
             else:
                 # 自动计算：基于时间范围计算最优间隔
-                time_range = (time_values[-1] - time_values[0]).total_seconds()
+                time_range = elapsed_seconds(time_values[0], time_values[-1])
                 optimal_interval = AxisConfigManager.calculate_optimal_ticks(
                     time_range, len(time_values), max_ticks=15
                 )
@@ -742,8 +748,8 @@ def calc_bin_sizes(spec: LazySpectrogram, cfg: PlotConfig):
     """Calculate t_bin / f_bin based on actual slice range and target point count."""
     t_start = _as_datetime(cfg.t_start, "t_start")
     t_end = _as_datetime(cfg.t_end, "t_end")
-    t1s = (t_start - spec.dt_base).total_seconds()
-    t2s = (t_end - spec.dt_base).total_seconds()
+    t1s = elapsed_seconds(spec.dt_base, t_start)
+    t2s = elapsed_seconds(spec.dt_base, t_end)
     ti0, ti1 = _find_range(spec.time, t1s, t2s)
     fi0, fi1 = _find_range(spec.freq, cfg.f_start, cfg.f_end)
     n_t = ti1 - ti0 + 1
@@ -769,8 +775,8 @@ def calc_bin_sizes_for_specs(
         if window is None:
             continue
         t0, t1 = window
-        t0s = (t0 - spec.dt_base).total_seconds()
-        t1s = (t1 - spec.dt_base).total_seconds()
+        t0s = elapsed_seconds(spec.dt_base, t0)
+        t1s = elapsed_seconds(spec.dt_base, t1)
         ti0, ti1 = _find_range(spec.time, t0s, t1s)
         fi0, fi1 = _find_range(spec.freq, cfg.f_start, cfg.f_end)
         n_t = ti1 - ti0 + 1
@@ -829,7 +835,7 @@ def _read_polarization_segments_rebinned(
         )
 
         # Convert each file's time seconds to seconds relative to one common base.
-        base_offset = (spec.dt_base - common_base).total_seconds()
+        base_offset = elapsed_seconds(common_base, spec.dt_base)
         tt_common = tt_seg.astype(np.float64) + base_offset
 
         # If two FITS files overlap, keep the earlier file and remove duplicate/backward columns.
@@ -900,23 +906,12 @@ def calc_polarization_ratio(
         - 'bwr' colormap: blue for negative, white for 0, red for positive
         - This ensures correct visual representation of polarization direction
     """
-    denom = Z_r + Z_l
-    valid = (
-        np.isfinite(Z_r) & np.isfinite(Z_l) & np.isfinite(denom) & (np.abs(denom) > eps)
-    )
-    ratio = np.full_like(Z_r, np.nan, dtype=np.float32)
-    ratio[valid] = np.clip(
-        (Z_r[valid] - Z_l[valid]) / denom[valid],
-        -1.0,
-        1.0,
-    ).astype(np.float32)
-    return ratio
+    return _canonical_cso.calc_polarization_ratio(Z_r, Z_l, eps=eps)
 
 
 def _safe_log10(arr: np.ndarray) -> np.ndarray:
     """Compute base-10 logarithm safely, handling non-positive values."""
-    with np.errstate(divide="ignore", invalid="ignore"):
-        return np.log10(np.where(arr > 0, arr, np.nan))
+    return _canonical_cso.safe_log10(arr)
 
 
 def get_color_limits(
@@ -1008,10 +1003,7 @@ def get_color_limits(
 def _datetime_list_from_seconds(
     dt_base: datetime.datetime, seconds_array: np.ndarray
 ) -> list[datetime.datetime]:
-    return [
-        dt_base + datetime.timedelta(seconds=float(seconds))
-        for seconds in seconds_array
-    ]
+    return [shift_datetime(dt_base, float(seconds)) for seconds in seconds_array]
 
 
 def _prepare_imshow_extent(

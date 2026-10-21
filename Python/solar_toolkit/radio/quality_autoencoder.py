@@ -21,6 +21,8 @@ from typing import Any
 
 import numpy as np
 
+from solar_toolkit._utils.numeric import numeric_data
+
 __all__ = [
     "DEFAULT_MIN_CONFIRMED_GOOD_FRAMES",
     "QUALITY_AUTOENCODER_FEATURE_NAMES",
@@ -318,7 +320,7 @@ def _coerce_sample(
         raise QualityAutoencoderValidationError("sample image is required")
     return QualityAutoencoderSample(
         sample_id=str(raw.get("sample_id", "")).strip(),
-        image=np.asarray(raw["image"]),
+        image=numeric_data(raw["image"]),
         quality_label=raw.get("quality_label", raw.get("human_label")),
         label_source=raw.get("label_source", raw.get("decision_source")),
     )
@@ -351,7 +353,8 @@ def _validate_training_config(config: AutoencoderTrainingConfig) -> None:
 
 
 def _validated_image(image: np.ndarray, *, sample_id: str = "inference") -> np.ndarray:
-    array = np.squeeze(np.asarray(image, dtype=np.float32))
+    # Keep masks and input precision until the explicit model normalization.
+    array = np.squeeze(numeric_data(image))
     if array.ndim != 2:
         raise QualityAutoencoderValidationError(
             f"sample {sample_id!r} must contain one 2D image"

@@ -49,6 +49,7 @@ __all__ = [
     "log_skipped_row",
     "normalize_path",
     "parse_datetime_value",
+    "parse_timestamp_value",
     "plot_output_subdir",
     "read_csv_dataframe",
     "read_json_file",
@@ -261,6 +262,13 @@ def parse_datetime_value(value) -> datetime.datetime | None:
     numeric epochs are invalid rather than implicitly treated as Unix time.
     """
     from .centers import parse_datetime_value as canonical_parse
+
+    return canonical_parse(value)
+
+
+def parse_timestamp_value(value):
+    """Return an exact radio TimeStamp or None using the shared calendar parser."""
+    from .centers import parse_timestamp_value as canonical_parse
 
     return canonical_parse(value)
 

@@ -11,11 +11,14 @@ import logging
 import math
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
+from decimal import ROUND_HALF_EVEN, Decimal
 from pathlib import Path
 
 import numpy as np
 from astropy.io import fits
+
+from solar_toolkit.time import TimeStamp, normalize_time
 
 __all__ = [
     "DartNarrowbandCurve",
@@ -326,6 +329,11 @@ def _read_frequency_axis(path: Path) -> np.ndarray:
 
 
 def _read_time_axis(path: Path) -> tuple[datetime, ...]:
+    """Read strict calendar rows into the legacy UTC datetime view.
+
+    Invalid calendar seconds are rejected through the shared exact clock. A
+    valid leap second is also explicitly rejected by this datetime-only view.
+    """
     with fits.open(path, memmap=True) as hdul:
         data = hdul[0].data
         if data is None:
@@ -340,6 +348,7 @@ def _read_time_axis(path: Path) -> tuple[datetime, ...]:
         raise ValueError(f"DART time axis contains non-finite components: {path}")
 
     parsed: list[datetime] = []
+    stamps = []
     for row_index, row in enumerate(values):
         try:
             year = _integer_time_component(row[0], "year")
@@ -352,22 +361,27 @@ def _read_time_axis(path: Path) -> tuple[datetime, ...]:
             second = float(row[5])
             if second < 0 or second >= 61:
                 raise ValueError(f"second must be in [0, 61), found {second!r}")
-            value = datetime(
+            datetime(
                 year,
                 month,
                 day,
                 hour,
                 minute,
                 tzinfo=UTC,
-            ) + timedelta(seconds=second)
+            )
+            whole = int(second)
+            stamp = normalize_time(
+                f"{year:04d}-{month:02d}-{day:02d}T{hour:02d}:{minute:02d}:{whole:02d}"
+            ).shift(Decimal(str(second)) - whole)
+            value = stamp.to_datetime().replace(tzinfo=UTC)
         except (OverflowError, ValueError) as exc:
             raise ValueError(
                 f"Invalid DART time row {row_index} in {path}: {row.tolist()} ({exc})"
             ) from exc
         parsed.append(value)
+        stamps.append(stamp.tai_ns)
 
-    timestamps = np.asarray([value.timestamp() for value in parsed])
-    if timestamps.size > 1 and not np.all(np.diff(timestamps) > 0):
+    if any(b <= a for a, b in zip(stamps[:-1], stamps[1:], strict=True)):
         raise ValueError(f"DART UTC time axis must be strictly increasing: {path}")
     return tuple(parsed)
 
@@ -422,28 +436,30 @@ def _time_index_range(
     time_utc: tuple[datetime, ...],
     requested: tuple[datetime | str, datetime | str] | None,
 ) -> tuple[int, int]:
-    observed_start = time_utc[0]
-    observed_end = time_utc[-1]
+    stamps = [normalize_time(value) for value in time_utc]
+    observed_start = stamps[0]
+    observed_end = stamps[-1]
     if requested is None:
         start, end = observed_start, observed_end
     else:
         if len(requested) != 2:
             raise ValueError("time_range_utc must contain exactly two values")
-        start = _coerce_utc_datetime(requested[0])
-        end = _coerce_utc_datetime(requested[1])
-        if start > end:
+        start = normalize_time(requested[0])
+        end = normalize_time(requested[1])
+        if start.tai_ns > end.tai_ns:
             raise ValueError("time_range_utc start must not exceed its end")
-        if start < observed_start or end > observed_end:
+        if start.tai_ns < observed_start.tai_ns or end.tai_ns > observed_end.tai_ns:
             raise ValueError(
                 "Requested UTC time range is outside the observation: "
-                f"{start.isoformat()} to {end.isoformat()} versus "
-                f"{observed_start.isoformat()} to {observed_end.isoformat()}"
+                f"{start.utc} to {end.utc} versus "
+                f"{observed_start.utc} to {observed_end.utc}"
             )
-    timestamps = np.asarray([value.timestamp() for value in time_utc])
-    indices = np.flatnonzero(
-        (timestamps >= start.timestamp()) & (timestamps <= end.timestamp())
-    )
-    if not indices.size:
+    indices = [
+        i
+        for i, stamp in enumerate(stamps)
+        if start.tai_ns <= stamp.tai_ns <= end.tai_ns
+    ]
+    if not indices:
         raise ValueError(
             "No DART time samples fall inside the requested UTC time range"
         )
@@ -451,21 +467,7 @@ def _time_index_range(
 
 
 def _coerce_utc_datetime(value: datetime | str) -> datetime:
-    if isinstance(value, datetime):
-        parsed = value
-    else:
-        text = str(value).strip()
-        if not text:
-            raise ValueError("UTC time range values must not be blank")
-        if text.endswith(("Z", "z")):
-            text = f"{text[:-1]}+00:00"
-        try:
-            parsed = datetime.fromisoformat(text)
-        except ValueError as exc:
-            raise ValueError(f"Invalid UTC datetime value: {value!r}") from exc
-    if parsed.tzinfo is None:
-        return parsed.replace(tzinfo=UTC)
-    return parsed.astimezone(UTC)
+    return normalize_time(value).to_datetime().replace(tzinfo=UTC)
 
 
 def _positive_integer(value: int, name: str) -> int:
@@ -486,14 +488,17 @@ def _block_mean_axis(values: np.ndarray, bin_size: int) -> np.ndarray:
 def _block_mean_times(
     values: tuple[datetime, ...], bin_size: int
 ) -> tuple[datetime, ...]:
-    timestamps = np.asarray([value.timestamp() for value in values])
-    starts = np.arange(0, timestamps.size, bin_size, dtype=int)
-    return tuple(
-        datetime.fromtimestamp(
-            float(np.mean(timestamps[start : start + bin_size])), tz=UTC
+    timestamps = [normalize_time(value).tai_ns for value in values]
+    output = []
+    for start in range(0, len(timestamps), bin_size):
+        block = timestamps[start : start + bin_size]
+        mean = int(
+            (Decimal(sum(block)) / len(block)).to_integral_value(
+                rounding=ROUND_HALF_EVEN
+            )
         )
-        for start in starts
-    )
+        output.append(TimeStamp.from_tai_ns(mean).to_datetime().replace(tzinfo=UTC))
+    return tuple(output)
 
 
 def _read_downsampled_plane(

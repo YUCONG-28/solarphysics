@@ -1075,8 +1075,10 @@ def _parse_radio_date_part(
 
 
 def _radio_datetime_from_filename(path, cfg=None):
+    from solar_toolkit.radio._time import table_timestamp
+
     stamp = _radio_stamp_from_filename(path, cfg)
-    return datetime.datetime.fromisoformat(stamp.utc) if stamp is not None else None
+    return table_timestamp(stamp) if stamp is not None else None
 
 
 def radio_datetime_from_header_or_path(header=None, path=None, cfg=None):
@@ -1591,6 +1593,8 @@ def find_background_files_for_current_radio(
     band: str | float | None = None,
     polarization: str | None = None,
 ) -> list[str]:
+    from solar_toolkit.time import elapsed_seconds
+
     if not current_radio_file or "|" in current_radio_file:
         return []
     current_time = _radio_datetime_from_filename(current_radio_file, cfg)
@@ -1616,7 +1620,7 @@ def find_background_files_for_current_radio(
         frame_time = _radio_datetime_from_filename(path, cfg)
         if frame_time is None or frame_time >= current_time:
             continue
-        delta = (current_time - frame_time).total_seconds()
+        delta = elapsed_seconds(frame_time, current_time)
         if 0 < delta <= window_seconds:
             matches.append((frame_time, path))
     matches.sort()

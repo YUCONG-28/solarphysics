@@ -1,4 +1,4 @@
-"""Independent FITS linear-WCS oracles for centers and ROI selection."""
+"""Independent complete FITS-WCS oracles for centers and ROI selection."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ import math
 import numpy as np
 import pytest
 from astropy import units as u
+from astropy.coordinates import Longitude
 from astropy.io import fits
 from astropy.wcs import WCS
 
@@ -50,13 +51,17 @@ def _skew_header(units, representation):
 
 
 def _linear_oracle_arcsec(header, pixels):
-    # These APIs intentionally approximate the projected plane as linear. Let
-    # wcslib handle FITS matrix/reference-pixel semantics without TAN projection.
-    linear = header.copy()
-    linear["CTYPE1"] = linear["CTYPE2"] = "LINEAR"
-    world = WCS(linear).all_pix2world(np.asarray(pixels, dtype=float), 0)
-    factors = [u.Unit(header[f"CUNIT{axis}"]).to(u.arcsec) for axis in (1, 2)]
-    return world * factors
+    # A separate direct wcslib call retains projection and matrix semantics.
+    wcs = WCS(header)
+    world = wcs.all_pix2world(np.asarray(pixels, dtype=float), 0)
+    return np.column_stack(
+        (
+            Longitude(
+                world[:, 0] * u.Unit(wcs.world_axis_units[0]), wrap_angle=180 * u.deg
+            ).to_value(u.arcsec),
+            (world[:, 1] * u.Unit(wcs.world_axis_units[1])).to_value(u.arcsec),
+        )
+    )
 
 
 @pytest.mark.parametrize(
@@ -125,11 +130,14 @@ def test_legacy_crota_keeps_rotation_of_already_scaled_pixel_offsets():
     offsets = (pixels + 1.0 - [2.25, 3.5]) * [2.0, -5.0]
     expected = offsets @ rotation.T + [7.0, -11.0]
     np.testing.assert_allclose(
-        [pixel_to_hpc_arcsec(header, x, y) for x, y in pixels], expected
+        [pixel_to_hpc_arcsec(header, x, y, legacy_linear=True) for x, y in pixels],
+        expected,
     )
     np.testing.assert_allclose(
         np.column_stack(
-            _pixel_coordinates_hpc_arcsec(header, pixels[:, 0], pixels[:, 1])
+            _pixel_coordinates_hpc_arcsec(
+                header, pixels[:, 0], pixels[:, 1], legacy_linear=True
+            )
         ),
         expected,
     )

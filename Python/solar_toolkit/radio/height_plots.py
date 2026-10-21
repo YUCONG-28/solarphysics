@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
+from ._time import table_timestamp
 from .height_comparison import model_label
 from .io import ensure_output_dir, truthy
 from .newkirk import newkirk_height_from_frequency_mhz
@@ -273,7 +274,9 @@ def _clean_height_df(height_df) -> pd.DataFrame:
         df["drift_label"] = df["drift_label"].fillna("").astype(str)
     else:
         df["drift_label"] = ""
-    df["time_dt"] = pd.to_datetime(df.get("time"), errors="coerce")
+    df["time_dt"] = df.get("time", pd.Series(pd.NaT, index=df.index)).map(
+        table_timestamp
+    )
     return df.dropna(subset=["frequency_mhz"])
 
 

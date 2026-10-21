@@ -18,9 +18,9 @@ from dataclasses import dataclass
 import matplotlib.dates as mdates
 import numpy as np
 
-from .io import DRIFT_RATE_DIAGNOSTIC_FIELDS, _sample_float
+from ..time import seconds_to_ns
+from .io import DRIFT_RATE_DIAGNOSTIC_FIELDS, _sample_float, parse_timestamp_value
 from .io import drift_output_path as _drift_output_path
-from .io import parse_datetime_value as _parse_datetime_value
 from .spectrogram import _date_num_to_datetime
 
 __all__ = [
@@ -94,8 +94,8 @@ def _datetime_iso_ms(value: datetime.datetime) -> str:
     return value.replace(tzinfo=None).isoformat(timespec="milliseconds")
 
 
-def _drift_line_time(line: dict, key: str) -> datetime.datetime:
-    parsed = _parse_datetime_value(line.get(key))
+def _drift_line_time(line: dict, key: str):
+    parsed = parse_timestamp_value(line.get(key))
     if parsed is None:
         raise ValueError(f"Invalid drift-rate time field {key}: {line.get(key)!r}")
     return parsed
@@ -110,10 +110,12 @@ def _calculate_drift_rate_from_line(
 ) -> DriftRateResult:
     """Build a result under an explicit endpoint compatibility policy."""
 
-    if t_start is _UNSET_DRIFT_TIME:
-        t_start = _drift_line_time(line, "t_start")
-    if t_end is _UNSET_DRIFT_TIME:
-        t_end = _drift_line_time(line, "t_end")
+    start_stamp = _drift_line_time(
+        line if t_start is _UNSET_DRIFT_TIME else {"t_start": t_start}, "t_start"
+    )
+    end_stamp = _drift_line_time(
+        line if t_end is _UNSET_DRIFT_TIME else {"t_end": t_end}, "t_end"
+    )
     if profile.strict_frequency_fields:
         f_start = _sample_float(line["f_start_mhz"])
         f_end = _sample_float(line["f_end_mhz"])
@@ -121,11 +123,15 @@ def _calculate_drift_rate_from_line(
         f_start = _sample_float(line.get("f_start_mhz"))
         f_end = _sample_float(line.get("f_end_mhz"))
     warning = ""
-    if profile.sort_endpoints_by_time and t_end < t_start:
-        t_start, t_end = t_end, t_start
+    if profile.sort_endpoints_by_time and end_stamp.tai_ns < start_stamp.tai_ns:
+        start_stamp, end_stamp = end_stamp, start_stamp
         f_start, f_end = f_end, f_start
         warning = "endpoints_sorted_by_time"
-    duration_s = float((t_end - t_start).total_seconds())
+    duration_ns = end_stamp.tai_ns - start_stamp.tai_ns
+    duration_s = duration_ns / 1_000_000_000
+    # The result's legacy datetime fields cannot carry a leap second. Never
+    # silently roll one into the next day while returning a scientific rate.
+    t_start, t_end = start_stamp.to_datetime(), end_stamp.to_datetime()
     bandwidth_mhz = float(f_end - f_start)
     if not np.isfinite([f_start, f_end]).all() or min(f_start, f_end) <= 0:
         drift_rate = np.nan
@@ -133,7 +139,7 @@ def _calculate_drift_rate_from_line(
         warning = ";".join(
             filter(None, [warning, "frequency_must_be_finite_and_positive"])
         )
-    elif abs(duration_s) <= profile.zero_duration_tolerance_s:
+    elif abs(duration_ns) <= seconds_to_ns(profile.zero_duration_tolerance_s):
         if profile.zero_duration_policy == "raise":
             raise ValueError(
                 f"Cannot calculate drift rate for zero-duration line: {line}"
@@ -174,10 +180,39 @@ def calculate_drift_rate_from_line(line: dict) -> DriftRateResult:
 
     Endpoints are sorted by time. Nonpositive/nonfinite frequencies and a zero
     duration produce NaN drift with an explicit quality flag; malformed times
-    raise ValueError. A positive drift is retained with a diagnostic warning.
+    raise ValueError. SI duration uses integer TAI nanoseconds, including across
+    UTC leap seconds. Returned endpoint datetimes are a microsecond compatibility
+    view; an endpoint inside a leap second raises ValueError. A positive drift
+    is retained with a diagnostic warning.
     """
 
     return _calculate_drift_rate_from_line(line)
+
+
+def _frequency_on_drift_line(row_time, line, time_tolerance_s):
+    """Interpolate a finite drift segment on a shared integer TAI clock."""
+    tolerance = seconds_to_ns(time_tolerance_s, nonnegative=True)
+    row = parse_timestamp_value(row_time)
+    start = parse_timestamp_value(line.get("t_start"))
+    end = parse_timestamp_value(line.get("t_end"))
+    f_start = _sample_float(line.get("f_start_mhz"))
+    f_end = _sample_float(line.get("f_end_mhz"))
+    if (
+        row is None
+        or start is None
+        or end is None
+        or not np.isfinite([f_start, f_end]).all()
+    ):
+        return None
+    if end.tai_ns < start.tai_ns:
+        start, end, f_start, f_end = end, start, f_end, f_start
+    duration = end.tai_ns - start.tai_ns
+    offset = row.tai_ns - start.tai_ns
+    if offset < -tolerance or offset > duration + tolerance:
+        return None
+    if duration == 0:
+        return 0.5 * (f_start + f_end)
+    return f_start + min(1.0, max(0.0, offset / duration)) * (f_end - f_start)
 
 
 def _mark_drift_range_warnings(results, cache):
