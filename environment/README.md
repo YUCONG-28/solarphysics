@@ -7,6 +7,18 @@ when installing; this supports compatibility testing, but a run must not describ
 
 ## Validation boundary
 
+The scientific library requires Python 3.12 or later; Apps require Python 3.14.
+`library-minimum-py312.txt` pins the library's direct runtime requirements at
+their declared floors. CI verifies those installed versions with
+`tools/minimum_dependencies.py --verify-installed`, independently of the
+current-dependency matrix. Optional, development and transitive requirements
+are resolved normally. This constraint file is not a sealed artifact lock.
+
+The separate `Sealed Linux environment (3.14)` CI job installs the committed
+Conda artifacts and hash-checked wheels into a new environment, verifies the
+runtime and runs the scientific suite. This is distinct from the Python
+compatibility jobs that resolve dependency ranges.
+
 An exact-environment claim requires a sealed lock for the target platform,
 hash-required installation, a successful detached runtime-verification receipt,
 and the applicable tests in that environment. A lock from one platform must

@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Raised the scientific-library Python floor to 3.12 and adopted Astropy 8,
+  SunPy 8 and NumPy 2 contracts. Added CI that installs and verifies declared
+  direct runtime floors; Apps retain Python 3.14.
+- Corrected leap-second durations, timestamp consumers, unit conversions,
+  masked statistics, integer polarization arithmetic and missing single-sample
+  derivatives. Scientific calculations retain precise times and invalid values.
+- Added explicit reprojection fallback, footprint and uncertainty policies,
+  exposure uncertainty propagation, WCS transforms and detached FITS reads.
+  See [scientific data contracts](../docs/foundations.md).
 - Made the English home and contribution guide canonical, added full Chinese
   counterparts, and retained the previous English paths and section anchors.
 - Added fresh Miniforge setup, deterministic installation output, a connected

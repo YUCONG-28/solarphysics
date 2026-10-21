@@ -54,12 +54,24 @@ jobs:
             .
 
   python-public-package:
-    name: Python public package (${{ matrix.python-version }})
+    name: Python public package (${{ matrix.label }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.10", "3.11", "3.14"]
+        include:
+          - python-version: "3.12"
+            label: "3.12 minimum"
+            constraints: environment/library-minimum-py312.txt
+          - python-version: "3.12"
+            label: "3.12"
+            constraints: ""
+          - python-version: "3.13"
+            label: "3.13"
+            constraints: ""
+          - python-version: "3.14"
+            label: "3.14"
+            constraints: ""
     defaults:
       run:
         working-directory: Python
@@ -84,11 +96,20 @@ jobs:
       - name: Install package and test tools
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -e ".[dev]"
-          python -m pip install xarray netCDF4
+          if [ -n "${{ matrix.constraints }}" ]; then
+            echo "PIP_CONSTRAINT=$GITHUB_WORKSPACE/${{ matrix.constraints }}" >> "$GITHUB_ENV"
+            export PIP_CONSTRAINT="$GITHUB_WORKSPACE/${{ matrix.constraints }}"
+          fi
+          python -m pip install -e ".[dev]" xarray netCDF4
+
+      - name: Verify declared minimum runtime dependencies
+        if: matrix.constraints != ''
+        run: python ../tools/minimum_dependencies.py --verify-installed
 
       - name: Check committed public source
-        run: python ../tools/public_source_policy.py
+        run: |
+          python ../tools/public_source_policy.py
+          python ../tools/minimum_dependencies.py
 
       - name: Validate sealed environment locks and source bindings offline
         run: python ../tools/environment_lock.py check --require-artifact-hashes
@@ -102,7 +123,7 @@ jobs:
       - name: Run Ruff
         run: |
           python -m ruff check solar_toolkit tests examples/public_api examples/radio examples/sxr
-          python -m ruff check --config pyproject.toml ../tools/public_source_policy.py ../tools/build_distributions.py ../tools/installed_library_smoke.py
+          python -m ruff check --config pyproject.toml ../tools/public_source_policy.py ../tools/build_distributions.py ../tools/installed_library_smoke.py ../tools/minimum_dependencies.py
 
       - name: Run public Python tests
         run: python -m pytest tests -ra --junitxml "$RUNNER_TEMP/python-tests.xml"
@@ -111,6 +132,7 @@ jobs:
         run: |
           python examples/public_api/time_matching_example.py
           python examples/public_api/gaussian_model_example.py
+          python examples/public_api/scientific_contracts_example.py
           python examples/radio/synthetic_radio.py --output-dir "$RUNNER_TEMP/radio-example"
           python examples/sxr/sxr_example.py --output-dir "$RUNNER_TEMP/sxr-example"
 
@@ -124,6 +146,44 @@ jobs:
           conda run --no-capture-output --prefix "$RUNNER_TEMP/library-install" python -m pip check
           cd "$RUNNER_TEMP"
           conda run --no-capture-output --prefix "$RUNNER_TEMP/library-install" python -I "$GITHUB_WORKSPACE/tools/installed_library_smoke.py" --examples "$GITHUB_WORKSPACE/Python/examples" --output-dir "$RUNNER_TEMP/installed-examples"
+
+  sealed-linux-environment:
+    name: Sealed Linux environment (3.14)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash -el {0}
+    env:
+      PYTEST_DISABLE_PLUGIN_AUTOLOAD: "1"
+      MPLBACKEND: Agg
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Install Miniforge bootstrap
+        uses: conda-incubator/setup-miniconda@8ee1f361103df19b6f8c8655fd3967a8ecb162d5 # v4.0.1
+        with:
+          activate-environment: bootstrap
+          python-version: "3.14"
+          miniforge-version: latest
+          channels: conda-forge
+          channel-priority: strict
+          conda-remove-defaults: "true"
+          auto-update-conda: false
+
+      - name: Replay exact Conda and hashed wheel artifacts
+        run: |
+          conda create --yes --name solarphysics_lock --file environment/locks/linux-64-py314/conda-explicit.txt
+          conda run --no-capture-output -n solarphysics_lock python -m pip install --only-binary=:all: --require-hashes -r environment/locks/linux-64-py314/pip-hashed.txt
+          conda run --no-capture-output -n solarphysics_lock python -m pip install --no-deps --no-build-isolation -e Python -e Apps
+
+      - name: Verify replayed runtime against the lock
+        run: |
+          conda run --no-capture-output -n solarphysics_lock python tools/environment_lock.py verify-runtime --conda "$CONDA_EXE" --environment solarphysics_lock --target linux-64-py314 --receipt "$RUNNER_TEMP/linux-runtime.json" --apply
+
+      - name: Exercise the sealed scientific runtime including optional ML
+        run: |
+          conda run --no-capture-output -n solarphysics_lock python -m pytest Python/tests -ra --basetemp "$RUNNER_TEMP/sealed-tests" --junitxml "$RUNNER_TEMP/sealed-tests.xml"
 
   apps-miniforge:
     name: Apps (Windows Miniforge)

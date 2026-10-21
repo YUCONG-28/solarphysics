@@ -54,6 +54,7 @@ def main() -> None:
         ("public_api/sequence_matching_example.py", []),
         ("public_api/gaussian_model_example.py", []),
         ("public_api/native_radio_fit_example.py", []),
+        ("public_api/scientific_contracts_example.py", []),
         ("radio/synthetic_radio.py", ["--output-dir", str(args.output_dir / "radio")]),
         ("sxr/sxr_example.py", ["--output-dir", str(args.output_dir / "sxr")]),
     )

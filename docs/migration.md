@@ -21,10 +21,48 @@ does not create a release.
 
 ## Installations and imports
 
+The library now requires Python 3.12 or later and the Astropy 8 / SunPy 8 /
+NumPy 2 generation. Python 3.10 and 3.11 installations must upgrade their
+Miniforge environment before installing this checkout. Apps continue to use
+Python 3.14. The minimum-dependency CI job verifies direct runtime floors
+separately from the current-dependency matrix.
+
+## Scientific foundations
+
+See [scientific data contracts](foundations.md) for units, masks, uncertainty
+and WCS semantics. Public imports and numeric return types remain available.
+Science durations use exact TAI differences; malformed timestamps no longer
+pass through a permissive secondary parser. Explicitly missing quality values
+are invalid, while tables without optional quality columns remain supported.
+
+Masked values no longer contribute to peaks or statistics. Equivalent units
+are converted; incompatible dimensions raise errors. Integer polarization
+arithmetic no longer wraps before division. Block means now default to float64;
+callers requiring a smaller representation can explicitly request a dtype.
+
+Reprojection no longer silently substitutes nearest-neighbor interpolation.
+Select `fallback="nearest"` explicitly for historical rendering and inspect
+the returned footprint before interpreting values as measurements. Map
+reprojection rejects unpropagated uncertainty by default; an explicit
+`uncertainty_policy="drop"` records its removal. Exposure normalization
+propagates supported uncertainties. FITS reads return detached arrays.
+
+AIA display backgrounds now use a regular angular grid sampled through the
+complete WCS. Display pixels may therefore differ from a simple stride through
+the native array. Missing coverage remains NaN. ROI/center transforms require
+explicit helioprojective axes; `legacy_linear=True` is an explicit historical
+coordinate approximation where supported. Gaussian fitting accepts an optional
+`coordinate_header`; native fitted parameters remain unchanged while world
+centers and local widths follow that WCS. Precomputed brightness-temperature
+loading preserves missing values by default; use `fill_missing=0` only for
+display compatibility.
+
+## Package installation boundaries
+
 Create the named Miniforge environment before using a fresh checkout; see the
 [library setup](../README.md#start-with-the-library). The scientific library
 keeps the `solar-physics-toolkit` distribution name, `solar_toolkit` import
-namespace and Python 3.10 minimum. Apps requires Python 3.14 and editable source
+namespace and Python 3.12 minimum. Apps requires Python 3.14 and editable source
 installs of both `Python` and `Apps`; Apps wheel checks validate contents rather
 than a standalone deployment. Scientific-library wheel installation is checked
 independently of Apps. Source builds require setuptools 77 or later for SPDX

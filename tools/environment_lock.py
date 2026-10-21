@@ -25,15 +25,11 @@ import re
 import subprocess
 import sys
 import tempfile
+import tomllib
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlparse
-
-try:
-    import tomllib
-except ModuleNotFoundError:  # Python 3.10 uses the supported TOML backport.
-    import tomli as tomllib
 
 try:
     from packaging.markers import default_environment

@@ -21,11 +21,12 @@ version linked below. Guides written in Chinese are marked in the table.
 | Understand package and runtime boundaries | [Architecture](../ARCHITECTURE.md) |
 | Verify and contribute code | [Contribution guide](../CONTRIBUTING.md), [中文对照](../CONTRIBUTING.zh-CN.md), [library development](../Python/CONTRIBUTING.md), [maintenance workflow](../WORKFLOW_README.md) |
 | Recreate platform dependencies | [Environment guide](../environment/README.md) |
+| Understand time, units, masks and WCS | [Scientific data contracts](foundations.md) |
 | Compose AIA/radio displays | [Composite guide (中文)](aia_radio_composite.md) |
 | Update an existing checkout or integration | [Migration guide](migration.md), [changelog](../Python/CHANGELOG.md) |
 | Check redistribution and citation metadata | [License scope](../LICENSING.md), [repository citation](../CITATION.cff), [library citation](../Python/CITATION.cff) |
 
-The library supports Python 3.10 and later. Apps require Python 3.14.
+The library supports Python 3.12 and later. Apps require Python 3.14.
 An environment lock applies to its named platform; compatibility testing and
 hash-verified dependency replay are separate checks.
 

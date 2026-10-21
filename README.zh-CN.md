@@ -25,7 +25,7 @@
 
 ## 从基础模块开始
 
-科学库支持 Python 3.10 及以上；本仓库开发使用 Miniforge 的
+科学库支持 Python 3.12 及以上；本仓库开发使用 Miniforge 的
 `solarphysics_env_latest` 环境及 Python 3.14。首次克隆后，将 `<miniforge-root>`
 替换为实际 Miniforge 安装目录，从仓库根目录执行。
 

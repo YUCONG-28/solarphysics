@@ -37,7 +37,7 @@ All shell commands in this guide run from the unified repository root. Replace
 `<miniforge-root>` with your Miniforge installation directory. For a fresh
 setup, create the development environment before installing. If it already
 exists, inspect its Python version and skip `create`. The library supports
-Python 3.10 and later; the shared development environment uses Python 3.14.
+Python 3.12 and later; the shared development environment uses Python 3.14.
 
 On macOS/Linux:
 

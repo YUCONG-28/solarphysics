@@ -8,6 +8,8 @@ used as small installation smoke checks.
 - `time_matching_example.py` uses `solar_toolkit.time`.
 - `sequence_matching_example.py` builds a fixed hierarchy with `solar_toolkit.time`.
 - `gaussian_model_example.py` uses `solar_toolkit.modeling.gaussian`.
+- `scientific_contracts_example.py` verifies leap-second durations, nanosecond
+  intervals, equivalent frequency units, millisecond spacing and masked samples.
 - `native_radio_fit_example.py` fits a synthetic source with explicit pixel ROI
   and helioprojective WCS, then checks its native-pixel center and model.
 
@@ -20,6 +22,7 @@ MINIFORGE_CONDA="<miniforge-root>/bin/conda"
 "$MINIFORGE_CONDA" run -n solarphysics_env_latest python Python/examples/public_api/sequence_matching_example.py
 "$MINIFORGE_CONDA" run -n solarphysics_env_latest python Python/examples/public_api/gaussian_model_example.py
 "$MINIFORGE_CONDA" run -n solarphysics_env_latest python Python/examples/public_api/native_radio_fit_example.py
+"$MINIFORGE_CONDA" run -n solarphysics_env_latest python Python/examples/public_api/scientific_contracts_example.py
 ```
 
 On Windows, use the Miniforge PowerShell invocation in the library guide.
