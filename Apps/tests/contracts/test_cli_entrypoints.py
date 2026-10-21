@@ -12,6 +12,7 @@ import pytest
 from solar_apps.cli import router
 from solar_apps.frontends.image_composer import cli as image_composer_cli
 from solar_apps.cli.admin import initialize_runtime
+from solar_apps.cli.admin import _runtime_shims
 from solar_apps.platform.environment import inspect_miniforge_runtime
 from solar_apps.platform.environment import UnsupportedPythonEnvironment
 from solar_apps.platform.layout import RuntimeLayout
@@ -208,6 +209,76 @@ def test_launcher_has_no_arbitrary_python_or_path_fallback() -> None:
     assert "solar-physics-toolkit" in probe
     assert "solar_apps.launcher" in text
     assert "solar_apps.launcher" in shell_text
+
+
+@pytest.mark.parametrize("external", [False, True], ids=["local", "external"])
+def test_runtime_shim_executes_after_workspace_move(
+    tmp_path: Path, external: bool
+) -> None:
+    bundle = tmp_path / "original bundle"
+    repo = bundle / "source 'code"
+    local = bundle / "private 'runtime" if external else repo / "Local"
+    template = repo / "Apps/configs/examples/paths.example.yaml"
+    template.parent.mkdir(parents=True)
+    template.write_text("apps:\n  allowed_roots: []\n", encoding="utf-8")
+    (repo / "Python").mkdir()
+    if os.name == "nt":
+        launcher = repo / "Apps/run.ps1"
+        launcher.write_text(
+            "Write-Output $env:SOLAR_APPS_LOCAL_ROOT\n"
+            "$args | ForEach-Object { Write-Output $_ }\n",
+            encoding="utf-8",
+        )
+    else:
+        launcher = repo / "Apps/run.sh"
+        launcher.write_text(
+            '#!/bin/sh\nprintf \'%s\\n\' "$SOLAR_APPS_LOCAL_ROOT" "$@"\n',
+            encoding="utf-8",
+        )
+        launcher.chmod(0o755)
+    layout = RuntimeLayout.discover(repo, environ={"SOLAR_APPS_LOCAL_ROOT": str(local)})
+    initialize_runtime(layout=layout)
+    created_again = initialize_runtime(layout=layout)
+    assert local / "run.sh" not in created_again
+    assert local / "run.ps1" not in created_again
+    moved = tmp_path / "moved bundle"
+    bundle.rename(moved)
+    moved_local = moved / local.relative_to(bundle)
+    arguments = ["two words", "literal $(token)", "quote's"]
+    if os.name == "nt":
+        command = [
+            "powershell.exe",
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(moved_local / "run.ps1"),
+            *arguments,
+        ]
+    else:
+        command = [str(moved_local / "run.sh"), *arguments]
+    completed = subprocess.run(
+        command, cwd=tmp_path, capture_output=True, text=True, timeout=30
+    )
+    assert completed.returncode == 0, completed.stderr
+    output = completed.stdout.splitlines()
+    assert Path(output[0]).resolve() == moved_local.resolve()
+    assert output[1:] == arguments
+
+
+def test_runtime_shims_support_separate_windows_volumes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    layout = RuntimeLayout.discover(tmp_path / "source", environ={})
+
+    def separate_volumes(*_args: object) -> str:
+        raise ValueError("path is on a different volume")
+
+    monkeypatch.setattr("solar_apps.cli.admin.os.path.relpath", separate_volumes)
+    powershell, shell = _runtime_shims(layout)
+    assert "Join-Path $PSScriptRoot" not in powershell
+    assert "__REPOSITORY_TARGET__" not in powershell + shell
+    assert str(layout.repo_root).replace("'", "''") in powershell
 
 
 @pytest.mark.skipif(os.name != "nt", reason="PowerShell launcher is Windows-only")

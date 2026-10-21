@@ -57,6 +57,12 @@ def test_combined_frequency_and_beam(tmp_path):
     np.testing.assert_equal(result[1][1], data[1, 0, 0])
     assert result[1][3]["BPA"] == 20.0
     assert "CTYPE4" not in result[1][2]
+    # The axis reference value alone does not label the first data plane.
+    fits.setval(p, "CRPIX4", value=2.0)
+    with pytest.raises(ValueError, match="Stokes I"):
+        read_muser_images(p)
+    fits.setval(p, "CRVAL4", value=2.0)
+    assert len(read_muser_images(p)) == 2
 
 
 def test_spectrum_explicit_i(tmp_path):

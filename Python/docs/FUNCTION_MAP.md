@@ -8,11 +8,11 @@
 | PFSS | `solar_toolkit.modeling.pfss` | Global-field computation and result-bundle validation; solving and tracing need optional backend dependencies |
 | AIA/HMI | `solar_toolkit.aia`, `hmi` | FITS selection, normalization, differences, mosaics and magnetogram calculations |
 | CME/network | `solar_toolkit.cme`, `net` | Explicit file processing, queries and downloads |
-| X-ray | `solar_toolkit.xray_dem.hxi`, `processing`, `sxr` | Reusable readers and numerical processing |
+| X-ray | `solar_toolkit.xray_dem.hxi`, `processing`, `sxr`, `brightness_temperature` | Reusable readers, AIA reference geometry, precomputed brightness-temperature display and numerical processing |
 | Radio core | `solar_toolkit.radio` | FITS metadata, Gaussian fitting, spectra, ROI statistics, trajectories and diagnostics |
 | Radio split modules | `radio.reprojection`, `radio.cso_processing`, `radio.physical_diagnostics` | Reprojection, CSO array processing and pure physical diagnostics |
 | DART/CSO | `radio.dart_spectrogram`, `radio.cso`, `radio.cso_extract`, `radio.cso_window` | Spectrum readers, format helpers and bounded numerical processing |
-| MUSER | `radio.muser`, `radio.muser_comparison` | Explicit image/spectrum readers, time matching and comparison helpers |
+| MUSER | `radio.muser`, `radio.muser_comparison`, `radio.muser_localization`, `radio.raw_comparison` | Explicit image/spectrum readers, time matching, native-pixel fits and comparison helpers |
 | Spectrum display | `radio.spectrum_display` | Relative backgrounds and optional missing-column compaction with original UTC mappings |
 | Quality | `radio.quality_science`, `radio.quality_ml`, `radio.quality_autoencoder` | Rule evidence and optional learned diagnostics; ML and Torch dependencies are separate profiles |
 | Visualization | `solar_toolkit.visualization` | Reusable plotting, frame, media and deterministic image-filename helpers |
@@ -44,6 +44,11 @@ separate caller decisions; importing a module does not start a workflow.
 | `radio.cso_window.read_cso_total_window` | Explicit CSO FITS paths with UTC, RCP/LCP and linear SFU declarations; Unix-second/MHz bounds and bin widths | Time/frequency bin centers, a finite-sample RCP+LCP mean and metadata; empty bins remain NaN. Overlapping files raise `ValueError` and require caller-selected deduplication. |
 | `radio.spectrum_display.relative_background_db` | A frequency-by-time array, increasing Unix-second times, an optional maximum bracketing gap and background percentile | Relative dB intensities and provenance. Optional short-gap estimation uses linear intensity; original UTC stays unchanged. |
 | `radio.spectrum_display.compact_spectrum_time` | Spectrum arrays with increasing `time_edges_unix` and an explicit target UTC Unix second | Display array/edges, retained original indices, cursor and metadata. All-empty columns are omitted only for display. Missing/outside cursor times raise unless explicitly allowed, in which case the cursor is omitted. |
+| `radio.cso_comparison.read_cso_comparison` | Explicit linear-SFU RCP/LCP FITS files, half-open Unix-second bounds, frequency bands and processing budget | R+L spectrum and native-sample light curves with finite-sample counts. Empty bins stay NaN; overlapping files are rejected. Chunk sizes do not change numerical results. |
+| `radio.raw_comparison.prepare_muser` / `prepare_aia` / `prepare_dart` | Explicit image paths, target UTC Unix seconds, tolerances, frequency and polarization selection | Native image/header and actual source-time metadata, or a diagnostic NO DATA result. Missing times are not inferred from filenames; complete circular-polarization pairs are required when requested. |
+| `radio.muser_localization.fit_radio_plane` | Native 2D image, explicit HPLN/HPLT WCS and half-open pixel ROI | Gaussian/background parameters, projected center and separate fit/quality diagnostics. Apparent widths are not beam-deconvolved; formal covariance does not include calibration uncertainty. |
+| `xray_dem.brightness_temperature.AiaMapGeometry` / `load_brightness_temperature` / `brightness_temperature_extent` | Caller-selected AIA reference HDU, precomputed 2D Kelvin array and explicit pixel-center bounds | AIA geometry and precise UTC, a copied MK display array with nonfinite pixels filled, and pixel-edge extent. These helpers do not perform DEM inversion. |
+| `hmi.process_hmi_magnetic_field` | Magnetogram, nonnegative scalar magnetic threshold and Gaussian sigma in pixels | A new map with finite-support smoothing and the original missing-pixel mask. Input data/metadata are unchanged. Missing BUNIT assumes Gauss on output only; finite inputs retain the original Gaussian result. |
 
 The [radio composition](../examples/radio/README.md) connects a synthetic FITS
 reader to time matching and missing-column handling. The

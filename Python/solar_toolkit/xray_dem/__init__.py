@@ -14,6 +14,7 @@ from .processing import calculate_derivative, smooth_flux_data
 from .sxr import load_sxr_data
 
 _SUBMODULES = {
+    "brightness_temperature": "solar_toolkit.xray_dem.brightness_temperature",
     "hxi": "solar_toolkit.xray_dem.hxi",
     "processing": "solar_toolkit.xray_dem.processing",
     "sxr": "solar_toolkit.xray_dem.sxr",

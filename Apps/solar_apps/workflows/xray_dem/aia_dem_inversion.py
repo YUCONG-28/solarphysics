@@ -1,24 +1,26 @@
-# 模块用途: 基于 AIA 多波段观测执行差分辐射度 DEM 反演。
-# 主要输入: 多波段 AIA FITS 数据和温度响应/区域配置。
-# 主要输出/运行说明: 输出 DEM、温度或辐射度相关诊断结果。
-""" """
+"""Plot a precomputed brightness-temperature map using AIA reference geometry.
+
+The historical command name is retained; this recipe does not invert AIA data.
+"""
 
 # ============================================================
 #  导入
 # ============================================================
 import argparse
-import os
-import re
 from copy import deepcopy
 from datetime import datetime, timezone
 
-import matplotlib
 import matplotlib.patches as patches
 import matplotlib.pyplot as plt
 import numpy as np
-from astropy.io import fits
-from matplotlib import rcParams
 from matplotlib.colors import LinearSegmentedColormap
+
+from solar_toolkit.visualization.plotting import setup_chinese_font
+from solar_toolkit.xray_dem.brightness_temperature import (
+    AiaMapGeometry as SolarMap,
+    brightness_temperature_extent,
+    load_brightness_temperature,
+)
 
 from solar_apps.platform.config import load_script_config
 from solar_apps.workflows.common.image_naming import configured_scientific_image_path
@@ -40,23 +42,8 @@ __all__ = [
 #  字体配置（必须在其他 matplotlib 调用之前执行）
 # ============================================================
 def _setup_font() -> None:
-    """为 Windows/macOS 环境配置中文字体，并修复负号显示问题。"""
-    candidates = [
-        "PingFang SC",
-        "Hiragino Sans GB",
-        "Microsoft YaHei",
-        "SimHei",
-        "SimSun",
-        "KaiTi",
-        "FangSong",
-    ]
-    available = {f.name for f in matplotlib.font_manager.fontManager.ttflist}
-    for font in candidates:
-        if font in available:
-            rcParams["font.sans-serif"] = [font] + rcParams["font.sans-serif"]
-            rcParams["font.family"] = "sans-serif"
-            break
-    rcParams["axes.unicode_minus"] = False  # 防止负号渲染为方块
+    """Configure the shared installed-font policy for scientific plots."""
+    setup_chinese_font()
 
 
 # ============================================================
@@ -110,83 +97,8 @@ CONFIG = deepcopy(_DEFAULT_CONFIG)
 
 
 # ============================================================
-#  AIA 数据封装（与 DEM_RS.py 中的 SolarMap 类完全一致）
+#  AIA 几何由 solar_toolkit.xray_dem.brightness_temperature 提供
 # ============================================================
-class SolarMap:
-    """
-    读取 SDO/AIA lev1 FITS 文件，解算 WCS 坐标并提取太阳几何参数。
-
-    属性
-    ----
-    extent     : [x_left, x_right, y_bottom, y_top]，像平面外边界（arcsec）
-    nx, ny     : 图像像素数
-    rsun       : 太阳视半径（arcsec）
-    sun_center : (cx, cy) 日面中心坐标（arcsec），通常为 (0, 0)
-    obs_time   : 格式化的观测时间字符串
-    """
-
-    def __init__(self, path: str) -> None:
-        with fits.open(path) as hdul:
-            self.header = hdul[1].header  # AIA lev1 图像位于第 2 扩展（索引 1）
-        self._build_wcs()
-        self._extract_solar_geometry()
-        self.obs_time = self._parse_obs_time(path)
-
-    # ── 内部方法 ─────────────────────────────────────────────
-
-    def _build_wcs(self) -> None:
-        """根据 FITS WCS 线性投影关键字计算像平面坐标范围。"""
-        h = self.header
-        nx, ny = h["NAXIS1"], h["NAXIS2"]
-        dx, dy = h["CDELT1"], h["CDELT2"]
-
-        # coord = CRVAL + (index_1based - CRPIX) * CDELT
-        x = h["CRVAL1"] + (np.arange(nx) + 1 - h["CRPIX1"]) * dx
-        y = h["CRVAL2"] + (np.arange(ny) + 1 - h["CRPIX2"]) * dy
-
-        # imshow extent 使用像素外边缘（像素中心 ± 半像素）
-        self.extent = [
-            x.min() - abs(dx) / 2,
-            x.max() + abs(dx) / 2,
-            y.min() - abs(dy) / 2,
-            y.max() + abs(dy) / 2,
-        ]
-        self.nx, self.ny = nx, ny
-
-    def _extract_solar_geometry(self) -> None:
-        """提取太阳视半径与日面中心坐标。"""
-        h = self.header
-        self.rsun = h["RSUN_OBS"] if "RSUN_OBS" in h else h["R_SUN"] * abs(h["CDELT1"])
-        self.sun_center = (h["CRVAL1"], h["CRVAL2"])
-
-    def _parse_obs_time(self, path: str) -> str:
-        """
-        解析观测时间字符串（优先读取 FITS 头文件，回退到文件名正则匹配）。
-        返回格式：'YYYY-MM-DD HH:MM:SS UT'
-        """
-        # 尝试从头文件关键字读取
-        for key in ("T_OBS", "DATE-OBS", "DATE_OBS"):
-            if key in self.header:
-                raw = str(self.header[key]).strip()
-                m = re.search(r"(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}:\d{2})", raw)
-                if m:
-                    return f"{m.group(1)} {m.group(2)} UT"
-                m = re.search(r"(\d{4}-\d{2}-\d{2})T(\d{2})(\d{2})(\d{2})", raw)
-                if m:
-                    return f"{m.group(1)} {m.group(2)}:{m.group(3)}:{m.group(4)} UT"
-
-        # 回退：从文件名解析
-        fname = os.path.basename(path)
-        m = re.search(r"(\d{4}-\d{2}-\d{2})T(\d{2})(\d{2})(\d{2})Z?", fname)
-        if m:
-            return f"{m.group(1)} {m.group(2)}:{m.group(3)}:{m.group(4)} UT"
-        m = re.search(r"(\d{4})(\d{2})(\d{2})[_T]?(\d{2})(\d{2})(\d{2})", fname)
-        if m:
-            return (
-                f"{m.group(1)}-{m.group(2)}-{m.group(3)} "
-                f"{m.group(4)}:{m.group(5)}:{m.group(6)} UT"
-            )
-        return "Unknown"
 
 
 # ============================================================
@@ -195,26 +107,13 @@ class SolarMap:
 
 
 def get_display_extent(aia_map: SolarMap) -> list:
-    """
-    根据 CONFIG["display_mode"] 计算最终绘图坐标范围。
-    返回 [x_min, x_max, y_min, y_max]（arcsec）。
-    """
-    mode = CONFIG["display_mode"]
-
-    if mode == "full":
-        return aia_map.extent
-
-    if mode == "solar_disk":
-        cx, cy = aia_map.sun_center
-        r = aia_map.rsun * CONFIG["solar_padding_factor"]
-        return [cx - r, cx + r, cy - r, cy + r]
-
-    if mode == "custom":
-        xmin, xmax = CONFIG["display_x_range"]
-        ymin, ymax = CONFIG["display_y_range"]
-        return [xmin, xmax, ymin, ymax]
-
-    return aia_map.extent  # 兜底
+    """Return the configured bounds through the shared geometry helper."""
+    return aia_map.display_extent(
+        CONFIG["display_mode"],
+        solar_padding_factor=CONFIG["solar_padding_factor"],
+        x_range=CONFIG["display_x_range"],
+        y_range=CONFIG["display_y_range"],
+    )
 
 
 def make_tb_colormap() -> LinearSegmentedColormap:
@@ -227,38 +126,17 @@ def make_tb_colormap() -> LinearSegmentedColormap:
 
 
 def load_tb(path: str) -> np.ndarray:
-    """
-    加载亮温度数组，将 NaN/Inf 替换为 0，并将单位从 K 转换为 MK（÷1e6）。
-    返回 float64 数组，形状 (ny, nx)，单位 MK。
-    """
-    data = np.load(path).astype(np.float64)
-    data = np.nan_to_num(data, nan=0.0, posinf=0.0, neginf=0.0)
-    return data / 1e6  # K → MK
+    """Load the precomputed Kelvin map as MK using the shared display policy."""
+    return load_brightness_temperature(path)
 
 
 def get_tb_extent() -> list:
-    """
-    根据 CONFIG 中的 Tb 网格参数计算 imshow 所需的 extent。
-
-    Tb 数据由前人程序在固定网格上生成，网格参数来自配置文件：
-      - tb_pixel_size = 3 arcsec/pixel
-      - 范围：[tb_xmin, tb_xmax] × [tb_ymin, tb_ymax] arcsec
-      - 验证：(1150-(-1150))/3 + 1 ≈ 767，与 Tb 数组形状 (767,767) 吻合
-
-    imshow 的 extent 定义为像素外边缘（像素中心 ± 半像素），
-    因此将 xmin/xmax 各向外扩展半个像素（1.5 arcsec）。
-
-    Returns
-    -------
-    [x_left, x_right, y_bottom, y_top]（arcsec）
-    """
-    half = CONFIG["tb_pixel_size"] / 2.0
-    return [
-        CONFIG["tb_xmin"] - half,
-        CONFIG["tb_xmax"] + half,
-        CONFIG["tb_ymin"] - half,
-        CONFIG["tb_ymax"] + half,
-    ]
+    """Return the configured Tb pixel-edge extent."""
+    return brightness_temperature_extent(
+        pixel_size=CONFIG["tb_pixel_size"],
+        x_range=(CONFIG["tb_xmin"], CONFIG["tb_xmax"]),
+        y_range=(CONFIG["tb_ymin"], CONFIG["tb_ymax"]),
+    )
 
 
 # ============================================================

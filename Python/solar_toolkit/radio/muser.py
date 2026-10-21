@@ -55,13 +55,22 @@ def read_muser_images(path):
     """Return frequency, image, 2D celestial header and beam for every SPW."""
     with fits.open(path, memmap=False) as hdus:
         header = hdus[0].header
-        if header.get("CTYPE4") != "STOKES" or header.get("CRVAL4") != 1:
+        code = float(header.get("CRVAL4", np.nan)) + (
+            1 - float(header.get("CRPIX4", 1))
+        ) * float(header.get("CDELT4", 1))
+        if header.get("CTYPE4") != "STOKES" or not np.isclose(
+            code, 1.0, rtol=0, atol=1e-8
+        ):
             raise ValueError("Only explicit Stokes I images are supported")
         data = hdus[0].data
         if data.ndim != 5 or data.shape[1:3] != (1, 1):
             raise ValueError("Expected (frequency, 1, 1, y, x) combined image")
         freq = np.asarray(hdus["FMHZ"].data).ravel()
-        if len(freq) != data.shape[0]:
+        if (
+            len(freq) != data.shape[0]
+            or not np.isfinite(freq).all()
+            or np.any(freq <= 0)
+        ):
             raise ValueError("Image frequency extension does not match its planes")
         base = WCS(header, naxis=2).to_header()
         for key in [

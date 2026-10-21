@@ -75,6 +75,11 @@ Keep runtime files under `Local/` or outside the repository. Set
 destinations before creating files, including symbolic links and each example's
 derived output files.
 
+`admin init` also creates launchers in the selected runtime. These launchers
+retain that runtime selection and resolve the source checkout relative to it,
+so moving their containing workspace together preserves the entry points.
+Windows runtimes on a different volume use an absolute checkout path instead.
+
 Path authorization does not provide scientific configuration. Observation files,
 UTC ranges, regions and analysis choices must come from the caller. Radio
 workflow entry points accept a private JSON object with `--config-file`, an

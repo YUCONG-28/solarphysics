@@ -8,19 +8,28 @@ DEM/radio source overlay calculations.
 import argparse
 import glob
 import os
-import re
 from copy import deepcopy
 from datetime import datetime, timezone
+from pathlib import Path
 
-import matplotlib
 import matplotlib.patches as patches
 import matplotlib.pyplot as plt
 import numpy as np
 from astropy.io import fits
-from matplotlib import rcParams
 from matplotlib.colors import LinearSegmentedColormap
 from matplotlib.lines import Line2D
 from scipy.ndimage import gaussian_filter
+
+from solar_toolkit.radio.centers import parse_time_from_filename
+from solar_toolkit.radio.time_matching import observation_stamp
+from solar_toolkit.time import parse_time
+from solar_toolkit.visualization.plotting import setup_chinese_font
+from solar_toolkit.xray_dem.brightness_temperature import (
+    AiaMapGeometry as SolarMap,
+    brightness_temperature_extent,
+    format_observation_time,
+    load_brightness_temperature,
+)
 
 from solar_apps.platform.config import load_script_config
 from solar_apps.workflows.common.image_naming import configured_scientific_image_path
@@ -45,23 +54,8 @@ __all__ = [
 #  字体配置（必须在其他 matplotlib 调用之前执行）
 # ============================================================
 def _setup_font() -> None:
-    """为 Windows/macOS 环境配置中文字体，并修复负号显示问题。"""
-    candidates = [
-        "PingFang SC",
-        "Hiragino Sans GB",
-        "Microsoft YaHei",
-        "SimHei",
-        "SimSun",
-        "KaiTi",
-        "FangSong",
-    ]
-    available = {f.name for f in matplotlib.font_manager.fontManager.ttflist}
-    for font in candidates:
-        if font in available:
-            rcParams["font.sans-serif"] = [font] + rcParams["font.sans-serif"]
-            rcParams["font.family"] = "sans-serif"
-            break
-    rcParams["axes.unicode_minus"] = False
+    """Configure the shared installed-font policy for scientific plots."""
+    setup_chinese_font()
 
 
 # ============================================================
@@ -160,68 +154,6 @@ CONFIG = deepcopy(_DEFAULT_CONFIG)
 # ============================================================
 #  AIA 数据封装
 # ============================================================
-class SolarMap:
-    """
-    读取 SDO/AIA lev1 FITS 文件，解算 WCS 坐标并提取太阳几何参数。
-
-    属性
-    ----
-    extent     : [x_left, x_right, y_bottom, y_top]（arcsec）
-    nx, ny     : 图像像素数
-    rsun       : 太阳视半径（arcsec）
-    sun_center : (cx, cy) 日面中心坐标（arcsec）
-    obs_time   : 格式化时间字符串，如 '2000-01-01 04:47:47 UT'
-    obs_dt     : datetime 对象，用于与射电文件做时间匹配
-    """
-
-    def __init__(self, path: str) -> None:
-        with fits.open(path) as hdul:
-            self.header = hdul[1].header
-        self._build_wcs()
-        self._extract_solar_geometry()
-        self.obs_time = self._parse_obs_time(path)
-        self.obs_dt = _str_to_datetime(self.obs_time)
-
-    def _build_wcs(self) -> None:
-        h = self.header
-        nx, ny = h["NAXIS1"], h["NAXIS2"]
-        dx, dy = h["CDELT1"], h["CDELT2"]
-        x = h["CRVAL1"] + (np.arange(nx) + 1 - h["CRPIX1"]) * dx
-        y = h["CRVAL2"] + (np.arange(ny) + 1 - h["CRPIX2"]) * dy
-        self.extent = [
-            x.min() - abs(dx) / 2,
-            x.max() + abs(dx) / 2,
-            y.min() - abs(dy) / 2,
-            y.max() + abs(dy) / 2,
-        ]
-        self.nx, self.ny = nx, ny
-
-    def _extract_solar_geometry(self) -> None:
-        h = self.header
-        self.rsun = h["RSUN_OBS"] if "RSUN_OBS" in h else h["R_SUN"] * abs(h["CDELT1"])
-        self.sun_center = (h["CRVAL1"], h["CRVAL2"])
-
-    def _parse_obs_time(self, path: str) -> str:
-        for key in ("T_OBS", "DATE-OBS", "DATE_OBS"):
-            if key in self.header:
-                raw = str(self.header[key]).strip()
-                m = re.search(r"(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}:\d{2})", raw)
-                if m:
-                    return f"{m.group(1)} {m.group(2)} UT"
-                m = re.search(r"(\d{4}-\d{2}-\d{2})T(\d{2})(\d{2})(\d{2})", raw)
-                if m:
-                    return f"{m.group(1)} {m.group(2)}:{m.group(3)}:{m.group(4)} UT"
-        fname = os.path.basename(path)
-        m = re.search(r"(\d{4}-\d{2}-\d{2})T(\d{2})(\d{2})(\d{2})Z?", fname)
-        if m:
-            return f"{m.group(1)} {m.group(2)}:{m.group(3)}:{m.group(4)} UT"
-        m = re.search(r"(\d{4})(\d{2})(\d{2})[_T]?(\d{2})(\d{2})(\d{2})", fname)
-        if m:
-            return (
-                f"{m.group(1)}-{m.group(2)}-{m.group(3)} "
-                f"{m.group(4)}:{m.group(5)}:{m.group(6)} UT"
-            )
-        return "Unknown"
 
 
 # ============================================================
@@ -230,74 +162,32 @@ class SolarMap:
 
 
 def _str_to_datetime(time_str: str):
-    """
-    将 'YYYY-MM-DD HH:MM:SS[.mmm] UT' 解析为 datetime 对象。
-    解析失败时返回 None。
-    """
+    """Parse the legacy display label as UTC without dropping fractions."""
     if not time_str or time_str == "Unknown":
         return None
-    # 带毫秒
-    m = re.search(r"(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2})\.\d+", time_str)
-    if m:
-        try:
-            return datetime.strptime(f"{m.group(1)} {m.group(2)}", "%Y-%m-%d %H:%M:%S")
-        except ValueError:
-            pass
-    # 不带毫秒
-    m = re.search(r"(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2})", time_str)
-    if m:
-        try:
-            return datetime.strptime(f"{m.group(1)} {m.group(2)}", "%Y-%m-%d %H:%M:%S")
-        except ValueError:
-            pass
-    return None
+    try:
+        return parse_time(time_str.removesuffix(" UT"))
+    except (ValueError, TypeError):
+        return None
 
 
 def get_radio_time(path: str) -> str:
-    """
-    提取射电 FITS 文件的观测时间字符串。
-    优先读取 FITS 头文件关键字，回退到文件名正则匹配。
-    返回格式：'YYYY-MM-DD HH:MM:SS[.mmm] UT'
-    """
+    """Resolve the original observation time, including fractional UTC/TAI."""
+    header = {}
     try:
         with fits.open(path) as hdul:
-            header = hdul[0].header
-        for key in ("DATE-OBS", "T_OBS", "DATE_OBS"):
-            if key in header:
-                raw = str(header[key]).strip()
-                m = re.search(r"(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}:\d{2})", raw)
-                if m:
-                    return f"{m.group(1)} {m.group(2)} UT"
-                m = re.search(r"(\d{4}-\d{2}-\d{2})T(\d{2})(\d{2})(\d{2})", raw)
-                if m:
-                    return f"{m.group(1)} {m.group(2)}:{m.group(3)}:{m.group(4)} UT"
-    except Exception:
+            header = hdul[0].header.copy()
+    except (OSError, ValueError, IndexError):
         pass
-
-    fname = os.path.basename(path)
-    # CSRH/MUSER 合成示例：149MHz_2000101_000000_000.fits（月份无前导零）
-    m = re.search(r"(\d{4})(\d{1,2})(\d{2})_(\d{2})(\d{2})(\d{2})_(\d{3})", fname)
-    if m:
-        year = m.group(1)
-        month = m.group(2).zfill(2)
-        day = m.group(3)
-        hh, mm, ss, ms = m.group(4), m.group(5), m.group(6), m.group(7)
-        return f"{year}-{month}-{day} {hh}:{mm}:{ss}.{ms} UT"
-    # 标准格式：YYYYMMDD_HHMMSS 或 YYYYMMDD-HHMMSS
-    m = re.search(r"(\d{4})(\d{2})(\d{2})[_\-](\d{2})(\d{2})(\d{2})", fname)
-    if m:
-        return (
-            f"{m.group(1)}-{m.group(2)}-{m.group(3)} "
-            f"{m.group(4)}:{m.group(5)}:{m.group(6)} UT"
+    try:
+        stamp = observation_stamp(
+            header,
+            path=path,
+            fallback_parser=lambda value: parse_time_from_filename(Path(value)),
         )
-    # 连续 14 位：YYYYMMDDHHMMSS
-    m = re.search(r"(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})", fname)
-    if m:
-        return (
-            f"{m.group(1)}-{m.group(2)}-{m.group(3)} "
-            f"{m.group(4)}:{m.group(5)}:{m.group(6)} UT"
-        )
-    return "Unknown"
+    except (ValueError, TypeError):
+        return "Unknown"
+    return format_observation_time(stamp.utc)
 
 
 def find_matching_radio(files: list, aia_dt: datetime) -> tuple:
@@ -432,19 +322,13 @@ def load_radio(path: str) -> tuple:
 
 
 def get_display_extent(aia_map: SolarMap) -> list:
-    """返回最终绘图坐标范围 [x_min, x_max, y_min, y_max]（arcsec）。"""
-    mode = CONFIG["display_mode"]
-    if mode == "full":
-        return aia_map.extent
-    if mode == "solar_disk":
-        cx, cy = aia_map.sun_center
-        r = aia_map.rsun * CONFIG["solar_padding_factor"]
-        return [cx - r, cx + r, cy - r, cy + r]
-    if mode == "custom":
-        xmin, xmax = CONFIG["display_x_range"]
-        ymin, ymax = CONFIG["display_y_range"]
-        return [xmin, xmax, ymin, ymax]
-    return aia_map.extent
+    """Return the configured bounds through the shared geometry helper."""
+    return aia_map.display_extent(
+        CONFIG["display_mode"],
+        solar_padding_factor=CONFIG["solar_padding_factor"],
+        x_range=CONFIG["display_x_range"],
+        y_range=CONFIG["display_y_range"],
+    )
 
 
 def make_tb_colormap() -> LinearSegmentedColormap:
@@ -457,20 +341,17 @@ def make_tb_colormap() -> LinearSegmentedColormap:
 
 
 def load_tb(path: str) -> np.ndarray:
-    """加载 Tb 数组（K → MK），替换 NaN/Inf 为 0。"""
-    data = np.load(path).astype(np.float64)
-    return np.nan_to_num(data, nan=0.0, posinf=0.0, neginf=0.0) / 1e6
+    """Load the precomputed Kelvin map as MK using the shared display policy."""
+    return load_brightness_temperature(path)
 
 
 def get_tb_extent() -> list:
-    """返回 Tb 图像的 imshow extent（像素外边缘，arcsec）。"""
-    half = CONFIG["tb_pixel_size"] / 2.0
-    return [
-        CONFIG["tb_xmin"] - half,
-        CONFIG["tb_xmax"] + half,
-        CONFIG["tb_ymin"] - half,
-        CONFIG["tb_ymax"] + half,
-    ]
+    """Return the configured Tb pixel-edge extent."""
+    return brightness_temperature_extent(
+        pixel_size=CONFIG["tb_pixel_size"],
+        x_range=(CONFIG["tb_xmin"], CONFIG["tb_xmax"]),
+        y_range=(CONFIG["tb_ymin"], CONFIG["tb_ymax"]),
+    )
 
 
 # ============================================================
