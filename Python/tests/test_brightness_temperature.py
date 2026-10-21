@@ -22,6 +22,10 @@ def reference_fits(tmp_path, *, time="2000-01-01T00:00:01.123456", **cards):
             "CRVAL2": -20,
             "CDELT1": -2,
             "CDELT2": 4,
+            "CTYPE1": "SOLX",
+            "CTYPE2": "SOLY",
+            "CUNIT1": "arcsec",
+            "CUNIT2": "arcsec",
             "RSUN_OBS": 960,
             **cards,
         }
@@ -39,7 +43,8 @@ def test_reference_geometry_uses_pixel_edges_and_preserves_fractional_utc(tmp_pa
     geometry = AiaMapGeometry(reference_fits(tmp_path))
     assert (geometry.nx, geometry.ny) == (3, 2)
     assert geometry.extent == [7, 13, -22, -14]
-    assert geometry.sun_center == (10, -20)
+    # A nonzero WCS reference coordinate does not move the solar disk center.
+    assert geometry.sun_center == (0, 0)
     assert geometry.rsun == 960
     assert geometry.obs_time == "2000-01-01 00:00:01.123456 UT"
     assert geometry.obs_dt == dt.datetime(2000, 1, 1, 0, 0, 1, 123456)
@@ -68,10 +73,10 @@ def test_display_modes_are_explicit_and_do_not_modify_full_extent(tmp_path):
     options = dict(solar_padding_factor=1.25, x_range=(-5, 6), y_range=(-7, 8))
     assert geometry.display_extent("custom", **options) == [-5, 6, -7, 8]
     assert geometry.display_extent("solar_disk", **options) == [
-        -1190,
-        1210,
-        -1220,
-        1180,
+        -1200,
+        1200,
+        -1200,
+        1200,
     ]
     extent = geometry.display_extent("full", **options)
     extent[0] = 100
@@ -86,8 +91,41 @@ def test_brightness_temperature_converts_kelvin_and_fills_only_display_values(tm
     result = load_brightness_temperature(path)
 
     assert result.dtype == np.float64
-    np.testing.assert_array_equal(result, [[1, 0], [0, 0]])
+    np.testing.assert_array_equal(result, [[1, np.nan], [np.nan, np.nan]])
+    np.testing.assert_array_equal(
+        load_brightness_temperature(path, fill_missing=0), [[1, 0], [0, 0]]
+    )
     np.testing.assert_array_equal(np.load(path), source)
+
+
+def test_reference_cd_rotation_uses_world_bounds_in_arcseconds(tmp_path):
+    from astropy.wcs import WCS
+
+    path = reference_fits(
+        tmp_path,
+        CTYPE1="HPLN-TAN",
+        CTYPE2="HPLT-TAN",
+        CUNIT1="deg",
+        CUNIT2="deg",
+        CRVAL1=0,
+        CRVAL2=0,
+        CD1_1=0,
+        CD1_2=-0.001,
+        CD2_1=0.002,
+        CD2_2=0,
+    )
+    before = path.read_bytes()
+    geometry = AiaMapGeometry(path)
+    header = fits.getheader(path, 1)
+    # At this central, orthogonally rotated projection, edge extrema lie at
+    # corners. Astropy is an independent oracle for units and pixel origins.
+    x, y = WCS(header).pixel_to_world_values(
+        [-0.5, 2.5, 2.5, -0.5], [-0.5, -0.5, 1.5, 1.5]
+    )
+    x = (np.asarray(x) + 180) % 360 - 180
+    expected = [x.min() * 3600, x.max() * 3600, np.min(y) * 3600, np.max(y) * 3600]
+    np.testing.assert_allclose(geometry.extent, expected, atol=1e-6)
+    assert path.read_bytes() == before
 
 
 @pytest.mark.parametrize("shape", [(2,), (1, 2, 3), (0, 2)])

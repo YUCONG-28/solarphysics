@@ -6,6 +6,9 @@ import math
 
 import numpy as np
 import pandas as pd
+from astropy import units as u
+
+from solar_toolkit._utils.numeric import as_value
 
 from .io import _sample_float, truthy
 
@@ -32,10 +35,11 @@ PLASMA_FREQ_COEFF_KHZ = 8.98
 def plasma_density_from_frequency_mhz(freq_mhz, harmonic=1):
     """Return plasma density in cm^-3 for observed MHz frequencies.
 
-    Invalid frequency samples produce NaN, preserving the input shape. The
-    emission harmonic is a finite positive scalar configuration value.
+    Bare frequencies mean MHz; Quantities are converted to MHz. Invalid or
+    masked samples produce NaN, preserving the input shape. The emission
+    harmonic is a finite positive scalar configuration value.
     """
-    freq = np.asarray(freq_mhz, dtype=np.float64)
+    freq = as_value(freq_mhz, u.MHz, "freq_mhz")
     harmonic = _positive_parameter(harmonic, "harmonic")
     with np.errstate(over="ignore", invalid="ignore"):
         density = (1000.0 * freq / (PLASMA_FREQ_COEFF_KHZ * harmonic)) ** 2
@@ -49,9 +53,10 @@ def newkirk_density_cm3(r_rsun, multiplier=1.0):
     """Return Newkirk density in cm^-3 at heliocentric radii in solar radii.
 
     Nonpositive/nonfinite radii and numerical overflow yield NaN. The density
-    multiplier must be finite and positive. Inputs are never modified.
+    multiplier must be finite and positive. Bare radii mean solar radii; length
+    Quantities are converted. Masked radii remain NaN. Inputs are never modified.
     """
-    r = np.asarray(r_rsun, dtype=np.float64)
+    r = as_value(r_rsun, u.R_sun, "r_rsun")
     multiplier = _positive_parameter(multiplier, "multiplier")
     with np.errstate(divide="ignore", over="ignore", invalid="ignore"):
         density = multiplier * NEWKIRK_BASE_DENSITY_CM3 * 10.0 ** (NEWKIRK_EXPONENT / r)
@@ -60,8 +65,8 @@ def newkirk_density_cm3(r_rsun, multiplier=1.0):
 
 
 def newkirk_radius_from_density(ne_cm3, multiplier=1.0):
-    """Return radius in solar radii, or NaN outside the model's invertible domain."""
-    ne = np.asarray(ne_cm3, dtype=np.float64)
+    """Return solar radii from density in cm^-3 or a convertible Quantity."""
+    ne = as_value(ne_cm3, u.cm**-3, "ne_cm3")
     multiplier = _positive_parameter(multiplier, "multiplier")
     with np.errstate(divide="ignore", invalid="ignore"):
         denom = np.log10(ne / (multiplier * NEWKIRK_BASE_DENSITY_CM3))
@@ -95,9 +100,9 @@ def newkirk_height_from_frequency_mhz(freq_mhz, multiplier=1.0, harmonic=1):
 
 def newkirk_speed_from_drift_rate(freq_mhz, drift_rate_mhz_s, r_rsun):
     """Return radial drift and km/s, with an invalid-sample reason when needed."""
-    freq = _sample_float(freq_mhz)
-    drift = _sample_float(drift_rate_mhz_s)
-    radius = _sample_float(r_rsun)
+    freq = _physical_sample(freq_mhz, u.MHz, "freq_mhz")
+    drift = _physical_sample(drift_rate_mhz_s, u.MHz / u.s, "drift_rate_mhz_s")
+    radius = _physical_sample(r_rsun, u.R_sun, "r_rsun")
     if freq <= 0 or radius <= 0 or not np.isfinite([freq, drift, radius]).all():
         dr_dt = np.nan
     else:
@@ -128,9 +133,7 @@ def effective_density_factor(multiplier, harmonic):
 def newkirk_assumption_label(multiplier, harmonic):
     """Return a compact physical label for a density and emission assumption."""
     factor = effective_density_factor(multiplier, harmonic)
-    return (
-        f"{float(multiplier):g}x Newkirk, H={float(harmonic):g}, " f"N*s^2={factor:g}"
-    )
+    return f"{float(multiplier):g}x Newkirk, H={float(harmonic):g}, N*s^2={factor:g}"
 
 
 def attach_newkirk_height_to_gaussian(
@@ -265,15 +268,29 @@ def _truthy(value) -> bool:
 
 def _positive_parameter(value, name):
     """Validate scalar model configuration separately from observed samples."""
-    if np.ndim(value) != 0:
-        raise ValueError(f"{name} must be a finite positive scalar")
     try:
-        number = float(value)
+        converted = as_value(value, u.dimensionless_unscaled, name)
+        if converted.ndim != 0:
+            raise ValueError("non-scalar parameter")
+        number = float(converted)
+    except u.UnitConversionError:
+        raise
     except (TypeError, ValueError):
         raise ValueError(f"{name} must be a finite positive scalar") from None
     if not np.isfinite(number) or number <= 0:
         raise ValueError(f"{name} must be a finite positive scalar")
     return number
+
+
+def _physical_sample(value, unit, name):
+    """Keep lenient invalid-observation flags while rejecting wrong dimensions."""
+    try:
+        converted = as_value(value, unit, name)
+    except u.UnitConversionError:
+        raise
+    except (TypeError, ValueError, OverflowError):
+        return np.nan
+    return _sample_float(converted)
 
 
 def _scalar_or_array(value):

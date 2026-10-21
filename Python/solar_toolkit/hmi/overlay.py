@@ -14,6 +14,7 @@ import datetime as dt
 import time
 from pathlib import Path
 
+from solar_toolkit.time import elapsed_seconds
 from solar_toolkit.visualization.image_naming import (
     ImageFilenameSpec,
     build_image_filename,
@@ -183,15 +184,15 @@ def run_overlay_workflow(
         while hmi_index < len(hmi_files) - 1:
             current_hmi_time = hmi_files[hmi_index][1]
             next_hmi_time = hmi_files[hmi_index + 1][1]
-            current_diff = abs((aia_time - current_hmi_time).total_seconds())
-            next_diff = abs((aia_time - next_hmi_time).total_seconds())
+            current_diff = abs(elapsed_seconds(current_hmi_time, aia_time))
+            next_diff = abs(elapsed_seconds(next_hmi_time, aia_time))
             if next_diff < current_diff:
                 hmi_index += 1
             else:
                 break
 
         hmi_path, hmi_time = hmi_files[hmi_index]
-        time_diff = abs((aia_time - hmi_time).total_seconds())
+        time_diff = abs(elapsed_seconds(hmi_time, aia_time))
         if time_diff > max_time_diff_seconds:
             print(
                 f"Skipping {Path(aia_path).name}: no HMI match within "

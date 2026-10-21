@@ -17,10 +17,9 @@ import numpy as np
 import pandas as pd
 from astropy.io import fits
 
-from solar_toolkit.radio.centers import (
-    FITS_SUFFIXES,
-    pixel_to_hpc_arcsec,
-)
+from solar_toolkit._utils.numeric import numeric_data
+from solar_toolkit.map.coordinates import hpc_world_bounds, hpc_world_to_pixel
+from solar_toolkit.radio.centers import FITS_SUFFIXES
 from solar_toolkit.radio.time_matching import observation_stamp
 from solar_toolkit.time import extract_timestamp_from_filename
 
@@ -36,7 +35,11 @@ __all__ = [
 
 @dataclass
 class AiaBackground:
-    """Downsampled AIA image plus 1D HPLN/HPLT axes for Plotly heatmaps."""
+    """Display samples on separable, regular HPLN/HPLT arcsecond center axes.
+
+    ``read_aia_background`` resamples through the full WCS, without conserving
+    flux. Existing callers can still construct this record from a regular grid.
+    """
 
     path: str
     z: np.ndarray
@@ -176,26 +179,35 @@ def find_nearest_aia(
         return NearestAIA(
             status="invalid_table", reason="AIA table lacks path/obs_time."
         )
-    target = pd.Timestamp(frame_time)
-    if target.tzinfo is not None:
-        target = target.tz_convert("UTC").tz_localize(None)
-    times = pd.to_datetime(
-        aia_table["obs_time"], errors="coerce", utc=True
-    ).dt.tz_localize(None)
+    from solar_toolkit.time import normalize_time, seconds_to_ns
+
+    target = normalize_time(frame_time)
+
+    def observed_time(value):
+        try:
+            return normalize_time(value)
+        except (TypeError, ValueError):
+            return None
+
+    times = aia_table["obs_time"].map(observed_time)
     valid = times.notna()
     if not valid.any():
         return NearestAIA(
             status="invalid_table", reason="AIA table has no valid times."
         )
-    diffs = (times[valid] - target).abs().dt.total_seconds()
+    diffs = times[valid].map(lambda stamp: abs(stamp.tai_ns - target.tai_ns))
     best_index = diffs.idxmin()
-    best_delta = float(diffs.loc[best_index])
+    best_delta_ns = int(diffs.loc[best_index])
+    best_delta = best_delta_ns / 1_000_000_000
     row = aia_table.loc[best_index]
-    if best_delta > tolerance:
+    stamp = times.loc[best_index]
+    stamp.to_datetime()  # The public pandas view cannot represent a leap second.
+    observed = pd.Timestamp(stamp.utc)
+    if best_delta_ns > seconds_to_ns(tolerance, nonnegative=True):
         return NearestAIA(
             status="too_far",
             path=str(row["path"]),
-            obs_time=pd.Timestamp(row["obs_time"]),
+            obs_time=observed,
             delta_seconds=best_delta,
             reason="Nearest AIA file exceeds max_dt_seconds.",
             hdu_index=int(row["hdu_index"]) if "hdu_index" in row else None,
@@ -203,7 +215,7 @@ def find_nearest_aia(
     return NearestAIA(
         status="matched",
         path=str(row["path"]),
-        obs_time=pd.Timestamp(row["obs_time"]),
+        obs_time=observed,
         delta_seconds=best_delta,
         hdu_index=int(row["hdu_index"]) if "hdu_index" in row else None,
     )
@@ -218,11 +230,13 @@ def read_aia_background(
     wcs_mode: str = "header",
     hdu_index: int | None = None,
 ) -> AiaBackground:
-    """Read a downsampled AIA image for Plotly background display.
+    """Resample an AIA image to a regular HPC display grid using its full WCS.
 
-    ``wcs_mode="header"`` uses a fast linear FITS-header grid. ``"sunpy"``
-    validates that SunPy can read the file before using the same regular grid,
-    because Plotly heatmaps need 1D axes for efficient playback.
+    Both modes use complete FITS projection/matrix/distortion semantics;
+    ``wcs_mode='sunpy'`` additionally checks SunPy readability. Bilinear display
+    interpolation is not flux conserving and propagates missing source samples.
+    Coverage outside the native pixel-edge footprint remains NaN. The grid's
+    1D angular axes are pixel centers, permitting existing Plotly consumers.
     """
 
     resolved = Path(path).expanduser()
@@ -233,22 +247,41 @@ def read_aia_background(
         _validate_sunpy_map_readable(resolved)
 
     image, header = _read_first_image_hdu(resolved, hdu_index=hdu_index)
-    image = np.where(np.isfinite(image), image, np.nan)
+    image = numeric_data(image)
+    image[~np.isfinite(image)] = np.nan
     ny, nx = image.shape
     step = max(1, int(math.ceil(max(ny, nx) / max(1, int(max_pixels)))))
-    z = image[::step, ::step].astype(float)
-    z = _scale_background(z, percentile_limits=percentile_limits, log_scale=log_scale)
+    out_ny, out_nx = (ny + step - 1) // step, (nx + step - 1) // step
+    left, right, bottom, top = hpc_world_bounds(header, image.shape)
+    dx, dy = (right - left) / out_nx, (top - bottom) / out_ny
+    if dx <= 0 or dy <= 0:
+        raise ValueError("AIA WCS must span a nondegenerate angular display plane")
+    x_arcsec = left + (np.arange(out_nx) + 0.5) * dx
+    y_arcsec = bottom + (np.arange(out_ny) + 0.5) * dy
+    grid_x, grid_y = np.meshgrid(x_arcsec, y_arcsec)
+    px, py = hpc_world_to_pixel(header, grid_x, grid_y)
+    covered = (
+        np.isfinite(px)
+        & np.isfinite(py)
+        & (px >= -0.5)
+        & (px <= nx - 0.5)
+        & (py >= -0.5)
+        & (py <= ny - 0.5)
+    )
+    from scipy.ndimage import map_coordinates
 
-    y_pix = np.arange(0, ny, step)
-    x_pix = np.arange(0, nx, step)
-    x_arcsec = np.array(
-        [pixel_to_hpc_arcsec(header, float(x), 0.0)[0] for x in x_pix],
-        dtype=float,
+    # Extend a boundary pixel only within its own half-pixel footprint; this
+    # is not extrapolation outside the image. Missing interpolation neighbors
+    # remain NaN rather than being replaced or renormalized away.
+    z = map_coordinates(
+        image,
+        [np.where(covered, py, 0), np.where(covered, px, 0)],
+        order=1,
+        mode="nearest",
+        prefilter=False,
     )
-    y_arcsec = np.array(
-        [pixel_to_hpc_arcsec(header, 0.0, float(y))[1] for y in y_pix],
-        dtype=float,
-    )
+    z[~covered] = np.nan
+    z = _scale_background(z, percentile_limits=percentile_limits, log_scale=log_scale)
     obs_time = _header_time(header)
     if obs_time is None:
         try:
@@ -309,7 +342,7 @@ def _scale_background(
 ) -> np.ndarray:
     finite = np.isfinite(z)
     if not np.any(finite):
-        return np.zeros_like(z, dtype=float)
+        return np.full_like(z, np.nan, dtype=float)
     low, high = percentile_limits
     lo = float(np.nanpercentile(z[finite], low))
     hi = float(np.nanpercentile(z[finite], high))

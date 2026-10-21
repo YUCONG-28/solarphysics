@@ -19,6 +19,10 @@ import matplotlib.dates as mdates
 import numpy as np
 from astropy.io import fits
 
+from solar_toolkit.time import elapsed_seconds
+
+from ._time import shift_datetime
+from .cso import cso_base_datetime
 from .io import (
     index_range_from_time_values,
     index_range_from_values,
@@ -111,15 +115,13 @@ def _read_spectrogram_file_metadata(path: str) -> dict:
         dateobs = header.get("DATE-OBS") or header.get("DATE_OBS")
         if not dateobs:
             raise ValueError(f"Spectrogram FITS header lacks DATE-OBS/DATE_OBS: {path}")
-        dt_base = datetime.datetime.fromisoformat(str(dateobs)[:10])
-        if time_arr.size and time_arr[0] < 0:
-            dt_base += datetime.timedelta(days=1)
+        dt_base = cso_base_datetime(dateobs, time_arr)
 
     finite_time = time_arr[np.isfinite(time_arr)]
     if finite_time.size == 0:
         raise ValueError(f"Spectrogram FITS time axis has no finite values: {path}")
-    file_start = dt_base + datetime.timedelta(seconds=float(np.nanmin(finite_time)))
-    file_end = dt_base + datetime.timedelta(seconds=float(np.nanmax(finite_time)))
+    file_start = shift_datetime(dt_base, float(np.nanmin(finite_time)))
+    file_end = shift_datetime(dt_base, float(np.nanmax(finite_time)))
     print(f"  - {path}")
     print(f"    file_start / file_end: {file_start} / {file_end}")
     return {
@@ -146,11 +148,9 @@ def resolve_spectrogram_time_window_multi(cfg, radio_time_range, file_metas):
         t_start, t_end = global_file_start, global_file_end
     elif mode == "auto_radio":
         if radio_time_range is not None:
-            margin = datetime.timedelta(
-                seconds=float(cfg.get("spectrogram_time_margin_seconds", 30.0))
-            )
-            t_start = radio_time_range[0] - margin
-            t_end = radio_time_range[1] + margin
+            margin = float(cfg.get("spectrogram_time_margin_seconds", 30.0))
+            t_start = shift_datetime(radio_time_range[0], -margin)
+            t_end = shift_datetime(radio_time_range[1], margin)
         else:
             t_start, t_end = global_file_start, global_file_end
     else:
@@ -174,18 +174,14 @@ def _spectrogram_overlap_segments(cfg, t_start, t_end, metas):
         overlap_start = max(t_start, meta["file_start"])
         overlap_end = min(t_end, meta["file_end"])
         if overlap_start <= overlap_end:
-            t1s = (overlap_start - meta["dt_base"]).total_seconds()
-            t2s = (overlap_end - meta["dt_base"]).total_seconds()
+            t1s = elapsed_seconds(meta["dt_base"], overlap_start)
+            t2s = elapsed_seconds(meta["dt_base"], overlap_end)
             time_range = _index_range_from_time_values(meta["time_arr"], t1s, t2s)
             if time_range is None:
                 continue
             ti0, ti1 = time_range
-            actual_start = meta["dt_base"] + datetime.timedelta(
-                seconds=float(meta["time_arr"][ti0])
-            )
-            actual_end = meta["dt_base"] + datetime.timedelta(
-                seconds=float(meta["time_arr"][ti1])
-            )
+            actual_start = shift_datetime(meta["dt_base"], float(meta["time_arr"][ti0]))
+            actual_end = shift_datetime(meta["dt_base"], float(meta["time_arr"][ti1]))
             print("  selected spectrogram segment:")
             print(f"    path: {meta['path']}")
             print(f"    overlap_start / overlap_end: {overlap_start} / {overlap_end}")
@@ -205,14 +201,13 @@ def _spectrogram_overlap_segments(cfg, t_start, t_end, metas):
 
     segments.sort(key=lambda item: item["overlap_start"])
     gaps = []
-    tolerance = datetime.timedelta(seconds=1.0)
     cursor = t_start
     for segment in segments:
-        if segment["overlap_start"] > cursor + tolerance:
+        if elapsed_seconds(cursor, segment["overlap_start"]) > 1.0:
             gaps.append((cursor, segment["overlap_start"]))
         if segment["overlap_end"] > cursor:
             cursor = segment["overlap_end"]
-    if cursor < t_end - tolerance:
+    if elapsed_seconds(cursor, t_end) > 1.0:
         gaps.append((cursor, t_end))
 
     if gaps:
@@ -435,8 +430,7 @@ def build_spectrogram_cache(
         freq_out_i = _rebinned_axis_values(freq_arr, fi0, fi1, f_bin).astype(np.float32)
         time_out_i = _rebinned_axis_values(time_arr, ti0, ti1, t_bin)
         time_datetimes_i = [
-            meta["dt_base"] + datetime.timedelta(seconds=float(sec))
-            for sec in time_out_i
+            shift_datetime(meta["dt_base"], float(sec)) for sec in time_out_i
         ]
         time_nums_i = mdates.date2num(time_datetimes_i)
 

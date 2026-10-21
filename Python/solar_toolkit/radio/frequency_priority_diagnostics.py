@@ -14,7 +14,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-from .io import ensure_output_dir, parse_datetime_value, truthy
+from .io import ensure_output_dir, parse_datetime_value, parse_timestamp_value, truthy
+from ._time import table_timestamp
 from ._image_naming import build_radio_image_filename
 from .newkirk import (
     SPEED_OF_LIGHT_KM_S,
@@ -162,7 +163,7 @@ def apply_frequency_priority_drift_matching(gaussian_df, drift_df, config=None):
     rows = []
     for _, row in gaussian.iterrows():
         candidates = []
-        row_time = parse_datetime_value(row.get("time"))
+        row_time = parse_timestamp_value(row.get("time"))
         row_freq = _float_or_nan(row.get("frequency_mhz"))
         if row_time is not None and np.isfinite(row_freq):
             for _, drift_row in drift.iterrows():
@@ -1482,35 +1483,21 @@ def _clean_gaussian_table(gaussian_df):
 
 
 def _frequency_on_drift_line(row_time, drift_row, time_tolerance_s):
-    t_start = parse_datetime_value(drift_row.get("t_start"))
-    t_end = parse_datetime_value(drift_row.get("t_end"))
-    f_start = _float_or_nan(drift_row.get("f_start_mhz"))
-    f_end = _float_or_nan(drift_row.get("f_end_mhz"))
-    if (
-        t_start is None
-        or t_end is None
-        or not np.isfinite(f_start)
-        or not np.isfinite(f_end)
-    ):
-        return None
-    if t_end < t_start:
-        t_start, t_end = t_end, t_start
-        f_start, f_end = f_end, f_start
-    duration = (t_end - t_start).total_seconds()
-    offset = (row_time - t_start).total_seconds()
-    if offset < -time_tolerance_s or offset > duration + time_tolerance_s:
-        return None
-    if abs(duration) <= 1e-12:
-        return 0.5 * (f_start + f_end)
-    fraction = min(1.0, max(0.0, offset / duration))
-    return f_start + fraction * (f_end - f_start)
+    from .drift_rate import _frequency_on_drift_line as interpolate
+
+    return interpolate(row_time, drift_row, time_tolerance_s)
 
 
 def _prepare_spectrogram(spectrogram_data, time_axis, frequency_axis_mhz):
     data = np.asarray(spectrogram_data, dtype=float)
-    time_nums = np.asarray(
-        [mdates.date2num(parse_datetime_value(t) or t) for t in time_axis], dtype=float
-    )
+    from ._time import table_timestamp
+
+    timestamps = [table_timestamp(value) for value in time_axis]
+    if any(pd.isna(value) for value in timestamps):
+        raise ValueError(
+            "Spectrogram time_axis must contain explicit calendar timestamps"
+        )
+    time_nums = np.asarray(mdates.date2num(timestamps), dtype=float)
     freqs = np.asarray(frequency_axis_mhz, dtype=float)
     if data.shape[0] != freqs.size and data.shape[1] == freqs.size:
         data = data.T
@@ -1533,25 +1520,7 @@ def _parse_time_series(series):
 
 
 def _parse_radio_datetime(value):
-    parsed = parse_datetime_value(value)
-    if parsed is not None:
-        return pd.Timestamp(parsed)
-    digits = "".join(ch for ch in str(value) if ch.isdigit())
-    if len(digits) < 14:
-        return pd.NaT
-    base = digits[:14]
-    suffix = digits[14:]
-    microsecond = 0
-    if suffix:
-        if len(suffix) <= 3:
-            microsecond = int(suffix.zfill(3) + "000")
-        else:
-            microsecond = int(suffix[:6].ljust(6, "0"))
-    try:
-        ts = pd.to_datetime(base, format="%Y%m%d%H%M%S", errors="raise")
-    except Exception:
-        return pd.NaT
-    return ts + pd.Timedelta(microseconds=microsecond)
+    return table_timestamp(value)
 
 
 def _date_numbers_for_group(group):
@@ -1752,10 +1721,10 @@ def _drift_rate_from_row(row):
     f_end = _float_or_nan(row.get("f_end_mhz"))
     duration = _float_or_nan(row.get("duration_s"))
     if not np.isfinite(duration) or abs(duration) <= 1e-12:
-        t_start = parse_datetime_value(row.get("t_start"))
-        t_end = parse_datetime_value(row.get("t_end"))
+        t_start = parse_timestamp_value(row.get("t_start"))
+        t_end = parse_timestamp_value(row.get("t_end"))
         if t_start is not None and t_end is not None:
-            duration = (t_end - t_start).total_seconds()
+            duration = (t_end.tai_ns - t_start.tai_ns) / 1_000_000_000
     if (
         np.isfinite(f_start)
         and np.isfinite(f_end)

@@ -11,7 +11,7 @@ from .parsing import (
     extract_timestamp_from_filename,
     parse_time,
 )
-from .precision import TimeStamp, normalize_time, seconds_to_ns
+from .precision import TimeStamp, elapsed_seconds, normalize_time, seconds_to_ns
 from .selection import filter_by_time_range, nearest_by_time
 from .sequence import (
     OneToOneMatch,
@@ -32,6 +32,7 @@ __all__ = [
     "nearest_by_time",
     "parse_time",
     "TimeStamp",
+    "elapsed_seconds",
     "normalize_time",
     "seconds_to_ns",
     "TimeFrame",

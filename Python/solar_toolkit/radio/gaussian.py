@@ -293,8 +293,11 @@ def detect_gaussian_source_candidates(
     background_map=None,
     rms_map=None,
     image_origin=None,
+    coordinate_header=None,
 ):
-    work = np.asarray(data, dtype=np.float64)
+    from solar_toolkit._utils.numeric import numeric_data
+
+    work = numeric_data(data)
     if work.ndim != 2:
         return []
     image_origin = image_origin or cfg.get("_current_radio_image_origin", "upper")
@@ -336,6 +339,13 @@ def detect_gaussian_source_candidates(
         peak_arcsec = pixel_to_data_coord(
             float(peak_x), float(peak_y), extent, work.shape, origin=image_origin
         )
+        if coordinate_header is not None:
+            from solar_toolkit.map.coordinates import hpc_pixel_coordinates
+
+            peak_arcsec = tuple(
+                float(value)
+                for value in hpc_pixel_coordinates(coordinate_header, peak_x, peak_y)
+            )
         candidates.append(
             GaussianSourceCandidate(
                 source_id=rank,
@@ -464,6 +474,8 @@ def _attach_gaussian_fit_metadata(result, cfg, mask_diag, fit_input_type, fit_me
 
 
 def _gaussian_fwhm_arcsec(fit_result, extent, img_shape):
+    if hasattr(fit_result, "wcs_fwhm_arcsec"):
+        return tuple(float(value) for value in fit_result.wcs_fwhm_arcsec)
     ny, nx = img_shape
     dx = abs((extent[1] - extent[0]) / max(nx, 1))
     dy = abs((extent[3] - extent[2]) / max(ny, 1))
@@ -661,8 +673,18 @@ def fit_elliptical_gaussian_on_radio_image(
     fit_input_type="raw",
     image_origin=None,
     source_mask_override=None,
+    coordinate_header=None,
 ):
-    work = np.asarray(data, dtype=np.float64)
+    """Fit in native pixels, optionally calibrating output geometry with WCS.
+
+    ``coordinate_header`` supplies FITS WCS for exact HPC centers/contours and
+    local Jacobian-based angular widths. Without it, ``extent`` retains the
+    historical affine coordinate convention. Masks are excluded; input data
+    and headers are not modified. ``cfg`` receives fit diagnostics as before.
+    """
+    from solar_toolkit._utils.numeric import numeric_data
+
+    work = numeric_data(data)
     image_origin = image_origin or cfg.get("_current_radio_image_origin", "upper")
     cfg.pop("_last_gaussian_failure_diag", None)
     fit_meta = _gaussian_fit_diag_defaults(cfg)
@@ -1086,9 +1108,16 @@ def fit_elliptical_gaussian_on_radio_image(
         result.reason = "fit_failed_moment_fallback"
         if not getattr(result, "quality_flag_detail", ""):
             result.quality_flag_detail = str(fit_exception or "curve_fit_failed")
-    return _attach_gaussian_fit_metadata(
+    result = _attach_gaussian_fit_metadata(
         result, cfg, mask_diag, fit_input_type, fit_meta
     )
+    if coordinate_header is not None:
+        from .gaussian_coordinates import attach_wcs_geometry
+
+        peak_y, peak_x = np.unravel_index(np.nanargmax(work), work.shape)
+        attach_wcs_geometry(result, coordinate_header, raw_peak_pixel=(peak_x, peak_y))
+        _update_gaussian_quality(result, extent, work.shape, cfg)
+    return result
 
 
 def _attach_candidate_metadata(
@@ -1144,7 +1173,14 @@ def fit_multiple_gaussians_on_radio_image(
     rms_map=None,
     fit_input_type="raw",
     image_origin=None,
+    coordinate_header=None,
 ):
+    """Fit native-pixel components and optionally calibrate every result by WCS.
+
+    ``coordinate_header`` follows the single-source fitter's exact center and
+    local angular-width contract, including candidate peak annotations. The
+    omitted-header path retains the historical affine extent convention.
+    """
     requested_count = _requested_multi_source_count(cfg)
     source_count_mode = "requested" if requested_count is not None else "auto"
     image_origin = image_origin or cfg.get("_current_radio_image_origin", "upper")
@@ -1159,6 +1195,7 @@ def fit_multiple_gaussians_on_radio_image(
             rms_map=rms_map,
             fit_input_type=fit_input_type,
             image_origin=image_origin,
+            coordinate_header=coordinate_header,
         )
         candidates = detect_gaussian_source_candidates(
             data,
@@ -1167,6 +1204,7 @@ def fit_multiple_gaussians_on_radio_image(
             background_map=background_map,
             rms_map=rms_map,
             image_origin=image_origin,
+            coordinate_header=coordinate_header,
         )
         if single_result is not None and candidates:
             _attach_candidate_metadata(
@@ -1190,6 +1228,7 @@ def fit_multiple_gaussians_on_radio_image(
         background_map=background_map,
         rms_map=rms_map,
         image_origin=image_origin,
+        coordinate_header=coordinate_header,
     )
     detected_count = len(candidates)
     if requested_count is not None:
@@ -1228,6 +1267,7 @@ def fit_multiple_gaussians_on_radio_image(
             fit_input_type=fit_input_type,
             image_origin=image_origin,
             source_mask_override=candidate.mask,
+            coordinate_header=coordinate_header,
         )
         if fit_result is None:
             failure_rows.append(_candidate_failure_row(candidate, fit_cfg))
@@ -1349,11 +1389,21 @@ def overlay_gaussian_fit_on_axis(ax, fit_result, extent, img_shape, cfg):
         levels = [level * peak for level in cfg.get("gaussian_contour_levels", [0.5])]
         levels = sorted({level for level in levels if np.isfinite(level) and level > 0})
         if levels:
+            if hasattr(fit_result, "coordinate_header"):
+                from solar_toolkit.map.coordinates import hpc_pixel_grid
+
+                contour_args = (
+                    *hpc_pixel_grid(fit_result.coordinate_header, img_shape),
+                    gaussian_model,
+                )
+                contour_coordinates = {}
+            else:
+                contour_args = (gaussian_model,)
+                contour_coordinates = {"extent": extent, "origin": image_origin}
             ax.contour(
-                gaussian_model,
+                *contour_args,
                 levels=levels,
-                extent=extent,
-                origin=image_origin,
+                **contour_coordinates,
                 colors=cfg.get("gaussian_contour_color", "white"),
                 linewidths=cfg.get("gaussian_contour_linewidth", 2.0),
                 alpha=cfg.get("gaussian_contour_alpha", 0.9),
@@ -1380,6 +1430,18 @@ def overlay_gaussian_fit_on_axis(ax, fit_result, extent, img_shape, cfg):
                 fontsize=max(cfg.get("annotation_fontsize", 20) - 6, 8),
             )
 
+    if draw_fwhm:
+        if hasattr(fit_result, "coordinate_header"):
+            from .gaussian_coordinates import wcs_fwhm_curve
+
+            ax.plot(
+                *wcs_fwhm_curve(fit_result),
+                color=cfg.get("gaussian_fwhm_color", "lime"),
+                linewidth=cfg.get("gaussian_fwhm_linewidth", 2.0),
+                alpha=cfg.get("gaussian_fwhm_alpha", 0.9),
+                zorder=7,
+            )
+            draw_fwhm = False
     if draw_fwhm:
         width = getattr(fit_result, "fwhm_width_arcsec", np.nan)
         height = getattr(fit_result, "fwhm_height_arcsec", np.nan)
@@ -1434,11 +1496,21 @@ def overlay_gaussian_fit_on_axis(ax, fit_result, extent, img_shape, cfg):
         if source_mask is not None and np.asarray(source_mask).shape == tuple(
             img_shape
         ):
+            if hasattr(fit_result, "coordinate_header"):
+                from solar_toolkit.map.coordinates import hpc_pixel_grid
+
+                mask_args = (
+                    *hpc_pixel_grid(fit_result.coordinate_header, img_shape),
+                    np.asarray(source_mask, dtype=float),
+                )
+                mask_coordinates = {}
+            else:
+                mask_args = (np.asarray(source_mask, dtype=float),)
+                mask_coordinates = {"extent": extent, "origin": image_origin}
             ax.contour(
-                np.asarray(source_mask, dtype=float),
+                *mask_args,
                 levels=[0.5],
-                extent=extent,
-                origin=image_origin,
+                **mask_coordinates,
                 colors="cyan",
                 linewidths=1.0,
                 alpha=0.8,

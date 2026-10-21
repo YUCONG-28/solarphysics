@@ -21,6 +21,7 @@ import pytest
                 "nearest_by_time": "solar_toolkit.time.selection",
                 "parse_time": "solar_toolkit.time.parsing",
                 "TimeStamp": "solar_toolkit.time.precision",
+                "elapsed_seconds": "solar_toolkit.time.precision",
                 "normalize_time": "solar_toolkit.time.precision",
                 "seconds_to_ns": "solar_toolkit.time.precision",
                 "TimeFrame": "solar_toolkit.time.sequence",

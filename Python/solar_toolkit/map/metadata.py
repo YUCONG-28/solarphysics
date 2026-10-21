@@ -26,20 +26,39 @@ def get_map_obs_time(map_or_header: Any):
     times raise ``ValueError``. Missing observation metadata raises ``KeyError``.
     """
 
-    if hasattr(map_or_header, "date") and map_or_header.date is not None:
-        return normalize_time(map_or_header.date).to_datetime()
-    header = {
-        str(key).upper(): value for key, value in _header_from(map_or_header).items()
-    }
-    for key in ("DATE-OBS", "DATE_OBS"):
+    return _observation_stamp(map_or_header).to_datetime()
+
+
+def _observation_stamp(map_or_header: Any):
+    """Read explicit metadata before consulting a Map's synthetic date fallback."""
+    try:
+        raw_header = _header_from(map_or_header)
+    except TypeError:
+        # Date-only lightweight records remain supported; SunPy Maps always
+        # have metadata and therefore never reach this fallback.
+        value = getattr(map_or_header, "date", None)
+        if value is None:
+            raise
+        return normalize_time(value)
+    header = {str(key).upper(): value for key, value in raw_header.items()}
+    for key in (
+        "DATE-OBS",
+        "DATE_OBS",
+        "DATE-BEG",
+        "DATE_BEG",
+        "DATE-AVG",
+        "DATE_AVG",
+        "DATE-END",
+        "DATE_END",
+    ):
         if key in header:
             value = header[key]
             if isinstance(value, str) and len(value.strip()) == 10:
                 clock = header.get("TIME-OBS", header.get("TIME_OBS"))
                 if clock is not None:
                     value = f"{value.strip()}T{str(clock).strip()}"
-            return normalize_time(value, scale=header.get("TIMESYS")).to_datetime()
-    raise KeyError("Missing DATE-OBS/DATE_OBS metadata")
+            return normalize_time(value, scale=header.get("TIMESYS"))
+    raise KeyError("Missing explicit observation-time metadata (DATE-OBS/DATE_OBS)")
 
 
 def get_display_extent(
@@ -47,8 +66,14 @@ def get_display_extent(
     image_shape: Sequence[int] | None = None,
     *,
     preserve_orientation: bool = True,
+    legacy_linear: bool = False,
 ) -> tuple[float, float, float, float]:
-    """Return a matplotlib extent from a Map-like object or FITS header."""
+    """Return an axis-aligned display approximation in native header units.
+
+    Rotated/sheared/distorted WCS requires WCSAxes or a full coordinate grid.
+    Explicit ``legacy_linear=True`` allows the historical CDELT approximation
+    with a warning. A celestial extent is not a scientific world mapping.
+    """
 
     if hasattr(map_or_header, "meta"):
         header = map_or_header.meta
@@ -60,6 +85,7 @@ def get_display_extent(
         header,
         image_shape=image_shape,
         preserve_orientation=preserve_orientation,
+        legacy_linear=legacy_linear,
     )
 
 

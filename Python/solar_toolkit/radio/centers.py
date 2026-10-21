@@ -22,6 +22,8 @@ import numpy as np
 import pandas as pd
 from astropy.io import fits
 
+from solar_toolkit.time import TimeStamp, normalize_time
+
 try:  # pragma: no cover - SciPy is expected in the project env, but optional here.
     from scipy import ndimage
 except Exception:  # pragma: no cover
@@ -48,6 +50,7 @@ __all__ = [
     "maybe_make_sum_images",
     "normalize_pol_text",
     "parse_datetime_value",
+    "parse_timestamp_value",
     "parse_frequency_mhz",
     "parse_observation_time",
     "parse_time_from_filename",
@@ -239,15 +242,16 @@ def _frequency_to_mhz(value: float, unit: str) -> float:
     return float(value)
 
 
-def parse_datetime_value(value: object) -> datetime | None:
-    """Parse config/reference times as naive UTC, or return None if invalid.
+def parse_timestamp_value(value: object) -> TimeStamp | None:
+    """Return an exact radio calendar timestamp, or None for an invalid sample.
 
     Exact integers use the compact calendar-text convention, for example
     ``20000101044829509`` is 2000-01-01 04:48:29.509 UTC. Unlabelled numeric
     epochs, floats and booleans are not accepted; a float may already have lost
     compact timestamp digits. Observation reads require a clock.
+    Date-only configuration values retain the legacy midnight convention.
+    Scientific observation reads still require a complete clock.
     """
-    from solar_toolkit.time import normalize_time
 
     if value is None or str(value).strip().lower() in {"", "none", "nan", "nat"}:
         return None
@@ -256,24 +260,30 @@ def parse_datetime_value(value: object) -> datetime | None:
     if isinstance(value, Integral):
         value = str(value)
     if isinstance(value, date) and not isinstance(value, datetime):
-        return datetime.combine(value, datetime.min.time())
+        return normalize_time(datetime.combine(value, datetime.min.time()))
     if isinstance(value, str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", value.strip()):
         try:
-            return datetime.strptime(value.strip(), "%Y-%m-%d")
+            return normalize_time(datetime.strptime(value.strip(), "%Y-%m-%d"))
         except ValueError:
             return None
     if isinstance(value, str):
         text = value.strip()
         if re.fullmatch(r"\d{14}\.0", text):
             return None  # Preserve the legacy scalar-wrapper contract.
-        compact_millis = re.fullmatch(r"(\d{14}) +([0-9]{1,3})", text)
-        if compact_millis:
-            value = compact_millis[1] + "." + f"{int(compact_millis[2]):03d}"
     try:
-        stamp = normalize_time(value)
-        return stamp.to_datetime()
+        return normalize_time(value)
     except (ValueError, TypeError):
         return None
+
+
+def parse_datetime_value(value: object) -> datetime | None:
+    """Return the legacy microsecond naive-UTC view, or None for invalid input.
+
+    A valid leap second raises ValueError because datetime cannot represent it.
+    Scientific differences must use parse_timestamp_value instead of this view.
+    """
+    stamp = parse_timestamp_value(value)
+    return stamp.to_datetime() if stamp is not None else None
 
 
 def parse_time_from_filename(path: Path) -> datetime | None:
@@ -364,49 +374,17 @@ def to_arcsec(value: float, unit: str) -> float:
 
 
 def pixel_to_hpc_arcsec(
-    header: fits.Header, x_pix0: float, y_pix0: float
+    header: fits.Header, x_pix0: float, y_pix0: float, *, legacy_linear: bool = False
 ) -> tuple[float, float]:
-    """Approximate 0-based image pixels as HPLN/HPLT arcsec coordinates.
+    """Convert zero-based pixels through the complete FITS HPLN/HPLT WCS.
 
-    中文：使用 FITS 的线性 WCS 关键字将 numpy 的 0-based 像素坐标近似转换为
-    日面角秒坐标。这里保留 CRPIX/CRVAL/CDELT、PC/CD、CROTA2 的兼容逻辑。
+    Explicit ``legacy_linear=True`` retains the historical projection-plane
+    approximation for compatibility. Scientific defaults share the ROI's WCS.
     """
+    from ..map.coordinates import hpc_pixel_coordinates
 
-    crpix1 = float(header.get("CRPIX1", 1.0))
-    crpix2 = float(header.get("CRPIX2", 1.0))
-    crval1 = float(header.get("CRVAL1", 0.0))
-    crval2 = float(header.get("CRVAL2", 0.0))
-    cdelt1 = float(header.get("CDELT1", 1.0))
-    cdelt2 = float(header.get("CDELT2", 1.0))
-    cunit1 = str(header.get("CUNIT1", "arcsec"))
-    cunit2 = str(header.get("CUNIT2", "arcsec"))
-
-    dx = float(x_pix0) + 1.0 - crpix1
-    dy = float(y_pix0) + 1.0 - crpix2
-
-    if all(key in header for key in ("CD1_1", "CD1_2", "CD2_1", "CD2_2")):
-        wx = float(header["CD1_1"]) * dx + float(header["CD1_2"]) * dy
-        wy = float(header["CD2_1"]) * dx + float(header["CD2_2"]) * dy
-    else:
-        pc11 = float(header.get("PC1_1", 1.0))
-        pc12 = float(header.get("PC1_2", 0.0))
-        pc21 = float(header.get("PC2_1", 0.0))
-        pc22 = float(header.get("PC2_2", 1.0))
-        if any(key in header for key in ("PC1_1", "PC1_2", "PC2_1", "PC2_2")):
-            # FITS PC mixes pixel offsets before each world axis is scaled.
-            wx = cdelt1 * (pc11 * dx + pc12 * dy)
-            wy = cdelt2 * (pc21 * dx + pc22 * dy)
-        else:
-            # Retain the historical CROTA rotation of already scaled offsets.
-            theta = math.radians(float(header.get("CROTA2", 0.0)))
-            pc11, pc12 = math.cos(theta), -math.sin(theta)
-            pc21, pc22 = math.sin(theta), math.cos(theta)
-            x_int = cdelt1 * dx
-            y_int = cdelt2 * dy
-            wx = pc11 * x_int + pc12 * y_int
-            wy = pc21 * x_int + pc22 * y_int
-
-    return to_arcsec(crval1 + wx, cunit1), to_arcsec(crval2 + wy, cunit2)
+    x, y = hpc_pixel_coordinates(header, x_pix0, y_pix0, legacy_linear=legacy_linear)
+    return float(x), float(y)
 
 
 def stokes_code_to_pol(code: float) -> str:
@@ -596,14 +574,21 @@ def compute_source_center(
     component: str = "peak",
     use_abs: bool = False,
     min_pixels: int = 1,
+    *,
+    legacy_linear: bool = False,
 ) -> dict[str, float]:
     """Extract a threshold/contour source center from one radio image.
 
-    中文：以峰值比例、背景到峰值比例或图像分位数生成掩膜，并计算几何中心或
-    强度加权中心。
+    Finite unmasked samples define the threshold and centroid. Angular centers
+    use the complete header WCS by default; ``legacy_linear=True`` explicitly
+    requests the historical projection-plane approximation. Inputs are unchanged.
     """
 
-    arr = np.asarray(image, dtype=float)
+    from .._utils.numeric import numeric_data
+
+    arr = numeric_data(image)
+    if arr.ndim != 2:
+        raise ValueError("radio image must be two-dimensional")
     arr = np.where(np.isfinite(arr), arr, np.nan)
     if np.all(~np.isfinite(arr)):
         raise ValueError("radio image has no finite pixels")
@@ -655,10 +640,10 @@ def compute_source_center(
     center_x_pix = float(np.sum(xs * weights) / weight_sum)
     center_y_pix = float(np.sum(ys * weights) / weight_sum)
     center_x_arcsec, center_y_arcsec = pixel_to_hpc_arcsec(
-        header, center_x_pix, center_y_pix
+        header, center_x_pix, center_y_pix, legacy_linear=legacy_linear
     )
     peak_x_arcsec, peak_y_arcsec = pixel_to_hpc_arcsec(
-        header, float(peak_x), float(peak_y)
+        header, float(peak_x), float(peak_y), legacy_linear=legacy_linear
     )
 
     return {
@@ -690,6 +675,7 @@ def record_from_radio_image(
     component: str = "peak",
     use_abs: bool = False,
     min_pixels: int = 1,
+    legacy_linear: bool = False,
 ) -> dict[str, object]:
     """Build one output table row for a ``RadioImage``."""
 
@@ -703,6 +689,7 @@ def record_from_radio_image(
         component=component,
         use_abs=use_abs,
         min_pixels=min_pixels,
+        legacy_linear=legacy_linear,
     )
     obs_time = item.obs_time
     row: dict[str, object] = {
@@ -916,6 +903,7 @@ def extract_radio_centers(
     default_pol: str = POL_SUM,
     make_sum: bool = False,
     pair_time_tolerance_sec: float = 0.5,
+    legacy_linear: bool = False,
 ) -> pd.DataFrame:
     """Extract source centers from all matching FITS files in ``radio_dir``."""
 
@@ -962,6 +950,7 @@ def extract_radio_centers(
                     component=component,
                     use_abs=use_abs,
                     min_pixels=min_pixels,
+                    legacy_linear=legacy_linear,
                 )
             )
         except Exception as exc:

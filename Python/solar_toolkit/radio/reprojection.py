@@ -14,6 +14,7 @@ from datetime import datetime
 
 import numpy as np
 
+from .._utils.numeric import as_value, numeric_data
 from ..time import normalize_time, seconds_to_ns
 
 __all__ = [
@@ -34,6 +35,9 @@ class RadioReprojectionResult:
     peak_pixel: tuple[float, float]
     amplitude: float
     mapped_sample_count: int
+    footprint: np.ndarray | None = None
+    method_used: str | None = None
+    fallback_reason: str | None = None
 
 
 def interpolate_scattered_to_grid(
@@ -42,20 +46,39 @@ def interpolate_scattered_to_grid(
     target_shape: tuple[int, int],
     *,
     method: str = "linear",
-) -> np.ndarray:
+    fallback: str | None = None,
+    return_diagnostics: bool = False,
+):
     """Interpolate scattered ``(x, y)`` samples onto a target image grid.
 
-    Linear and cubic interpolation automatically fall back to nearest-neighbor
-    interpolation when the input geometry is insufficient or degenerate.
+    The default leaves unsupported pixels NaN and never silently changes the
+    requested method. Explicit ``fallback='nearest'`` permits nearest-neighbor
+    values after a degenerate triangulation or outside the supported region.
+    Their footprint remains zero outside the convex hull of finite mapped
+    sample centers (a line segment/point for degenerate geometry). This is
+    interpolation support, not measured pixel area or a flux-conservation model.
+
+    Masks exclude samples; bare coordinates mean target pixels, and pixel
+    Quantities are accepted. Values retain native numerical units. Optional
+    diagnostics return ``(data, footprint, dict)`` and disclose the actual method
+    and fallback reason. Inputs are unchanged; output data remains float32.
     """
 
     height, width = _target_shape(target_shape)
     method = str(method).lower()
     if method not in {"linear", "nearest", "cubic"}:
         raise ValueError("method must be 'linear', 'nearest', or 'cubic'")
+    if fallback not in {None, "nearest"}:
+        raise ValueError("fallback must be None or 'nearest'")
+    if not isinstance(return_diagnostics, bool):
+        raise TypeError("return_diagnostics must be a boolean")
 
-    points = np.asarray(points_xy, dtype=np.float64)
-    sample_values = np.asarray(values, dtype=np.float64).reshape(-1)
+    import astropy.units as u
+    from scipy.interpolate import griddata
+    from scipy.spatial import QhullError
+
+    points = as_value(points_xy, u.pix, "points_xy")
+    sample_values = numeric_data(values).reshape(-1)
     if points.ndim != 2 or points.shape[1] != 2:
         raise ValueError("points_xy must have shape (sample_count, 2)")
     if points.shape[0] != sample_values.size:
@@ -63,40 +86,75 @@ def interpolate_scattered_to_grid(
     finite = np.isfinite(points).all(axis=1) & np.isfinite(sample_values)
     points = points[finite]
     sample_values = sample_values[finite]
-    if sample_values.size == 0:
-        return np.full((height, width), np.nan, dtype=np.float32)
-
-    from scipy.interpolate import griddata
-
     grid_y, grid_x = np.mgrid[0:height, 0:width]
-    selected_method = method
-    if selected_method in {"linear", "cubic"} and sample_values.size < 3:
-        selected_method = "nearest"
+    result = np.full((height, width), np.nan)
+    support = _sample_support(points, np.column_stack((grid_x.ravel(), grid_y.ravel())))
+    support = support.reshape((height, width))
+    selected_method = None
+    reason = "no_finite_samples" if not sample_values.size else None
+    if sample_values.size:
+        try:
+            result = griddata(points, sample_values, (grid_x, grid_y), method=method)
+            selected_method = method
+        except (QhullError, ValueError) as exc:
+            # Shape/method validation happened above; a triangulation cannot be
+            # constructed for coincident or collinear samples.
+            reason = f"degenerate_geometry: {type(exc).__name__}"
+        result[~support] = np.nan
+        if fallback == "nearest" and np.any(~np.isfinite(result)):
+            missing = ~np.isfinite(result)
+            nearest = griddata(
+                points, sample_values, (grid_x, grid_y), method="nearest"
+            )
+            result[missing] = nearest[missing]
+            selected_method = (
+                "nearest"
+                if selected_method is None
+                else (method if method == "nearest" else f"{method}+nearest")
+            )
+            reason = reason or "outside_support_or_missing_interpolation"
+    footprint = (support & np.isfinite(result)).astype(float)
+    result = np.asarray(result, dtype=np.float32)
+    diagnostics = {
+        "requested_method": method,
+        "method_used": selected_method,
+        "fallback": fallback,
+        "fallback_reason": reason,
+        "mapped_sample_count": int(sample_values.size),
+    }
+    return (result, footprint, diagnostics) if return_diagnostics else result
+
+
+def _sample_support(points, targets):
+    """Membership in a sample-center hull, including rank-zero/one support."""
+    from scipy.spatial import Delaunay, QhullError
+
+    if not len(points):
+        return np.zeros(len(targets), dtype=bool)
+    center = points[0]
+    offsets = points - center
+    _, singular, axes = np.linalg.svd(offsets, full_matrices=False)
+    scale = max(1.0, float(np.max(np.abs(points))))
+    tolerance = max(1e-9, 64 * np.finfo(float).eps * scale)
+    rank = int(np.count_nonzero(singular > tolerance))
+    if rank == 0:
+        return np.linalg.norm(targets - center, axis=1) <= tolerance
+    if rank == 1:
+        direction = axes[0]
+        positions = offsets @ direction
+        projected = (targets - center) @ direction
+        distance = np.linalg.norm(
+            targets - center - projected[:, None] * direction, axis=1
+        )
+        return (
+            (distance <= tolerance)
+            & (projected >= positions.min() - tolerance)
+            & (projected <= positions.max() + tolerance)
+        )
     try:
-        result = griddata(
-            points,
-            sample_values,
-            (grid_x, grid_y),
-            method=selected_method,
-            fill_value=np.nan,
-        )
-    except Exception:
-        result = griddata(
-            points,
-            sample_values,
-            (grid_x, grid_y),
-            method="nearest",
-            fill_value=np.nan,
-        )
-    if selected_method != "nearest" and np.all(~np.isfinite(result)):
-        result = griddata(
-            points,
-            sample_values,
-            (grid_x, grid_y),
-            method="nearest",
-            fill_value=np.nan,
-        )
-    return np.asarray(result, dtype=np.float32)
+        return Delaunay(points).find_simplex(targets, tol=1e-10) >= 0
+    except QhullError:
+        return np.zeros(len(targets), dtype=bool)
 
 
 def reproject_radio_array(
@@ -105,15 +163,28 @@ def reproject_radio_array(
     pixel_mapper: PixelMapper,
     *,
     method: str = "linear",
+    fallback: str | None = None,
+    mask=None,
 ) -> RadioReprojectionResult | None:
-    """Map finite radio samples to a target pixel grid and interpolate them."""
+    """Map finite unmasked radio samples, with explicit support diagnostics.
 
-    source = np.asarray(radio_data, dtype=np.float64)
+    ``fallback=None`` leaves unsupported target pixels NaN. Explicit
+    ``fallback='nearest'`` permits extrapolated values with zero footprint.
+    Empty/entirely unsupported results return None. No units, uncertainties or
+    observation metadata are inferred; native numerical values are retained.
+    """
+
+    source = numeric_data(radio_data, mask=mask)
     if source.ndim != 2:
         raise ValueError("radio_data must be a two-dimensional array")
     _target_shape(target_shape)
     if not callable(pixel_mapper):
         raise TypeError("pixel_mapper must be callable")
+    method = str(method).lower()
+    if method not in {"linear", "nearest", "cubic"}:
+        raise ValueError("method must be 'linear', 'nearest', or 'cubic'")
+    if fallback not in {None, "nearest"}:
+        raise ValueError("fallback must be None or 'nearest'")
 
     source_y, source_x = np.nonzero(np.isfinite(source))
     points: list[tuple[float, float]] = []
@@ -126,11 +197,13 @@ def reproject_radio_array(
     if not points:
         return None
 
-    data = interpolate_scattered_to_grid(
+    data, footprint, diagnostics = interpolate_scattered_to_grid(
         np.asarray(points, dtype=np.float64),
         np.asarray(values, dtype=np.float64),
         target_shape,
         method=method,
+        fallback=fallback,
+        return_diagnostics=True,
     )
     if np.all(~np.isfinite(data)):
         return None
@@ -140,6 +213,9 @@ def reproject_radio_array(
         peak_pixel=(float(peak_x), float(peak_y)),
         amplitude=float(np.nanmax(data)),
         mapped_sample_count=len(points),
+        footprint=footprint,
+        method_used=diagnostics["method_used"],
+        fallback_reason=diagnostics["fallback_reason"],
     )
 
 

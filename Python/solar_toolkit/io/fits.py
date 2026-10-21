@@ -11,13 +11,20 @@ from pathlib import Path
 
 
 def read_fits_data_header(path: str | Path, *, hdu_index: int = 0):
-    """Read FITS data and header from one HDU."""
+    """Return detached data and a copied header, closing all file resources.
 
+    FITS scaling and integer BLANK handling follow Astropy. An empty HDU keeps
+    its ``None`` data. Large-image streaming should use ``fits.open`` and its
+    section interface in an explicit caller-owned context instead.
+    """
+
+    import numpy as np
     from astropy.io import fits
 
-    with fits.open(path) as hdul:
+    with fits.open(path, memmap=False) as hdul:
         hdu = hdul[hdu_index]
-        return hdu.data, hdu.header.copy()
+        data = None if hdu.data is None else np.array(hdu.data, copy=True)
+        return data, hdu.header.copy()
 
 
 __all__ = ["read_fits_data_header"]

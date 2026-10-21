@@ -8,11 +8,14 @@ must never be promoted to an independently measured radio source position.
 from __future__ import annotations
 
 import hashlib
+from decimal import ROUND_HALF_EVEN, Decimal
 
 import numpy as np
 import pandas as pd
 
-from .io import parse_datetime_value, truthy
+from ..time import TimeStamp, normalize_time, seconds_to_ns
+from ._time import table_timestamp
+from .io import parse_timestamp_value, truthy
 
 __all__ = [
     "normalize_source_observations",
@@ -47,10 +50,12 @@ def normalize_source_observations(frame):
 
     Output timestamps are timezone-aware UTC; input strings are retained. A
     missing component denotes the single fitted component, not all components.
+    An absent quality column retains the legacy contract; a present unknown
+    quality flag is invalid. The datetime table view rejects UTC leap seconds.
     """
     df = pd.DataFrame(frame).copy()
     df["time_original"] = df["time"].astype(str)
-    df["time_utc"] = pd.to_datetime(df["time"].map(parse_datetime_value), utc=True)
+    df["time_utc"] = df["time"].map(lambda value: table_timestamp(value, utc=True))
     df["frequency_mhz"] = pd.to_numeric(
         df.get("frequency_mhz", df.get("freq")), errors="coerce"
     )
@@ -70,7 +75,7 @@ def normalize_source_observations(frame):
         if col in df:
             valid &= df[col].fillna(False).map(truthy)
     if "quality_flag" in df:
-        valid &= df.quality_flag.fillna("").isin(["", "ok"])
+        valid &= df.quality_flag.fillna("").astype(str).str.strip().str.lower().eq("ok")
     df["source_valid"] = valid
     keys = ["time_utc", "frequency_mhz", "polarization", "component_id", "instrument"]
     # Invalid timestamps have no reliable shared identity: retain them separately.
@@ -106,7 +111,7 @@ def match_burst_crossings(sources, drifts, *, clock_offset_s=0.0, clock_sigma_s=
         raise ValueError("Clock offset must be finite and uncertainty nonnegative")
     rows = []
     for _, burst in pd.DataFrame(drifts).iterrows():
-        t0, t1 = [parse_datetime_value(burst.get(k)) for k in ["t_start", "t_end"]]
+        t0, t1 = [parse_timestamp_value(burst.get(k)) for k in ["t_start", "t_end"]]
         f0, f1 = [float(burst.get(k, np.nan)) for k in ["f_start_mhz", "f_end_mhz"]]
         for freq, group in sources.groupby("frequency_mhz"):
             result = dict(
@@ -126,19 +131,31 @@ def match_burst_crossings(sources, drifts, *, clock_offset_s=0.0, clock_sigma_s=
                 or t1 is None
                 or not np.isfinite([f0, f1]).all()
                 or f0 == f1
-                or t0 == t1
+                or t0.tai_ns == t1.tai_ns
             ):
                 result["match_reason"] = "invalid_drift_segment"
             elif min(f0, f1) <= freq <= max(f0, f1):
-                crossing = (
-                    pd.Timestamp(t0, tz="UTC")
-                    + (pd.Timestamp(t1) - pd.Timestamp(t0)) * ((freq - f0) / (f1 - f0))
-                    + pd.Timedelta(seconds=clock_offset_s)
+                fraction = (Decimal(str(freq)) - Decimal(str(f0))) / (
+                    Decimal(str(f1)) - Decimal(str(f0))
                 )
-                result["crossing_time_utc"] = crossing.isoformat()
-                times = group.time_utc.dropna().drop_duplicates().sort_values()
-                dt = times.diff().dt.total_seconds().dropna()
-                cadence = float(dt[dt > 0].median()) if len(dt) else np.nan
+                crossing_ns = (
+                    t0.tai_ns
+                    + int(
+                        (Decimal(t1.tai_ns - t0.tai_ns) * fraction).to_integral_value(
+                            rounding=ROUND_HALF_EVEN
+                        )
+                    )
+                    + seconds_to_ns(clock_offset_s)
+                )
+                crossing = TimeStamp.from_tai_ns(crossing_ns)
+                result["crossing_time_utc"] = crossing.utc + "Z"
+                times = sorted(
+                    {normalize_time(value).tai_ns for value in group.time_utc.dropna()}
+                )
+                intervals = [b - a for a, b in zip(times[:-1], times[1:], strict=True)]
+                cadence = (
+                    float(np.median(intervals)) / 1_000_000_000 if intervals else np.nan
+                )
                 result["tolerance_s"] = cadence / 2 + clock_sigma_s
                 eligible = group[group.source_valid & group.time_utc.notna()]
                 if eligible.empty:
@@ -146,7 +163,12 @@ def match_burst_crossings(sources, drifts, *, clock_offset_s=0.0, clock_sigma_s=
                 elif not np.isfinite(cadence):
                     result["match_reason"] = "unknown_cadence"
                 else:
-                    delta = (eligible.time_utc - crossing).dt.total_seconds()
+                    delta = eligible.time_utc.map(
+                        lambda value, reference=crossing_ns: (
+                            normalize_time(value).tai_ns - reference
+                        )
+                        / 1_000_000_000
+                    )
                     smallest = delta.abs().min()
                     candidates = eligible.loc[
                         np.isclose(delta.abs(), smallest, atol=1e-9, rtol=0)

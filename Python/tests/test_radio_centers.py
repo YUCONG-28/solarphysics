@@ -21,6 +21,8 @@ from solar_toolkit.radio.centers import (
 
 def _linear_header(**updates) -> fits.Header:
     header = fits.Header()
+    header["CTYPE1"] = "HPLN-TAN"
+    header["CTYPE2"] = "HPLT-TAN"
     header["CRPIX1"] = 1.0
     header["CRPIX2"] = 1.0
     header["CRVAL1"] = 0.0

@@ -20,6 +20,8 @@ import pandas as pd
 from astropy.io import fits
 from matplotlib.path import Path as MplPath
 
+from .._utils.numeric import numeric_data
+from ..map.coordinates import hpc_pixel_coordinates
 from ._image_naming import build_radio_image_filename
 from .centers import (
     POL_LCP,
@@ -27,7 +29,6 @@ from .centers import (
     POL_SUM,
     POL_UNKNOWN,
     RadioImage,
-    _spatial_wcs_signature,
     _sum_pair_incompatibility,
     filter_radio_images,
     infer_pol_from_stokes_axis,
@@ -218,7 +219,14 @@ class _ActiveTimeIndex:
     ) -> tuple[float, int, _RadioImageMeta, int] | None:
         if not self._times:
             return None
-        insertion = bisect_left(self._times, target)
+        from solar_toolkit.time import normalize_time
+
+        if not hasattr(self, "_times_ns"):
+            self._times_ns = tuple(
+                normalize_time(value).tai_ns for value in self._times
+            )
+        target_ns = normalize_time(target).tai_ns
+        insertion = bisect_left(self._times_ns, target_ns)
         candidate_buckets: list[int] = []
         previous = self._find_previous(insertion - 1)
         following = self._find_next(insertion)
@@ -229,7 +237,7 @@ class _ActiveTimeIndex:
         candidates: list[tuple[float, int, _RadioImageMeta, int]] = []
         for bucket_index in candidate_buckets:
             original_index, item = self._buckets[bucket_index][0]
-            delta = abs((target - self._times[bucket_index]).total_seconds())
+            delta = abs(target_ns - self._times_ns[bucket_index]) / 1_000_000_000
             candidates.append((delta, original_index, item, bucket_index))
         return min(candidates, key=lambda value: (value[0], value[1]), default=None)
 
@@ -439,10 +447,12 @@ def measure_radio_roi(
     image: np.ndarray,
     header: fits.Header,
     roi: RadioRoi,
+    *,
+    mask=None,
 ) -> dict[str, Any]:
-    """Measure raw intensity statistics inside a radio ROI."""
+    """Measure finite unmasked raw samples inside the full-WCS angular ROI."""
 
-    arr = np.asarray(image, dtype=float)
+    arr = numeric_data(image, mask=mask)
     if arr.ndim != 2:
         return _empty_measurement(
             "invalid_image", f"expected 2D image, got {arr.ndim}D"
@@ -841,7 +851,9 @@ def _row_from_fast_pair(
     right_meta = right.meta
     midpoint = left_meta.obs_time
     if left_meta.obs_time is not None and right_meta.obs_time is not None:
-        midpoint = left_meta.obs_time + (right_meta.obs_time - left_meta.obs_time) / 2
+        from ._time import midpoint_datetime
+
+        midpoint = midpoint_datetime(left_meta.obs_time, right_meta.obs_time)
     row = _base_row(
         roi,
         obs_time=midpoint,
@@ -1312,17 +1324,22 @@ def _validate_spatial_wcs(header: fits.Header) -> None:
     ctype2 = str(header.get("CTYPE2", "")).upper()
     if not ctype1 or not ctype2:
         raise ValueError("missing CTYPE1/CTYPE2 spatial WCS")
-    if not any(marker in ctype1 for marker in _SPATIAL_CTYPE_MARKERS[0]):
-        raise ValueError(f"non-HPLN spatial axis CTYPE1={ctype1!r}")
-    if not any(marker in ctype2 for marker in _SPATIAL_CTYPE_MARKERS[1]):
-        raise ValueError(f"non-HPLT spatial axis CTYPE2={ctype2!r}")
+    axes = (ctype1, ctype2)
+    if not any(
+        any(marker in axis for marker in _SPATIAL_CTYPE_MARKERS[0]) for axis in axes
+    ):
+        raise ValueError("missing HPLN/SOLX world axis")
+    if not any(
+        any(marker in axis for marker in _SPATIAL_CTYPE_MARKERS[1]) for axis in axes
+    ):
+        raise ValueError("missing HPLT/SOLY world axis")
     unit1 = str(header.get("CUNIT1", "arcsec")).strip().lower()
     unit2 = str(header.get("CUNIT2", "arcsec")).strip().lower()
     if unit1 not in _ANGULAR_UNITS or unit2 not in _ANGULAR_UNITS:
         raise ValueError(f"non-angular WCS units CUNIT1={unit1!r}, CUNIT2={unit2!r}")
     required = {"CRPIX1", "CRPIX2", "CRVAL1", "CRVAL2"}
     missing = sorted(key for key in required if key not in header)
-    has_cd = all(key in header for key in ("CD1_1", "CD1_2", "CD2_1", "CD2_2"))
+    has_cd = any(f"CD{i}_{j}" in header for i in (1, 2) for j in (1, 2))
     if not has_cd:
         missing.extend(key for key in ("CDELT1", "CDELT2") if key not in header)
     if missing:
@@ -1334,7 +1351,7 @@ def _roi_crop_plan(
     shape: tuple[int, int],
     roi: RadioRoi,
 ) -> _RoiCropPlan:
-    """Return an exact ROI mask inside a conservative affine pixel window."""
+    """Compress full-WCS pixel membership into its occupied pixel window."""
 
     _validate_spatial_wcs(header)
     key = (_wcs_signature(header, shape), roi.roi_id)
@@ -1351,79 +1368,16 @@ def _build_roi_crop_plan(
     shape: tuple[int, int],
     roi: RadioRoi,
 ) -> _RoiCropPlan:
-    ny, nx = (int(shape[0]), int(shape[1]))
-    sample_x = np.asarray([0.0, 1.0, 0.0])
-    sample_y = np.asarray([0.0, 0.0, 1.0])
-    world_x, world_y = _pixel_coordinates_hpc_arcsec(
-        header,
-        sample_x,
-        sample_y,
-    )
-    origin = np.asarray([world_x[0], world_y[0]], dtype=float)
-    matrix = np.asarray(
-        [
-            [world_x[1] - world_x[0], world_x[2] - world_x[0]],
-            [world_y[1] - world_y[0], world_y[2] - world_y[0]],
-        ],
-        dtype=float,
-    )
-    vertices = np.asarray(roi.vertices_arcsec, dtype=float)
-    try:
-        pixel_vertices = np.linalg.solve(matrix, (vertices - origin).T).T
-    except np.linalg.LinAlgError:
-        pixel_vertices = np.asarray(
-            [[0.0, 0.0], [float(nx - 1), float(ny - 1)]], dtype=float
-        )
-    if not np.isfinite(pixel_vertices).all():
-        pixel_vertices = np.asarray(
-            [[0.0, 0.0], [float(nx - 1), float(ny - 1)]], dtype=float
-        )
-    x_start = max(0, int(math.floor(float(np.min(pixel_vertices[:, 0])))) - 1)
-    x_stop = min(nx, int(math.ceil(float(np.max(pixel_vertices[:, 0])))) + 2)
-    y_start = max(0, int(math.floor(float(np.min(pixel_vertices[:, 1])))) - 1)
-    y_stop = min(ny, int(math.ceil(float(np.max(pixel_vertices[:, 1])))) + 2)
-    x_stop = max(x_start, x_stop)
-    y_stop = max(y_start, y_stop)
-    y_slice = slice(y_start, y_stop)
-    x_slice = slice(x_start, x_stop)
-    if x_stop <= x_start or y_stop <= y_start:
-        return _RoiCropPlan(
-            y_slice=y_slice,
-            x_slice=x_slice,
-            mask=np.zeros((0, 0), dtype=bool),
-        )
-    y_pixels, x_pixels = np.meshgrid(
-        np.arange(y_start, y_stop, dtype=float),
-        np.arange(x_start, x_stop, dtype=float),
-        indexing="ij",
-    )
-    x_arcsec, y_arcsec = _pixel_coordinates_hpc_arcsec(
-        header,
-        x_pixels,
-        y_pixels,
-    )
-    if roi.kind == "box":
-        bounds = roi.bounds_arcsec
-        mask = (
-            (x_arcsec >= bounds["left"])
-            & (x_arcsec <= bounds["right"])
-            & (y_arcsec >= bounds["bottom"])
-            & (y_arcsec <= bounds["top"])
-        )
-    elif roi.kind == "polygon":
-        points = np.column_stack((x_arcsec.ravel(), y_arcsec.ravel()))
-        mask = (
-            MplPath(vertices)
-            .contains_points(points, radius=1e-12)
-            .reshape(x_arcsec.shape)
-        )
-    else:
-        raise ValueError(f"unsupported ROI kind: {roi.kind!r}")
-    return _RoiCropPlan(
-        y_slice=y_slice,
-        x_slice=x_slice,
-        mask=np.asarray(mask, dtype=bool),
-    )
+    # Determine membership with the complete WCS over the whole native plane.
+    # The bounding slices only compress an already-exact mask; projected ROI
+    # vertices alone are not a conservative bound for a nonlinear transform.
+    mask = build_radio_roi_mask(header, shape, roi)
+    rows, columns = np.nonzero(mask)
+    if not rows.size:
+        return _RoiCropPlan(slice(0, 0), slice(0, 0), np.zeros((0, 0), dtype=bool))
+    y_slice = slice(int(rows.min()), int(rows.max()) + 1)
+    x_slice = slice(int(columns.min()), int(columns.max()) + 1)
+    return _RoiCropPlan(y_slice, x_slice, mask[y_slice, x_slice].copy())
 
 
 def _pixel_center_grid_hpc_arcsec(
@@ -1446,45 +1400,11 @@ def _pixel_coordinates_hpc_arcsec(
     header: fits.Header,
     x_pix: np.ndarray,
     y_pix: np.ndarray,
+    *,
+    legacy_linear: bool = False,
 ) -> tuple[np.ndarray, np.ndarray]:
-    x_values = np.asarray(x_pix, dtype=float)
-    y_values = np.asarray(y_pix, dtype=float)
-    if x_values.shape != y_values.shape:
-        raise ValueError("x/y pixel coordinate arrays must have identical shapes")
-    crpix1 = float(header.get("CRPIX1", 1.0))
-    crpix2 = float(header.get("CRPIX2", 1.0))
-    crval1 = float(header.get("CRVAL1", 0.0))
-    crval2 = float(header.get("CRVAL2", 0.0))
-    cdelt1 = float(header.get("CDELT1", 1.0))
-    cdelt2 = float(header.get("CDELT2", 1.0))
-    dx = x_values + 1.0 - crpix1
-    dy = y_values + 1.0 - crpix2
-
-    if all(key_name in header for key_name in ("CD1_1", "CD1_2", "CD2_1", "CD2_2")):
-        wx = float(header["CD1_1"]) * dx + float(header["CD1_2"]) * dy
-        wy = float(header["CD2_1"]) * dx + float(header["CD2_2"]) * dy
-    else:
-        pc11 = float(header.get("PC1_1", 1.0))
-        pc12 = float(header.get("PC1_2", 0.0))
-        pc21 = float(header.get("PC2_1", 0.0))
-        pc22 = float(header.get("PC2_2", 1.0))
-        if any(key_name in header for key_name in ("PC1_1", "PC1_2", "PC2_1", "PC2_2")):
-            # FITS PC mixes pixel offsets before each world axis is scaled.
-            wx = cdelt1 * (pc11 * dx + pc12 * dy)
-            wy = cdelt2 * (pc21 * dx + pc22 * dy)
-        else:
-            # Retain the historical CROTA rotation of already scaled offsets.
-            theta = math.radians(float(header.get("CROTA2", 0.0)))
-            pc11, pc12 = math.cos(theta), -math.sin(theta)
-            pc21, pc22 = math.sin(theta), math.cos(theta)
-            x_int = cdelt1 * dx
-            y_int = cdelt2 * dy
-            wx = pc11 * x_int + pc12 * y_int
-            wy = pc21 * x_int + pc22 * y_int
-
-    x_arcsec = _to_arcsec_array(crval1 + wx, str(header.get("CUNIT1", "arcsec")))
-    y_arcsec = _to_arcsec_array(crval2 + wy, str(header.get("CUNIT2", "arcsec")))
-    return x_arcsec, y_arcsec
+    """Delegate zero-based centers to the shared full-WCS coordinate boundary."""
+    return hpc_pixel_coordinates(header, x_pix, y_pix, legacy_linear=legacy_linear)
 
 
 def _to_arcsec_array(values: np.ndarray, unit: str) -> np.ndarray:
@@ -1588,7 +1508,9 @@ def _row_from_paired_metadata(
     header["ROIPAIR"] = str(right_item.path)
     midpoint = left_item.obs_time
     if left_item.obs_time is not None and right_item.obs_time is not None:
-        midpoint = left_item.obs_time + (right_item.obs_time - left_item.obs_time) / 2
+        from ._time import midpoint_datetime
+
+        midpoint = midpoint_datetime(left_item.obs_time, right_item.obs_time)
     paired = RadioImage(
         path=left_item.path,
         hdu_index=left_item.hdu_index,
@@ -1738,7 +1660,9 @@ def _make_paired_sum_images(
                 left.freq_mhz, right.freq_mhz
             ):
                 continue
-            dt = abs((left.obs_time - right.obs_time).total_seconds())
+            from solar_toolkit.time import elapsed_seconds
+
+            dt = abs(elapsed_seconds(left.obs_time, right.obs_time))
             if dt <= tolerance_sec and (candidate_dt is None or dt < candidate_dt):
                 candidate_index = index
                 candidate_dt = dt
@@ -1761,7 +1685,9 @@ def _make_paired_sum_images(
         header = left.header.copy()
         header["POLAR"] = POL_SUM
         header["ROIPAIR"] = str(right.path)
-        midpoint = left.obs_time + (right.obs_time - left.obs_time) / 2
+        from ._time import midpoint_datetime
+
+        midpoint = midpoint_datetime(left.obs_time, right.obs_time)
         paired.append(
             RadioImage(
                 path=left.path,
@@ -1943,7 +1869,21 @@ def _pair_incompatibility(left: RadioImage, right: RadioImage) -> str:
 
 
 def _wcs_signature(header: fits.Header, shape: tuple[int, int]) -> tuple[Any, ...]:
-    return _spatial_wcs_signature(header, shape)
+    from astropy.wcs import WCS
+
+    canonical = WCS(header, naxis=2).to_header(relax=True)
+    # Observation provenance does not change this local pixel-to-angle grid.
+    for key in list(canonical):
+        if key.startswith(("DATE", "MJD")) or key in {
+            "HGLN_OBS",
+            "HGLT_OBS",
+            "DSUN_OBS",
+            "CRLN_OBS",
+            "CRLT_OBS",
+            "RSUN_REF",
+        }:
+            del canonical[key]
+    return tuple(shape), canonical.tostring(sep="\n", endcard=False, padding=False)
 
 
 def _same_frequency(left_mhz: float, right_mhz: float) -> bool:

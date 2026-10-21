@@ -21,6 +21,8 @@ from astropy.io import fits
 from scipy import ndimage, stats
 from skimage.transform import resize
 
+from solar_toolkit._utils.numeric import numeric_data
+
 from .raw_quality import RawFileQualityRow, read_radio_fits_image
 
 __all__ = [
@@ -253,10 +255,10 @@ def compute_scientific_quality_features(
     expected_frequency_mhz: float | None = None,
     expected_time: str | None = None,
 ) -> tuple[RadioScienceFeatures, np.ndarray | None]:
-    """Extract signed robust features and a small context thumbnail."""
+    """Extract robust features, treating masked samples exactly like NaNs."""
 
     cfg = config or RadioScienceFeatureConfig()
-    arr = np.squeeze(np.asarray(data, dtype=np.float64))
+    arr = np.squeeze(numeric_data(data))
     if arr.ndim != 2:
         return (
             _invalid_features(
@@ -412,24 +414,33 @@ def compute_context_similarity(
     current: np.ndarray | None,
     references: Iterable[np.ndarray | None],
 ) -> tuple[float, float]:
-    """Return median correlation and robust residual scale to valid references."""
+    """Return context statistics from pairwise finite, unmasked samples."""
 
     if current is None:
         return math.nan, math.nan
     correlations: list[float] = []
     residuals: list[float] = []
-    current_flat = np.asarray(current, dtype=float).ravel()
-    current_std = float(np.std(current_flat))
+    current_array = numeric_data(current)
+    current_flat = current_array.ravel()
     for reference in references:
-        if reference is None or np.shape(reference) != np.shape(current):
+        if reference is None:
             continue
-        ref_flat = np.asarray(reference, dtype=float).ravel()
-        ref_std = float(np.std(ref_flat))
+        reference_array = numeric_data(reference)
+        if reference_array.shape != current_array.shape:
+            continue
+        ref_flat = reference_array.ravel()
+        finite = np.isfinite(current_flat) & np.isfinite(ref_flat)
+        if not finite.any():
+            continue
+        current_values = current_flat[finite]
+        ref_values = ref_flat[finite]
+        current_std = float(np.std(current_values))
+        ref_std = float(np.std(ref_values))
         if current_std > 0.0 and ref_std > 0.0:
-            correlation = float(np.corrcoef(current_flat, ref_flat)[0, 1])
+            correlation = float(np.corrcoef(current_values, ref_values)[0, 1])
             if np.isfinite(correlation):
                 correlations.append(correlation)
-        difference = current_flat - ref_flat
+        difference = current_values - ref_values
         residual = float(np.median(np.abs(difference - np.median(difference))))
         if np.isfinite(residual):
             residuals.append(1.4826 * residual)
@@ -557,8 +568,7 @@ def classify_scientific_quality(
             and residual >= cfg.context_uncertain_residual_mad
         ):
             uncertain_reasons.append(
-                f"{label}_disagreement:corr={correlation:.3f},"
-                f"residual={residual:.3f}"
+                f"{label}_disagreement:corr={correlation:.3f},residual={residual:.3f}"
             )
 
     if not features.wcs_valid:

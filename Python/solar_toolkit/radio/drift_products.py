@@ -22,6 +22,7 @@ from .io import (
     DRIFT_RATE_DIAGNOSTIC_FIELDS,
     ensure_output_dir,
     parse_datetime_value,
+    parse_timestamp_value,
     write_csv_rows,
     write_json_file,
 )
@@ -439,7 +440,9 @@ def _selection_to_dict(item, idx):
     f_end = _float_or_nan(raw.get("f_end_mhz"))
     duration = _float_or_nan(raw.get("duration_s"))
     if not np.isfinite(duration) and t_start is not None and t_end is not None:
-        duration = (t_end - t_start).total_seconds()
+        start_stamp = parse_timestamp_value(raw.get("t_start"))
+        end_stamp = parse_timestamp_value(raw.get("t_end"))
+        duration = (end_stamp.tai_ns - start_stamp.tai_ns) / 1_000_000_000
     bandwidth = _float_or_nan(raw.get("bandwidth_mhz"))
     if not np.isfinite(bandwidth) and np.isfinite(f_start) and np.isfinite(f_end):
         bandwidth = f_end - f_start

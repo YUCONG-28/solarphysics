@@ -14,6 +14,9 @@ from astropy.io import fits
 from tqdm import tqdm
 
 from solar_toolkit._utils.logging import timing_decorator
+from solar_toolkit.time import elapsed_seconds
+
+from .cso import cso_base_datetime
 
 
 def _find_range(arr: np.ndarray, lo: float, hi: float):
@@ -94,8 +97,8 @@ class LazySpectrogram:
           2. Read chunk_cols_raw columns per iteration (approx chunk_mem_mb / freq rows)
           3. Reshape+mean each chunk for downsampling, write to output array
         """
-        t1s = (t1 - self.dt_base).total_seconds()
-        t2s = (t2 - self.dt_base).total_seconds()
+        t1s = elapsed_seconds(self.dt_base, t1)
+        t2s = elapsed_seconds(self.dt_base, t2)
 
         ti0, ti1 = _find_range(self.time, t1s, t2s)
         fi0, fi1 = _find_range(self.freq, f1, f2)
@@ -181,10 +184,9 @@ def read_cso_fits(fn: str):
         freq_ = np.ravel(hdu[1].data["frequency"])
 
         dateobs = header.get("DATE-OBS") or header.get("DATE_OBS")
-        dt_base = datetime.datetime.fromisoformat(dateobs[:10])
+        dt_base = cso_base_datetime(dateobs, time_)
 
         if time_[0] < 0:
-            dt_base = dt_base + datetime.timedelta(days=1)
             dateobs = dt_base.isoformat()
 
         polars = header["POLARIZA"]

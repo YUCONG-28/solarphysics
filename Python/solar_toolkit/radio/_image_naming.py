@@ -13,6 +13,8 @@ from solar_toolkit.visualization.image_naming import (
     build_image_filename,
 )
 
+from ._time import table_timestamp
+
 _TIME_COLUMNS = ("obs_time", "time", "datetime", "timestamp")
 _FREQUENCY_COLUMNS = ("freq_mhz", "frequency_mhz", "freq", "frequency")
 _POLARIZATION_COLUMNS = ("polarization", "pol", "stokes")
@@ -90,13 +92,7 @@ def dataframe_time_bounds(frame: pd.DataFrame):
 
 def _coerce_datetime(value):
     """Parse radio table times without treating compact timestamps as epochs."""
-
-    text = str(value).strip()
-    if len(text) >= 14 and text[:14].isdigit():
-        return pd.to_datetime(
-            text[:14], format="%Y%m%d%H%M%S", errors="coerce", utc=True
-        )
-    return pd.to_datetime(value, errors="coerce", utc=True)
+    return table_timestamp(value, utc=True)
 
 
 def dataframe_single_frequency(frame: pd.DataFrame) -> float | None:
@@ -147,7 +143,7 @@ def chronological_rows(rows: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
 
     def key(item):
         index, row = item
-        value = pd.to_datetime(row.get("t_start"), errors="coerce", utc=True)
+        value = table_timestamp(row.get("t_start"), utc=True)
         return (1, index) if pd.isna(value) else (0, value, index)
 
     return [row for _index, row in sorted(indexed, key=key)]

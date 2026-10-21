@@ -12,10 +12,11 @@ from __future__ import annotations
 import math
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 
-from .centers import POL_LCP, POL_RCP, POL_SUM, POL_UNKNOWN, parse_datetime_value
+from ..time import normalize_time
+from ._time import table_timestamp
+from .centers import POL_LCP, POL_RCP, POL_SUM, POL_UNKNOWN
 from .io import truthy
 
 __all__ = [
@@ -144,7 +145,7 @@ def normalize_centers_dataframe(
         subset=["obs_time", "freq_mhz", "center_x_arcsec", "center_y_arcsec"]
     )
     if valid_only:
-        mask = source["quality_flag"].str.lower().eq("ok")
+        mask = source["quality_flag"].str.strip().str.lower().eq("ok")
         mask &= source["freq_mhz"].gt(0)
         for column in ("freq_mhz", "center_x_arcsec", "center_y_arcsec"):
             mask &= source[column].map(math.isfinite)
@@ -181,20 +182,7 @@ def normalize_polarization_label(value: object) -> str:
 
 
 def _to_timestamp(value) -> pd.Timestamp:
-    if isinstance(value, np.datetime64):
-        value = pd.Timestamp(value)
-    if isinstance(value, pd.Timestamp):
-        return (
-            value.tz_convert("UTC").tz_localize(None)
-            if value.tzinfo is not None
-            else value
-        )
-    parsed = parse_datetime_value(value)
-    if parsed is not None:
-        return pd.Timestamp(parsed)
-    if not isinstance(value, str):
-        return pd.NaT
-    return pd.to_datetime(value, errors="coerce", utc=True).tz_localize(None)
+    return table_timestamp(value)
 
 
 def filter_centers(
@@ -230,7 +218,7 @@ def filter_time_range(
     if df.empty:
         return df.copy()
     result = df.copy()
-    times = pd.to_datetime(result["obs_time"], errors="coerce")
+    times = result["obs_time"].map(table_timestamp)
     mask = times.notna()
     start_ts = _optional_timestamp(start)
     end_ts = _optional_timestamp(end)
@@ -277,7 +265,9 @@ def summarize_motion(df: pd.DataFrame) -> pd.DataFrame:
         last = ordered.iloc[-1]
         start_time = pd.Timestamp(first["obs_time"])
         end_time = pd.Timestamp(last["obs_time"])
-        duration_sec = float((end_time - start_time).total_seconds())
+        duration_sec = (
+            normalize_time(end_time).tai_ns - normalize_time(start_time).tai_ns
+        ) / 1_000_000_000
         dx = float(last["center_x_arcsec"]) - float(first["center_x_arcsec"])
         dy = float(last["center_y_arcsec"]) - float(first["center_y_arcsec"])
         distance = float(math.hypot(dx, dy))
@@ -301,12 +291,12 @@ def summarize_motion(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _optional_timestamp(value) -> pd.Timestamp | None:
-    if value in (None, ""):
+    if value is None or isinstance(value, str) and value == "":
         return None
-    timestamp = pd.Timestamp(value)
+    timestamp = table_timestamp(value)
     if pd.isna(timestamp):
-        return None
-    return timestamp.tz_localize(None) if timestamp.tzinfo is not None else timestamp
+        raise ValueError("Time bounds must be valid explicit calendar timestamps")
+    return timestamp
 
 
 def frame_times(df: pd.DataFrame) -> list[pd.Timestamp]:
@@ -314,7 +304,7 @@ def frame_times(df: pd.DataFrame) -> list[pd.Timestamp]:
 
     if df.empty:
         return []
-    return sorted(pd.to_datetime(df["obs_time"]).dropna().unique().tolist())
+    return sorted(df["obs_time"].map(table_timestamp).dropna().unique().tolist())
 
 
 def select_visible_centers(
@@ -329,8 +319,10 @@ def select_visible_centers(
     if df.empty:
         return df.copy()
     resolved_mode = normalize_frame_mode(mode)
-    timestamp = pd.Timestamp(frame_time)
-    past = df[pd.to_datetime(df["obs_time"]) <= timestamp].copy()
+    timestamp = _optional_timestamp(frame_time)
+    if timestamp is None:
+        raise ValueError("frame_time must be a valid explicit calendar timestamp")
+    past = df[df["obs_time"].map(table_timestamp) <= timestamp].copy()
     if past.empty:
         return past
     group_cols = [

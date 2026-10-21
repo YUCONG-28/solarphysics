@@ -15,8 +15,10 @@ from __future__ import annotations
 from typing import Literal
 
 import numpy as np
-import pandas as pd
+from astropy import units as u
 
+from solar_toolkit._utils.numeric import as_value, numeric_data
+from solar_toolkit.time import normalize_time
 from solar_toolkit.timeseries import derivative_series, smooth_series
 
 SmoothingMethod = Literal["moving-average", "savgol"]
@@ -39,7 +41,8 @@ def smooth_flux_data(
     method
         ``"moving-average"`` keeps the original public-package behavior.
         ``"savgol"`` uses :func:`scipy.signal.savgol_filter`, matching the
-        historical GOES analysis scripts.
+        historical GOES analysis scripts. Masked and non-finite samples make
+        their smoothing neighborhoods NaN, without filling or interpolation.
     adjust_even_window
         Increase an even Savitzky-Golay window by one. This opt-in behavior
         reproduces the dedicated Neupert comparison script without changing
@@ -54,7 +57,9 @@ def smooth_flux_data(
     if method != "savgol":
         raise ValueError(f"Unsupported smoothing method: {method!r}")
 
-    array = np.asarray(flux_data, dtype=float)
+    array = numeric_data(flux_data)
+    if array.ndim != 1:
+        raise ValueError("flux_data must be a one-dimensional array")
     window = int(window_length)
     order = 3 if polyorder is None else int(polyorder)
     if window < 1:
@@ -77,28 +82,42 @@ def smooth_flux_data(
 
     from scipy.signal import savgol_filter
 
-    return np.asarray(savgol_filter(array, window, order), dtype=float)
+    if np.isfinite(array).all():
+        return np.asarray(savgol_filter(array, window, order), dtype=float)
+    if window > array.size:
+        raise ValueError("window_length must not exceed the number of flux samples")
+    array[~np.isfinite(array)] = np.nan
+    # Use the same convolution coefficients as the finite path. The default
+    # interp edge fits require finite data, so fit only complete edge windows.
+    result = savgol_filter(array, window, order, mode="constant", cval=np.nan)
+    half = window // 2
+    if half and np.isfinite(array[:window]).all():
+        result[:half] = savgol_filter(array[:window], window, order)[:half]
+    if half and np.isfinite(array[-window:]).all():
+        result[-half:] = savgol_filter(array[-window:], window, order)[-half:]
+    return np.asarray(result, dtype=float)
 
 
 def _time_seconds(time_data) -> np.ndarray:
-    """Return relative seconds from a complete, strictly increasing time axis."""
-    values = np.asarray(getattr(time_data, "values", time_data))
+    """Return SI seconds on a complete, strictly increasing integer TAI axis."""
+    values = np.asanyarray(getattr(time_data, "values", time_data))
     if values.ndim != 1:
         raise ValueError("time_data must be a one-dimensional timestamp array")
     if not values.size:
         return np.asarray([], dtype=float)
     if np.issubdtype(values.dtype, np.number) or np.issubdtype(values.dtype, np.bool_):
         raise ValueError("time_data requires timestamps, not unlabelled numeric times")
+    mask = getattr(time_data, "mask", False)
+    if not callable(mask) and np.any(mask):
+        raise ValueError("time_data must not contain missing timestamps")
     try:
-        converted = pd.to_datetime(values, utc=True, errors="raise")
-        datetimes = converted.to_numpy(dtype="datetime64[ns]")
+        nanoseconds = [normalize_time(value).tai_ns for value in values]
     except (TypeError, ValueError, OverflowError) as exc:
         raise ValueError("time_data must contain valid timestamps") from exc
-    if np.isnat(datetimes).any():
-        raise ValueError("time_data must not contain missing timestamps")
-    if not np.all(datetimes[1:] > datetimes[:-1]):
+    if not all(
+        right > left for left, right in zip(nanoseconds, nanoseconds[1:], strict=False)
+    ):
         raise ValueError("time_data must increase strictly without duplicates")
-    nanoseconds = datetimes.astype(np.int64)
     origin = int(nanoseconds[0])
     # Subtract in integer arithmetic before converting to floating seconds.
     # Python integers also avoid int64 overflow for widely separated dates.
@@ -118,7 +137,10 @@ def calculate_derivative(
     spacing is used. Explicit spacing must be finite and positive. With a time
     axis, timestamps must be valid, equally numerous and strictly increasing;
     invalid axes raise ``ValueError`` even with a spacing override. Naive times
-    mean UTC. Relative time differences preserve submicrosecond cadence.
+    mean UTC. Relative time differences use continuous TAI seconds, preserving
+    submicrosecond cadence and elapsed SI seconds across UTC leap seconds.
+    Masks are missing samples; singleton missing flux remains NaN. Bare spacing
+    is in seconds, while time Quantities are converted explicitly.
     ``"median-gradient"`` preserves the original public-package behavior,
     ``"gradient"`` evaluates :func:`numpy.gradient` at exact sample times,
     and ``"forward"`` returns the historical ``diff(flux) / diff(time)`` result.
@@ -129,18 +151,19 @@ def calculate_derivative(
     spacing = None
     if spacing_seconds is not None:
         try:
-            if isinstance(spacing_seconds, (bool, np.bool_)) or np.ndim(
-                spacing_seconds
-            ):
+            if np.asarray(spacing_seconds).dtype.kind == "b":
+                raise ValueError("boolean spacing")
+            spacing_value = as_value(spacing_seconds, u.s, "spacing_seconds")
+            if spacing_value.ndim:
                 raise ValueError("invalid scalar spacing")
-            spacing = float(spacing_seconds)
+            spacing = float(spacing_value)
+        except u.UnitConversionError:
+            raise
         except (TypeError, ValueError, OverflowError) as exc:
             raise ValueError("spacing_seconds must be finite and positive") from exc
         if not np.isfinite(spacing) or spacing <= 0:
             raise ValueError("spacing_seconds must be finite and positive")
-    values = np.asarray(
-        time_data_or_flux if flux_data is None else flux_data, dtype=float
-    )
+    values = numeric_data(time_data_or_flux if flux_data is None else flux_data)
     if values.ndim != 1:
         raise ValueError("flux_data must be a one-dimensional array")
     if flux_data is None:
@@ -157,17 +180,21 @@ def calculate_derivative(
     if values.size < 2:
         if method == "forward":
             return np.asarray([], dtype=float)
-        return np.zeros_like(values, dtype=float)
+        return derivative_series(
+            values, spacing_seconds=1.0 if spacing is None else spacing
+        )
 
     if spacing is not None:
         if method == "forward":
             return np.diff(values) / spacing
-        return np.gradient(values, spacing)
+        return derivative_series(values, spacing_seconds=spacing)
 
     if method == "forward":
         return np.diff(values) / np.diff(times)
     if method == "gradient":
-        return np.gradient(values, times)
+        result = np.gradient(values, times)
+        result[~np.isfinite(values)] = np.nan
+        return result
     spacing = float(np.median(np.diff(times)))
     return derivative_series(values, spacing_seconds=spacing)
 
