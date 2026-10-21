@@ -12,12 +12,21 @@
   GPL/MPL licenses and historical attribution. Current author metadata is Y. Li,
   Shandong University.
 - Corrected AIA ROI bounds, exposure-unit handling and TAI-to-UTC conversion;
-  retained explicit legacy ROI selection. Preserved unsigned-image differences
+  retained explicit legacy ROI selection. Preserved negative unsigned-input differences
   and HMI masks, rejected masked PFSS boundaries, and tightened derivative axes
   and spacing while preserving derivative modes and decreasing Gaussian axes.
 - Hardened radio quality, UTC and finite-input handling. Invalid Newkirk
   frequencies retain missing values and reasons where row preservation applies;
   HMI overlays require a caller-selected ROI. See the migration guide for details.
+- Routed AIA single-image, mosaic and differencing inputs through the shared
+  exposure normalizer. Multi-band index slots remain explicitly unsynchronized.
+- Corrected generic manifest links, safe YAML configuration roundtrips,
+  finite frequency/derivative validation and unit-equivalent archive wavelengths.
+  Malformed download-index structures are ignored rather than causing crashes.
+- Unified nearest-time lookup across UTC, timezone-aware and TAI inputs, and
+  validate Newkirk model settings even when no observations are accepted.
+- Normalized HXI epoch/interval times and validated four-channel input shape;
+  removed implicit machine paths and event ROI from the legacy config adapter.
 - Made quick saves reject protected branch/index states before mutation and
   reuse existing pull requests. Help and invalid commands leave runtime state
   uninitialized.

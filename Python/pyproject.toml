@@ -65,7 +65,7 @@ Repository = "https://github.com/YUCONG-28/solarphysics.git"
 Issues = "https://github.com/YUCONG-28/solarphysics/issues"
 
 [build-system]
-requires = ["setuptools>=61.0", "wheel"]
+requires = ["setuptools>=77", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.dynamic]
