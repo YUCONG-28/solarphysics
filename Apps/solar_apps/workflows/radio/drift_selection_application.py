@@ -126,58 +126,18 @@ def _calculate_drift_rate_from_line(
     t_start=_UNSET_DRIFT_TIME,
     t_end=_UNSET_DRIFT_TIME,
 ) -> DriftRateResult:
-    """Build a result under an explicit endpoint compatibility policy."""
-    if t_start is _UNSET_DRIFT_TIME:
-        t_start = _drift_line_time(line, "t_start")
-    if t_end is _UNSET_DRIFT_TIME:
-        t_end = _drift_line_time(line, "t_end")
-    if profile.strict_frequency_fields:
-        f_start = float(line["f_start_mhz"])
-        f_end = float(line["f_end_mhz"])
-    else:
-        f_start = float(line.get("f_start_mhz"))
-        f_end = float(line.get("f_end_mhz"))
-    warning = ""
-    if profile.sort_endpoints_by_time and t_end < t_start:
-        t_start, t_end = t_end, t_start
-        f_start, f_end = f_end, f_start
-        warning = "endpoints_sorted_by_time"
-    duration_s = float((t_end - t_start).total_seconds())
-    bandwidth_mhz = float(f_end - f_start)
-    if abs(duration_s) <= profile.zero_duration_tolerance_s:
-        if profile.zero_duration_policy == "raise":
-            raise ValueError(
-                f"Cannot calculate drift rate for zero-duration line: {line}"
-            )
-        drift_rate = np.nan
-        quality_flag = "invalid_zero_duration"
-        warning = ";".join(filter(None, [warning, "zero_duration"]))
-    else:
-        drift_rate = float(bandwidth_mhz / duration_s)
-        quality_flag = "ok"
-        if profile.warn_positive_drift and drift_rate > 0:
-            warning = ";".join(filter(None, [warning, "positive_drift_rate"]))
-    if profile.default_on_falsy:
-        label = str(line.get("label") or profile.default_label)
-        mode = str(line.get("mode") or profile.default_mode)
-    else:
-        label = str(line.get("label", profile.default_label))
-        mode = str(line.get("mode", profile.default_mode))
-    return DriftRateResult(
-        label=label,
-        mode=mode,
-        t_start=t_start,
-        t_end=t_end,
-        f_start_mhz=f_start,
-        f_end_mhz=f_end,
-        drift_rate_mhz_s=drift_rate,
-        abs_drift_rate_mhz_s=abs(drift_rate) if np.isfinite(drift_rate) else np.nan,
-        duration_s=duration_s,
-        bandwidth_mhz=bandwidth_mhz,
-        color=str(line.get("color") or "white"),
-        quality_flag=quality_flag,
-        warning=warning,
+    """Use the canonical exact clock under the retained endpoint profile."""
+    from solar_toolkit.radio.drift_rate import (
+        _calculate_drift_rate_from_line as calculate,
     )
+
+    kwargs = {"profile": profile}
+    if t_start is not _UNSET_DRIFT_TIME:
+        kwargs["t_start"] = t_start
+    if t_end is not _UNSET_DRIFT_TIME:
+        kwargs["t_end"] = t_end
+    result = calculate(line, **kwargs)
+    return DriftRateResult(**vars(result))
 
 
 def calculate_drift_rate_from_line(line: dict) -> DriftRateResult:

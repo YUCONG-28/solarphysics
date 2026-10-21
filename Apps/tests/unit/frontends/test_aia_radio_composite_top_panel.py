@@ -412,7 +412,10 @@ def test_radio_gaussian_adapter_calls_canonical_fit(
     selection = fit_radio_gaussian_selection(_request(tmp_path))
 
     assert captured["data"] is frame.image
-    assert captured["extent"] == (-50.0, 50.0, -50.0, 50.0)
+    # The envelope is only a display bound; native pixels are positioned by
+    # the complete WCS forwarded to the fitter, including TAN curvature.
+    assert captured["extent"] == pytest.approx((-50.0, 50.0, -50.0, 50.0), abs=2e-6)
+    assert captured["kwargs"]["coordinate_header"] == frame.header
     assert captured["kwargs"]["image_origin"] == "lower"
     assert selection.gaussian_config["gaussian_overlay_display_mode"] == (
         "contours_and_fwhm"

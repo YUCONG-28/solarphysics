@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
-from solar_toolkit.map.coordinates import calculate_fits_extent_from_header
+from solar_toolkit.map.coordinates import hpc_world_bounds
 from solar_toolkit.radio.centers import (
     POL_LCP,
     POL_RCP,
@@ -20,7 +20,6 @@ from solar_toolkit.radio.centers import (
     iter_radio_images,
     maybe_make_sum_images,
     select_radio_files,
-    to_arcsec,
 )
 from solar_toolkit.radio.gaussian import (
     GaussianFitResult,
@@ -473,6 +472,7 @@ def fit_radio_gaussian_frame(
         source_file=str(frame.path),
         fit_input_type="raw",
         image_origin=image_origin,
+        coordinate_header=frame.header,
     )
     failure = dict(config.get("_last_gaussian_failure_diag", {}) or {})
     matched = frame.obs_time.replace(tzinfo=UTC)
@@ -514,19 +514,8 @@ def _gaussian_config(
 
 
 def _radio_extent_arcsec(frame: RadioImage) -> tuple[float, float, float, float]:
-    raw_extent = calculate_fits_extent_from_header(
-        frame.header,
-        frame.image.shape,
-        preserve_orientation=True,
-    )
-    unit_x = str(frame.header.get("CUNIT1", "arcsec"))
-    unit_y = str(frame.header.get("CUNIT2", "arcsec"))
-    return (
-        to_arcsec(raw_extent[0], unit_x),
-        to_arcsec(raw_extent[1], unit_x),
-        to_arcsec(raw_extent[2], unit_y),
-        to_arcsec(raw_extent[3], unit_y),
-    )
+    """Return display bounds only; native-pixel fitting uses the complete WCS."""
+    return hpc_world_bounds(frame.header, frame.image.shape)
 
 
 def _fit_metadata(

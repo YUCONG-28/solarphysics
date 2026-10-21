@@ -127,7 +127,7 @@ def make_tb_colormap() -> LinearSegmentedColormap:
 
 def load_tb(path: str) -> np.ndarray:
     """Load the precomputed Kelvin map as MK using the shared display policy."""
-    return load_brightness_temperature(path)
+    return load_brightness_temperature(path, fill_missing=0.0)
 
 
 def get_tb_extent() -> list:

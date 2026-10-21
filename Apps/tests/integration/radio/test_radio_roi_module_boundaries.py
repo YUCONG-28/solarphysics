@@ -169,7 +169,9 @@ def test_synthetic_manifest_reference_extraction_cache_and_export(
         assert [item["freq_mhz"] for item in metadata] == [149.0, 164.0]
         np.testing.assert_array_equal(references[0].image, np.arange(16).reshape(4, 4))
 
-        roi = scientific.RadioRoi.from_box(1.0, 1.0, 2.0, 2.0, label="synthetic")
+        # Keep the intended four centers away from floating-point celestial
+        # projection boundaries; WCS accuracy is covered by separate oracles.
+        roi = scientific.RadioRoi.from_box(0.9, 0.9, 2.1, 2.1, label="synthetic")
         selected_paths = manifest["path"].tolist()
         curve = app.extract_radio_roi_lightcurve(
             tmp_path, files=selected_paths, roi=roi, polarization="LCP"

@@ -20,9 +20,16 @@ from matplotlib.colors import LinearSegmentedColormap
 from matplotlib.lines import Line2D
 from scipy.ndimage import gaussian_filter
 
+from solar_toolkit.io import read_fits_data_header
+from solar_toolkit.map.coordinates import (
+    calculate_fits_extent_from_header,
+    hpc_pixel_grid,
+    hpc_world_bounds,
+)
 from solar_toolkit.radio.centers import parse_time_from_filename
 from solar_toolkit.radio.time_matching import observation_stamp
-from solar_toolkit.time import parse_time
+from solar_toolkit.time import elapsed_seconds
+from solar_toolkit.radio._time import table_timestamp
 from solar_toolkit.visualization.plotting import setup_chinese_font
 from solar_toolkit.xray_dem.brightness_temperature import (
     AiaMapGeometry as SolarMap,
@@ -166,7 +173,8 @@ def _str_to_datetime(time_str: str):
     if not time_str or time_str == "Unknown":
         return None
     try:
-        return parse_time(time_str.removesuffix(" UT"))
+        result = table_timestamp(time_str.removesuffix(" UT"))
+        return None if result is None or str(result) == "NaT" else result
     except (ValueError, TypeError):
         return None
 
@@ -275,9 +283,9 @@ def find_matching_radio(files: list, aia_dt: datetime) -> tuple:
 
     # ── 选时间差最小的一帧 ─────────────────────────────────────
     best_path, best_time, best_dt = min(
-        candidates, key=lambda x: abs((x[2] - aia_dt).total_seconds())
+        candidates, key=lambda x: abs(elapsed_seconds(x[2], aia_dt))
     )
-    dt_diff = abs((best_dt - aia_dt).total_seconds())
+    dt_diff = abs(elapsed_seconds(best_dt, aia_dt))
 
     return best_path, best_time, dt_diff
 
@@ -287,33 +295,30 @@ def find_matching_radio(files: list, aia_dt: datetime) -> tuple:
 # ============================================================
 
 
-def load_radio(path: str) -> tuple:
+def load_radio(path: str, *, return_wcs: bool = False) -> tuple:
+    """Read a detached 2-D image, preserving missing samples.
+
+    ``return_wcs=True`` returns its FITS header for full WCS rendering. The
+    legacy two-value extent form is restricted to axis-aligned projection
+    planes and returns pixel-edge arcsecond bounds; it rejects rotation/shear.
+    The file is read-only and is closed before return.
     """
-    读取射电成像 FITS，解算 WCS 坐标，返回强度图和坐标范围。
+    import astropy.units as u
 
-    Returns
-    -------
-    data   : 2D ndarray，射电强度图
-    extent : [x_min, x_max, y_min, y_max]（arcsec）
-    """
-    with fits.open(path) as hdul:
-        data = hdul[0].data
-        header = hdul[0].header
-
-    data = np.nan_to_num(data)
-    ny, nx = data.shape
-
-    crpix1 = header.get("CRPIX1", 1)
-    crpix2 = header.get("CRPIX2", 1)
-    crval1 = header.get("CRVAL1", 0)
-    crval2 = header.get("CRVAL2", 0)
-    cdelt1 = header.get("CDELT1", 1)
-    cdelt2 = header.get("CDELT2", 1)
-
-    x = crval1 + (np.arange(nx) + 1 - crpix1) * cdelt1
-    y = crval2 + (np.arange(ny) + 1 - crpix2) * cdelt2
-
-    return data, [x.min(), x.max(), y.min(), y.max()]
+    data, header = read_fits_data_header(path)
+    if data.ndim != 2:
+        raise ValueError("Radio display requires a two-dimensional image HDU")
+    if return_wcs:
+        return data, header
+    bounds = calculate_fits_extent_from_header(header, data.shape)
+    units = (
+        u.Unit(header.get("CUNIT1", "arcsec")),
+        u.Unit(header.get("CUNIT2", "arcsec")),
+    )
+    return data, [
+        float((value * units[index // 2]).to_value(u.arcsec))
+        for index, value in enumerate(bounds)
+    ]
 
 
 # ============================================================
@@ -342,7 +347,7 @@ def make_tb_colormap() -> LinearSegmentedColormap:
 
 def load_tb(path: str) -> np.ndarray:
     """Load the precomputed Kelvin map as MK using the shared display policy."""
-    return load_brightness_temperature(path)
+    return load_brightness_temperature(path, fill_missing=0.0)
 
 
 def get_tb_extent() -> list:
@@ -403,7 +408,9 @@ def _draw_limbs(ax, sun_center, rsun) -> None:
         )
 
 
-def _draw_radio_gradient(ax, radio_data: np.ndarray, radio_extent: list) -> list:
+def _draw_radio_gradient(
+    ax, radio_data: np.ndarray, radio_extent: list, *, radio_coordinates=None
+) -> list:
     """
     叠加射电源强度梯度等高线（仿 DEM_RS.py plot_overlay 步骤 5–7）。
 
@@ -417,15 +424,36 @@ def _draw_radio_gradient(ax, radio_data: np.ndarray, radio_extent: list) -> list
     -------
     list[Line2D]：图例代理线
     """
-    radio_s = gaussian_filter(radio_data, CONFIG["radio_smooth_sigma"])
-    rmin, rmax = radio_s.min(), radio_s.max()
+    from solar_toolkit._utils.numeric import numeric_data
+
+    values = numeric_data(radio_data)
+    valid = np.isfinite(values)
+    if not valid.any():
+        return []
+    weights = gaussian_filter(valid.astype(float), CONFIG["radio_smooth_sigma"])
+    numerator = gaussian_filter(
+        np.where(valid, values, 0.0), CONFIG["radio_smooth_sigma"]
+    )
+    radio_s = np.full(values.shape, np.nan)
+    np.divide(numerator, weights, out=radio_s, where=valid & (weights > 0))
+    rmin, rmax = np.nanmin(radio_s), np.nanmax(radio_s)
+    if rmax <= rmin:
+        return []
     levels = [rmin + lv * (rmax - rmin) for lv in CONFIG["radio_contour_levels"]]
 
+    if radio_coordinates is None:
+        contour_args = (radio_s,)
+        contour_kwargs = {"extent": radio_extent, "origin": "lower"}
+    else:
+        grid_x, grid_y = radio_coordinates
+        if np.shape(grid_x) != radio_s.shape or np.shape(grid_y) != radio_s.shape:
+            raise ValueError("Radio WCS grid must match the image shape")
+        contour_args = (grid_x, grid_y, radio_s)
+        contour_kwargs = {}
     ax.contour(
-        radio_s,
+        *contour_args,
         levels=levels,
-        extent=radio_extent,
-        origin="lower",
+        **contour_kwargs,
         colors=CONFIG["radio_contour_colors"],
         linewidths=CONFIG["radio_contour_linewidths"],
         zorder=6,
@@ -450,6 +478,8 @@ def plot_tb(
     radio_data: np.ndarray = None,
     radio_extent: list = None,
     radio_time: str = "",
+    *,
+    radio_coordinates=None,
 ) -> tuple:
     """
     绘制 Tb 底图，叠加日面轮廓，并（可选）叠加射电强度梯度等高线。
@@ -487,8 +517,12 @@ def plot_tb(
 
     # ── 射电强度梯度等高线（overlay_radio=True 时才会传入数据）
     radio_proxy = []
-    if radio_data is not None and radio_extent is not None:
-        radio_proxy = _draw_radio_gradient(ax, radio_data, radio_extent)
+    if radio_data is not None and (
+        radio_extent is not None or radio_coordinates is not None
+    ):
+        radio_proxy = _draw_radio_gradient(
+            ax, radio_data, radio_extent, radio_coordinates=radio_coordinates
+        )
 
     # ── 坐标轴 ───────────────────────────────────────────────
     x0, x1, y0, y1 = get_display_extent(aia_map)
@@ -580,6 +614,7 @@ def main(argv=None) -> int:
     # ── Step 3：射电源时间匹配（受 overlay_radio 开关控制）──
     radio_data = None
     radio_extent = None
+    radio_coordinates = None
     radio_time = ""
 
     if not CONFIG["overlay_radio"]:
@@ -613,7 +648,9 @@ def main(argv=None) -> int:
             print(f"  射电时间  : {radio_time}")
             print(f"  时间差    : {diff_str}")
 
-            radio_data, radio_extent = load_radio(best_path)
+            radio_data, radio_header = load_radio(best_path, return_wcs=True)
+            radio_extent = hpc_world_bounds(radio_header, radio_data.shape)
+            radio_coordinates = hpc_pixel_grid(radio_header, radio_data.shape)
             print(f"  形状      : {radio_data.shape}")
             print(
                 f"  extent X  : [{radio_extent[0]:.1f}, {radio_extent[1]:.1f}] arcsec"
@@ -630,6 +667,7 @@ def main(argv=None) -> int:
         radio_data=radio_data,
         radio_extent=radio_extent,
         radio_time=radio_time,
+        radio_coordinates=radio_coordinates,
     )
 
     if CONFIG["save_figure"]:

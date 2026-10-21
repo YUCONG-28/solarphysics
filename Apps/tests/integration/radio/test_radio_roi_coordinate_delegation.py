@@ -5,6 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 from astropy.io import fits
+from astropy.wcs import WCS
 
 from solar_apps.frontends.radio.roi_lightcurve import roi_lightcurve_application as app
 from solar_toolkit.radio import roi_lightcurve as scientific
@@ -39,15 +40,12 @@ def test_roi_coordinates_masks_and_statistics_match_scientific_library(kind) -> 
     header = _header(kind)
     image = np.arange(63, dtype=float).reshape(7, 9)
     yy, xx = np.indices(image.shape, dtype=float)
-    if kind == "crota":
-        expected_x = 10.0 - 5.0 * (yy - 1.0)
-        expected_y = -7.0 + 2.0 * (xx - 2.0)
-    else:
-        expected_x = 10.0 - 2.0 * (yy - 1.0)
-        expected_y = -7.0 + 5.0 * (xx - 2.0)
+    world = WCS(header).all_pix2world(np.column_stack((xx.ravel(), yy.ravel())), 0)
+    expected_x = ((world[:, 0] + 180) % 360 - 180).reshape(image.shape) * 3600
+    expected_y = world[:, 1].reshape(image.shape) * 3600
     actual_x, actual_y = app._pixel_coordinates_hpc_arcsec(header, xx, yy)
-    np.testing.assert_allclose(actual_x, expected_x, atol=1e-12)
-    np.testing.assert_allclose(actual_y, expected_y, atol=1e-12)
+    np.testing.assert_allclose(actual_x, expected_x, atol=1e-9)
+    np.testing.assert_allclose(actual_y, expected_y, atol=1e-9)
 
     roi = scientific.RadioRoi.from_box(5.0, -10.0, 9.0, 5.0)
     expected_mask = (

@@ -1178,10 +1178,17 @@ def _expanded_gaussian_model(
     x_arcsec = np.linspace(display_left, display_right, sample_count)
     y_arcsec = np.linspace(display_bottom, display_top, sample_count)
     grid_x, grid_y = np.meshgrid(x_arcsec, y_arcsec)
-    x_pixel = (grid_x - left) / dx - 0.5
-    if str(image_origin).lower() == "upper":
+    if hasattr(fit_result, "coordinate_header"):
+        from solar_toolkit.map.coordinates import hpc_world_to_pixel
+
+        x_pixel, y_pixel = hpc_world_to_pixel(
+            fit_result.coordinate_header, grid_x, grid_y
+        )
+    elif str(image_origin).lower() == "upper":
+        x_pixel = (grid_x - left) / dx - 0.5
         y_pixel = (top - grid_y) / dy - 0.5
     elif str(image_origin).lower() == "lower":
+        x_pixel = (grid_x - left) / dx - 0.5
         y_pixel = (grid_y - bottom) / dy - 0.5
     else:
         raise ValueError(f"Unsupported radio image origin: {image_origin}")
