@@ -20,8 +20,9 @@ Run the following commands from the repository root after replacing
 Windows:
 
 ```powershell
-$Conda = "<miniforge-root>\Scripts\conda.exe"
-& $Conda env update -n solarphysics_env_latest -f .\Apps\environment.miniforge.yml
+$env:SOLAR_MINIFORGE_ROOT = "<miniforge-root>"
+$Conda = Join-Path $env:SOLAR_MINIFORGE_ROOT "Scripts\conda.exe"
+& $Conda env create -n solarphysics_env_latest -f .\Apps\environment.miniforge.yml
 & $Conda run -n solarphysics_env_latest python -m pip install -e ".\Python[quality-ml]"
 & $Conda run -n solarphysics_env_latest python -m pip install -e .\Apps
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Apps\run.ps1 admin init
@@ -30,14 +31,22 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Apps\run.ps1 admin ini
 macOS:
 
 ```bash
-"<miniforge-root>/bin/conda" env update -n solarphysics_env_latest -f Apps/environment.miniforge.yml
-"<miniforge-root>/bin/conda" run -n solarphysics_env_latest python -m pip install -e "./Python[quality-ml]"
-"<miniforge-root>/bin/conda" run -n solarphysics_env_latest python -m pip install -e ./Apps
+export SOLAR_MINIFORGE_ROOT="<miniforge-root>"
+MINIFORGE_CONDA="$SOLAR_MINIFORGE_ROOT/bin/conda"
+"$MINIFORGE_CONDA" env create -n solarphysics_env_latest -f Apps/environment.miniforge.yml
+"$MINIFORGE_CONDA" run -n solarphysics_env_latest python -m pip install -e "./Python[quality-ml]"
+"$MINIFORGE_CONDA" run -n solarphysics_env_latest python -m pip install -e ./Apps
 ./Apps/run.sh admin init
 ```
 
-These commands resolve dependency ranges for development. For hash-verified
-platform dependencies, follow the [environment guide](../environment/README.md).
+These are source-checkout installs: both `./Python` and `./Apps` must remain
+installed in editable mode. Apps wheels are inspected for package contents;
+standalone wheel installation is not a supported application deployment path.
+If the named environment already exists, inspect it first; use `env update`
+in place of `env create` only when you intend to update that environment.
+
+The installation commands resolve dependency ranges for development. For
+hash-verified platform dependencies, follow the [environment guide](../environment/README.md).
 An exploratory installation is not an exact environment replay.
 
 If Miniforge is outside its default location, set `SOLAR_MINIFORGE_ROOT`, or
@@ -117,7 +126,9 @@ Apps/run.ps1 tools <command> [arguments]
 
 Use `./Apps/run.sh` with the same arguments on macOS. Workflow domains are
 `aia`, `radio`, `hmi`, `net`, `data`, `visualization`, `xray-dem` and `pfss`.
-Run a group or command with `--help` to inspect its options.
+Run a group or command with `--help` to inspect its options. In particular,
+`workflow radio --help` lists the radio catalog. Help and invalid-command
+handling do not initialize the private runtime.
 
 The native demonstration interface starts with:
 
@@ -182,6 +193,7 @@ settings and cache signatures are described in the architecture guide.
 | Symptom | Check |
 | --- | --- |
 | Miniforge cannot be found | Set `SOLAR_MINIFORGE_ROOT` or pass the launcher's Miniforge-root option. |
+| Runtime has not been initialized | Run the launcher's explicit `admin init` step before starting a frontend. |
 | A path control is disabled | Configure allowed roots and confirm that the requested path exists inside them. |
 | Scientific configuration is missing | Supply the selected workflow's explicit inputs or private configuration. |
 | An optional import fails | Install both source partitions in the selected environment and inspect the command's dependency requirements. |
@@ -195,7 +207,8 @@ technical documentation and required notices belong in the public tree; keep
 observations, machine paths, state, logs, workspaces and generated products
 private.
 
-General Apps source is [MIT](LICENSE); App 1.0 source is
+The complete [repository license scope](../LICENSING.md) lists component
+exceptions. General Apps source is [MIT](LICENSE); App 1.0 source is
 [GPL-3.0-only](solar_apps/frontends/app_v1/LICENSE.md). The bundled Mediabunny
 asset is MPL-2.0 and includes its license and notice. PyQt6 is separately licensed
 by its publisher. Preserve these component notices when redistributing code.

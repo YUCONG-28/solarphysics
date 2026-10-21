@@ -6,6 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "solarphysics-apps"
 dynamic = ["version"]
 description = "Local-first frontends and reproducible workflows for solar physics"
+authors = [{name = "Y. Li"}]
 readme = "README.md"
 requires-python = ">=3.14"
 license = "MIT AND GPL-3.0-only AND MPL-2.0"

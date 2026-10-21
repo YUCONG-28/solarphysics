@@ -92,8 +92,9 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Apps\run.ps1 tools hea
 The optional `tools quick` and `tools release` commands expose repository
 maintenance operations. Inspect their help and use the
 [development workflow](../../WORKFLOW_README.md) for save, update and release
-procedures. A help command does not authorize a subsequent commit, push or
-release.
+procedures. `release prepare` creates version changes for a normal pull
+request; `release publish` validates and publishes an explicitly selected merged
+commit as a separate stage. Both stages preview their actions by default.
 
 - Preserve dependency direction, public imports, stable CLI IDs and compatible
   artifact formats. See [Apps architecture](architecture.md).
@@ -109,6 +110,11 @@ release.
 - Keep third-party assets with their license and notice files. Required package
   resources are explicitly listed in `Apps/pyproject.toml`; update that list
   and the distribution boundary checks together when a resource changes.
+
+Apps uses editable installs of both source partitions from the checkout.
+Distribution builds check source archives, package resources and license
+contents; they do not establish a standalone Apps wheel deployment. Library
+wheel installation is tested separately.
 
 The public-source policy, package-content checks and contribution workflow are
 shared with the repository. Do not publish raw operation history or execution

@@ -2,17 +2,29 @@
 
 ## Unreleased
 
-- Kept the library and application `_version.py` files synchronized through
-  the repository release tool.
-- Added the `tools release` command (version bump, changelog rewrite, tag,
-  push, and GitHub release; dry-run by default).
-- Added the `tools quick` command family (`check`/`save`/`push`/`update`) for
-  fast verify, commit, push, and Pull-Request workflow.
-- Updated contributor and architecture documentation for `solarphysics_env_latest`
-  setup, standalone `pre-commit` usage, verification environment variables, and
-  public-surface documentation sync rules.
-- Consolidated library guidance around explicit inputs, dependency profiles and
-  existing examples; corrected citation affiliation fields.
+- Made the English home and contribution guide canonical, added full Chinese
+  counterparts, and retained the previous English paths and section anchors.
+- Added fresh Miniforge setup, deterministic installation output, a connected
+  documentation index and migration guidance. Clarified editable Apps installs
+  and the scope of scientific image naming.
+- Added repository citation metadata and MIT terms for self-owned root,
+  maintenance, documentation and environment files while preserving component
+  GPL/MPL licenses and historical attribution. Current author metadata is Y. Li,
+  Shandong University.
+- Corrected AIA ROI bounds, exposure-unit handling and TAI-to-UTC conversion;
+  retained explicit legacy ROI selection. Preserved unsigned-image differences
+  and HMI masks, rejected masked PFSS boundaries, and tightened derivative axes
+  and spacing while preserving derivative modes and decreasing Gaussian axes.
+- Hardened radio quality, UTC and finite-input handling. Invalid Newkirk
+  frequencies retain missing values and reasons where row preservation applies;
+  HMI overlays require a caller-selected ROI. See the migration guide for details.
+- Made quick saves reject protected branch/index states before mutation and
+  reuse existing pull requests. Help and invalid commands leave runtime state
+  uninitialized.
+- Split release preparation from publication: `release prepare` (also `run`)
+  changes only version files and changelog for a pull request; `release publish`
+  validates an explicit merged commit and its CI before tag/Release publication.
+  Both stages preview by default.
 
 ## 0.3.0
 

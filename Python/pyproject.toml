@@ -3,7 +3,7 @@ name = "solar-physics-toolkit"
 dynamic = ["version"]
 description = "Reusable scientific libraries for multi-wavelength solar data analysis"
 authors = [
-    {name = "Severus / Lee / Ninghao"}
+    {name = "Y. Li"}
 ]
 readme = "README.md"
 license = "MIT"

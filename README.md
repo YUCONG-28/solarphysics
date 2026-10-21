@@ -1,27 +1,67 @@
 # Solar Physics Toolkit
 
-[中文](README.md) | [English](README.en.md)
+[English](README.md) | [简体中文](README.zh-CN.md)
 
 [![CI](https://github.com/YUCONG-28/solarphysics/actions/workflows/ci.yml/badge.svg)](https://github.com/YUCONG-28/solarphysics/actions/workflows/ci.yml)
 
-可按需组合的太阳物理基础代码库。主要内容是 `solar_toolkit` 中的数据读取、
-时间匹配、图像处理、几何计算、射电分析和绘图模块。使用者根据自己的输入、
-参数和科学问题选择模块，组合分析流程。
+Composable Python tools for multi-wavelength solar-physics analysis.
+`solar_toolkit` provides readers, time matching, image processing, geometry,
+radio analysis and plotting.
+Choose modules and combine them around your own inputs, parameters and
+scientific question.
 
-少量示例与应用用于展示模块的组合方式。真实任务的观测数据、事件配置、
-处理条件和结果验证由使用者自行准备。
+A small set of examples and application adapters demonstrates composition.
+Users supply observations, event parameters, processing conditions and
+validation for their own tasks.
 
-## 从基础模块开始
+| Capability | Scope |
+| --- | --- |
+| Data and time | Explicit FITS/table I/O, UTC/TAI handling and chronological sequence matching |
+| Solar images | AIA/HMI normalization, masks, map geometry and CME differences |
+| Radio analysis | Spectrum readers, source fitting, reprojection, ROI statistics and trajectories |
+| X-ray time series | SXR readers, smoothing, derivatives and precomputed brightness-temperature display |
+| Models | Gaussian models; [global PFSS](Python/solar_toolkit/modeling/pfss/README.md) requires separately installed backends and a valid global radial boundary |
+| Quality diagnostics | Rule evidence; learned diagnostics require explicit labels and separate [optional profiles](Python/README.md#install) |
 
-科学库支持 Python 3.10 及以上；本仓库开发使用 Miniforge 的
-`solarphysics_env_latest` 环境。从仓库根目录安装：
+The [API map](Python/docs/FUNCTION_MAP.md) describes inputs, units and failure
+behavior. Users choose calibration and physical-model assumptions for their data.
+
+<a id="从基础模块开始"></a>
+
+## Start with the library
+
+The scientific library supports Python 3.10 and later. Repository development
+uses Python 3.14 in Miniforge’s `solarphysics_env_latest` environment. For a
+fresh clone, replace `<miniforge-root>` with your Miniforge installation
+directory and run from the repository root.
+
+macOS/Linux:
 
 ```bash
-<miniforge-root>/bin/conda run -n solarphysics_env_latest python -m pip install -e ./Python
+MINIFORGE_CONDA="<miniforge-root>/bin/conda"
+"$MINIFORGE_CONDA" create -n solarphysics_env_latest -c conda-forge python=3.14 pip
+"$MINIFORGE_CONDA" run -n solarphysics_env_latest python -m pip install -e ./Python
+"$MINIFORGE_CONDA" run -n solarphysics_env_latest python Python/examples/public_api/time_matching_example.py
 ```
 
-Windows 使用 `<miniforge-root>\Scripts\conda.exe` 执行相同命令。
-不需要安装应用层即可使用科学库：
+Windows PowerShell:
+
+```powershell
+$Conda = "<miniforge-root>\Scripts\conda.exe"
+& $Conda create -n solarphysics_env_latest -c conda-forge python=3.14 pip
+& $Conda run -n solarphysics_env_latest python -m pip install -e .\Python
+& $Conda run -n solarphysics_env_latest python Python/examples/public_api/time_matching_example.py
+```
+
+If the environment already exists, inspect its Python version and skip
+`create`. The example needs no observations and prints:
+
+```text
+aia.lev1_euv_12s.2000-01-01T000012Z.171.image_lev1.fits
+```
+
+The library works without installing Apps. A direct nearest-time lookup returns
+the selected input index:
 
 ```python
 from datetime import datetime, timedelta, timezone
@@ -30,63 +70,85 @@ from solar_toolkit.radio.reprojection import nearest_time_index
 
 target = datetime(2000, 1, 1, tzinfo=timezone.utc)
 samples = [target - timedelta(seconds=1), target + timedelta(seconds=2)]
-index = nearest_time_index(target, samples)
+print(nearest_time_index(target, samples))  # 0
 ```
 
-| 需求 | 入口 |
+| Task | Entry point |
 | --- | --- |
-| 查找模块、安装和验证科学库 | [Python 使用说明](Python/README.md) |
-| 查找公共接口及兼容入口 | [接口索引](Python/docs/FUNCTION_MAP.md) |
-| 从小型确定性示例开始 | [公共 API 示例](Python/examples/public_api/README.md) |
-| 组合频谱读取、时间匹配与显示 | [射电示例](Python/examples/radio/README.md) |
-| 读取用户提供的 EUVI 图像 | [STEREO 示例](Python/examples/stereo/README.md) |
-| 组合 SXR 数据读取与曲线绘制 | [SXR 示例](Python/examples/sxr/README.md) |
+| Find, install and verify scientific modules | [Library guide](Python/README.md) |
+| Find public interfaces and compatibility entry points | [API map](Python/docs/FUNCTION_MAP.md) |
+| Start with small deterministic examples | [Public API examples](Python/examples/public_api/README.md) |
+| Compose spectrum reading, time matching and display | [Radio example](Python/examples/radio/README.md) |
+| Read user-supplied EUVI images | [STEREO example](Python/examples/stereo/README.md) |
+| Compose SXR reading and curve plotting | [SXR example](Python/examples/sxr/README.md) |
 
-示例生成的数据和输出保存在仓库的 `Local/` 或仓库外的用户指定目录。示例中的合成输入只用于
-说明接口和检查软件行为，不构成真实观测证据。
+Generated data and outputs belong in the repository's `Local/` directory or a
+user-selected directory outside the repository. Synthetic inputs illustrate
+interfaces and check software behavior; they are not observational evidence.
 
-## 应用展示
+<a id="应用展示"></a>
 
-`Apps` 提供科学模块的界面适配和工作流组合。应用层需要 Python 3.14，
-安装与运行方法见 [应用说明](Apps/README.md)。桌面展示入口：
+## Application demonstration
+
+`Apps` provides interfaces and workflow composition around the scientific
+modules. It requires Python 3.14 and editable installs of both source partitions;
+see the [application guide](Apps/README.md) for installation and setup. Start the
+desktop demonstration with:
 
 ```bash
 ./Apps/run.sh frontend app-v1
 ```
 
-Windows 使用 `Apps\run.ps1 frontend app-v1`。应用展示需要使用者明确提供输入、
-配置和允许访问的路径；安装本身不包含真实任务参数或数据。
+On Windows, use `Apps\run.ps1 frontend app-v1`. Supply explicit inputs,
+configuration and allowed paths. Installation does not include real task
+parameters or observations.
 
-## 仓库结构
+<a id="仓库结构"></a>
 
-| 目录 | 内容 |
+## Repository layout
+
+| Directory | Contents |
 | --- | --- |
-| `Python/` | 可独立安装的科学基础库、测试和小型示例 |
-| `Apps/` | 应用展示、界面适配、工作流与测试 |
-| `tools/` | 通用代码维护和数据集合清单工具 |
-| `environment/` | 按平台记录的依赖锁及重放工具说明 |
-| `docs/` | 接口、架构与开发说明 |
-| `Local/` | 忽略的私有配置、数据、状态和输出 |
+| `Python/` | Independently installable scientific library, tests and small examples |
+| `Apps/` | Application demonstrations, interface adapters, workflows and tests |
+| `tools/` | General maintenance and collection-manifest utilities |
+| `environment/` | Platform-specific dependency locks and replay instructions |
+| `docs/` | Technical guide index, time-matching and radio-comparison guides |
+| `Local/` | Ignored private configuration, data, state and outputs |
 
-公开仓库只维护代码和必要技术说明。研究笔记、文献选择、科研进度、
-真实事件参数、观测数据与分析成果由使用者在 `Local/` 或仓库外管理。
+Public source contains code and necessary technical documentation. Research
+notes, literature selections, progress, real event parameters, observations and
+results belong in `Local/` or outside the repository.
 
-依赖方向为 `solar_apps -> solar_toolkit`。基础库导入时不启动界面、下载数据
-或执行分析。参见 [架构](ARCHITECTURE.md)、[贡献指南](CONTRIBUTING.md)
-及 [文档索引](docs/README.md)。
+Dependencies flow from `solar_apps` to `solar_toolkit`. Importing the library
+does not launch interfaces, download data or run analyses. See the
+[architecture](ARCHITECTURE.md), [contribution guide](CONTRIBUTING.md) and
+[documentation index](docs/README.md).
 
-## 贡献与维护
+<a id="贡献与维护"></a>
 
-修改前阅读 [贡献指南](CONTRIBUTING.md)。问题报告和 PR 使用最小合成输入，
-说明预期行为、实际行为和适用环境。安装与测试依据现有项目配置，平台环境锁的
-适用范围见 [环境说明](environment/README.md)。
+## Contributing and maintenance
 
-日常分支、提交和独立发布工具的维护说明见 [开发流程](WORKFLOW_README.md)。
+Read the [contribution guide](CONTRIBUTING.md) before making changes.
+Issues and pull requests should use minimal synthetic inputs and describe
+expected behavior, actual behavior and the relevant environment. Project
+metadata defines installation and test dependencies; the
+[environment guide](environment/README.md) explains platform-lock scope.
 
-## 许可与引用
+The [development workflow](WORKFLOW_README.md) covers branches, commits and
+separate release stages. Existing users can consult the
+[migration guide](docs/migration.md) and [changelog](Python/CHANGELOG.md).
 
-科学库遵循 [MIT 许可](Python/LICENSE)。应用代码及其资源的许可分别见
-[Apps/LICENSE](Apps/LICENSE)、[桌面应用许可](Apps/solar_apps/frontends/app_v1/LICENSE.md)
-和 [媒体资源声明](Apps/solar_apps/ui/media/NOTICE.txt)。各组件保留自身许可，
-仓库整体不适用单一的 MIT 声明。
-科学库引用信息见 [CITATION.cff](Python/CITATION.cff)。
+<a id="许可与引用"></a>
+
+## Licensing and citation
+
+Self-owned root files, `tools/`, `docs/` and `environment/` use the root
+[MIT license](LICENSE). The scientific library retains [Python/LICENSE](Python/LICENSE).
+Apps includes MIT source, GPL-3.0-only App 1.0 source and an MPL-2.0 media asset;
+see the [component license scope](LICENSING.md) before redistributing.
+
+Citation metadata for Y. Li, Shandong University, is available in the root
+[CITATION.cff](CITATION.cff); the library also provides
+[partition citation metadata](Python/CITATION.cff). Cite the version or commit
+you actually used. These files do not assign a DOI.

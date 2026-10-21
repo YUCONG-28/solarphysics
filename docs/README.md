@@ -1,9 +1,10 @@
 # Documentation
 
-[中文首页](../README.md) | [English home](../README.en.md)
+[English home](../README.md) | [中文首页](../README.zh-CN.md)
 
-The home and contribution guides have Chinese and English entry points.
-Detailed technical guides have one canonical version linked below.
+The English home and contribution guide are canonical; Chinese counterparts
+provide the same navigation. Detailed technical guides have one canonical
+version linked below. Guides written in Chinese are marked in the table.
 
 | Task | Entry point |
 | --- | --- |
@@ -11,15 +12,18 @@ Detailed technical guides have one canonical version linked below.
 | Run deterministic API examples | [Public API examples](../Python/examples/public_api/README.md) |
 | Read local EUVI FITS files | [STEREO example](../Python/examples/stereo/README.md) |
 | Read, match and display synthetic radio data | [Radio example](../Python/examples/radio/README.md) |
-| Match complete chronological image sequences | [Time matching](time_matching.md) |
+| Match complete chronological image sequences | [Time matching (中文)](time_matching.md) |
+| Compare original radio/AIA images and localize sources | [Radio comparison](radio_comparison.md) |
 | Plot a supplied SXR dataset | [SXR example](../Python/examples/sxr/README.md) |
 | Run the application demonstration | [Application guide](../Apps/README.md) |
 | Develop application adapters | [Apps development](../Apps/docs/development.md) |
 | Inspect interface ownership and compatibility | [Apps architecture](../Apps/docs/architecture.md) |
 | Understand package and runtime boundaries | [Architecture](../ARCHITECTURE.md) |
-| Verify and contribute code | [Contribution guide](../CONTRIBUTING.en.md), [library development](../Python/CONTRIBUTING.md), [maintenance workflow](../WORKFLOW_README.md) |
+| Verify and contribute code | [Contribution guide](../CONTRIBUTING.md), [中文对照](../CONTRIBUTING.zh-CN.md), [library development](../Python/CONTRIBUTING.md), [maintenance workflow](../WORKFLOW_README.md) |
 | Recreate platform dependencies | [Environment guide](../environment/README.md) |
-| Compose AIA/radio displays | [Composite guide](aia_radio_composite.md) |
+| Compose AIA/radio displays | [Composite guide (中文)](aia_radio_composite.md) |
+| Update an existing checkout or integration | [Migration guide](migration.md), [changelog](../Python/CHANGELOG.md) |
+| Check redistribution and citation metadata | [License scope](../LICENSING.md), [repository citation](../CITATION.cff), [library citation](../Python/CITATION.cff) |
 
 The library supports Python 3.10 and later. Apps require Python 3.14.
 An environment lock applies to its named platform; compatibility testing and
@@ -27,5 +31,4 @@ hash-verified dependency replay are separate checks.
 
 Documentation describes interfaces, units, algorithm conditions and software
 behavior. Observations, event parameters, research records and generated results
-remain outside public source. A synchronized directory is not a substitute for
-Git history; do not synchronize `.git` through a two-way file service.
+remain outside public source.

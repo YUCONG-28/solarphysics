@@ -1,7 +1,7 @@
 # Contributing
 
 Reusable science APIs live in `solar_toolkit/`; data-independent library checks
-live in `tests/`. The repository [contributor guide](../CONTRIBUTING.en.md) owns
+live in `tests/`. The repository [contributor guide](../CONTRIBUTING.md) owns
 environment setup, style checks, public-source review and the Git workflow.
 All commands below run from the repository root through Miniforge
 `solarphysics_env_latest`.
