@@ -24,6 +24,24 @@ def test_relative_units_invariant_to_gain():
     np.testing.assert_allclose(a, [[0, 0, 0, 10]])
 
 
+@pytest.mark.parametrize("percentile, baseline", [(50.0, 3.0), (75.0, 5.0)])
+def test_selected_background_percentile_matches_values_and_provenance(
+    percentile, baseline
+):
+    raw = np.array([[1.0, 2.0, np.nan, 4.0, 8.0, 0.0]])
+    result, metadata = relative_background_db(
+        raw, np.arange(6), background_percentile=percentile
+    )
+    np.testing.assert_allclose(
+        result[0, [0, 1, 3, 4]], 10 * np.log10(np.array([1, 2, 4, 8]) / baseline)
+    )
+    assert np.isnan(result[0, [2, 5]]).all()
+    assert metadata["background_linear"] == [baseline]
+    assert metadata["background_percentile"] == percentile
+    assert f"percentile {percentile:g}" in metadata["definition"]
+    assert "20th" not in metadata["definition"]
+
+
 def test_compaction_preserves_finite_nonpositive_measurements_and_real_utc():
     base = float(Time("2000-01-01T00:00:00", scale="utc").unix)
     values = np.array([[0.0, np.nan, -2.0, 4.0], [1.0, np.nan, np.nan, 6.0]])

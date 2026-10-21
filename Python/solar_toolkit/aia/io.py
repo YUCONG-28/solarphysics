@@ -166,7 +166,14 @@ def resolve_test_file(cfg: AIAConfig) -> Path:
 def build_multi_band_slots(
     cfg: AIAConfig, wavelengths: tuple[int, ...]
 ) -> list[tuple[Path, ...]]:
-    """Build per-time slots that group one FITS path from each wavelength."""
+    """Group sorted files by index, retaining the legacy mosaic policy.
+
+    A slot contains the same ordinal file from each wavelength, truncated to
+    the shortest list. It does not guarantee simultaneous observations, even
+    when every band has the same number of files. For explicit synchronization,
+    index observation times and use ``solar_toolkit.time.build_sequence_match_plan``
+    with caller-selected tolerances before rendering.
+    """
     data_path = Path(cfg.data_path)
     per_band: list[list[Path]] = []
 

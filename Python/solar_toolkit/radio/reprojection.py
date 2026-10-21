@@ -14,6 +14,8 @@ from datetime import datetime
 
 import numpy as np
 
+from ..time import normalize_time, seconds_to_ns
+
 __all__ = [
     "RadioReprojectionResult",
     "interpolate_scattered_to_grid",
@@ -147,7 +149,13 @@ def nearest_time_index(
     *,
     max_delta_seconds: float | None = None,
 ) -> int | None:
-    """Return the first nearest candidate index, optionally within a tolerance."""
+    """Return the first nearest candidate index, optionally within seconds.
+
+    Naive datetimes use UTC; aware datetimes and explicitly scaled Astropy
+    times are compared as continuous integer TAI nanoseconds. Empty candidates
+    or an exceeded inclusive tolerance return ``None``. Invalid timestamps or
+    a negative/nonfinite tolerance raise ``ValueError``. Inputs are unchanged.
+    """
 
     if max_delta_seconds is not None:
         max_delta_seconds = float(max_delta_seconds)
@@ -156,11 +164,15 @@ def nearest_time_index(
     if len(candidate_times) == 0:
         return None
 
+    target_ns = normalize_time(target_time).tai_ns
     deltas = [
-        abs((candidate - target_time).total_seconds()) for candidate in candidate_times
+        abs(normalize_time(candidate).tai_ns - target_ns)
+        for candidate in candidate_times
     ]
-    index = int(np.argmin(deltas))
-    if max_delta_seconds is not None and deltas[index] > max_delta_seconds:
+    index = min(range(len(deltas)), key=deltas.__getitem__)
+    if max_delta_seconds is not None and deltas[index] > seconds_to_ns(
+        max_delta_seconds
+    ):
         return None
     return index
 

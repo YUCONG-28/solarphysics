@@ -126,3 +126,55 @@ def test_smoothing_keeps_even_window_adjustment_and_nan_propagation():
     np.testing.assert_allclose(
         actual, [np.nan, np.nan, np.nan, 4.0, 3.0], equal_nan=True
     )
+
+
+@pytest.mark.parametrize("values", [[], [9.0], [1.0, 3.0], [1.0, 3.0, 5.0]])
+def test_derivative_short_series_has_explicit_shape_stable_policy(values):
+    from solar_toolkit.timeseries import derivative_series
+
+    result = derivative_series(values, spacing_seconds=np.array(2.0))
+    assert isinstance(result, np.ndarray)
+    assert result.shape == (len(values),)
+    np.testing.assert_allclose(
+        result, [0.0] if len(values) == 1 else [1.0] * len(values)
+    )
+
+
+@pytest.mark.parametrize("values", [1.0, [[1.0, 2.0], [3.0, 4.0]], np.empty((0, 2))])
+def test_derivative_rejects_non_series_shapes(values):
+    from solar_toolkit.timeseries import derivative_series
+
+    with pytest.raises(ValueError, match="one-dimensional"):
+        derivative_series(values)
+
+
+@pytest.mark.parametrize(
+    "spacing",
+    [
+        0,
+        -1.0,
+        np.nan,
+        np.inf,
+        -np.inf,
+        True,
+        np.array(True),
+        [1.0],
+        np.array([1.0]),
+        None,
+    ],
+)
+@pytest.mark.parametrize("values", [[], [1.0], [1.0, 2.0, 3.0]])
+def test_derivative_rejects_invalid_spacing_even_without_a_difference(values, spacing):
+    from solar_toolkit.timeseries import derivative_series
+
+    with pytest.raises(ValueError, match="finite positive scalar"):
+        derivative_series(values, spacing_seconds=spacing)
+
+
+@pytest.mark.parametrize("value", [np.nan, np.inf, -np.inf])
+def test_derivative_single_missing_value_does_not_become_a_zero_measurement(value):
+    from solar_toolkit.timeseries import derivative_series
+
+    result = derivative_series([value])
+    assert result.shape == (1,)
+    assert np.isnan(result[0])

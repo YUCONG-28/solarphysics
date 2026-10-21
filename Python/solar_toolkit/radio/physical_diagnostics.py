@@ -7,7 +7,7 @@ from typing import Any
 
 import pandas as pd
 
-from .newkirk import extrapolate_drift_line_with_newkirk
+from .newkirk import _positive_parameter, extrapolate_drift_line_with_newkirk
 
 __all__ = [
     "build_drift_newkirk_table",
@@ -39,7 +39,12 @@ def build_drift_newkirk_table(
     drift_rows,
     newkirk_config: Mapping[str, Any],
 ) -> pd.DataFrame:
-    """Expand accepted drift rows across configured Newkirk model cases."""
+    """Expand accepted drift rows across finite positive Newkirk model cases.
+
+    Model settings are validated even for an empty or quality-rejected table.
+    Invalid observed samples retain the model diagnostic's NaN/reason contract.
+    Input tables and configuration mappings are not modified.
+    """
 
     source = filter_accepted_drift_rows(drift_rows)
     multipliers = _model_values(newkirk_config, "multipliers", (1,))
@@ -66,4 +71,4 @@ def _model_values(
     values = config.get(key, default)
     if isinstance(values, (str, bytes)) or not isinstance(values, Iterable):
         values = (values,)
-    return tuple(values)
+    return tuple(_positive_parameter(value, key) for value in values)

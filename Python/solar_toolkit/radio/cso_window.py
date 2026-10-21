@@ -12,7 +12,33 @@ __all__ = ["read_cso_total_window"]
 
 
 def read_cso_total_window(paths, bounds, frequency_bounds, dt=0.1, df=0.25):
-    """Average native R+L samples into bins; empty bins remain NaN, no shifts."""
+    """Bin finite native RCP+LCP samples for a legacy CSO preview.
+
+    ``paths`` names FITS cubes shaped ``(2, frequency, time)`` with explicit
+    UTC and RCP/LCP declarations and source intensities already in linear SFU.
+    Time coordinates are seconds relative to the date resolved from
+    ``DATE-OBS``; frequencies and ``frequency_bounds`` are MHz. ``bounds`` is
+    a pair of absolute UTC Unix seconds, and positive ``dt``/``df`` specify
+    bin widths in seconds/MHz. Callers must supply valid increasing bounds.
+
+    Bins are left-closed/right-open, starting at the requested lower bounds.
+    This retained implementation uses full-width bins: the final time or
+    frequency edge can exceed the requested upper bound. Paths are processed
+    in lexicographic order and their native time ranges must not overlap;
+    overlaps raise ``ValueError`` rather than being merged or deduplicated.
+
+    Returns ``(time_centers, frequency_centers, intensity, metadata)``.
+    ``intensity`` has shape ``(frequency_bin, time_bin)`` in SFU. Each finite
+    native R+L pair contributes one sample, so means are sample-weighted across
+    frequency and time. Empty bins remain NaN; no interpolation, background
+    subtraction, time shift or source-file modification is applied. Metadata
+    records contributing files, bin widths and the empty-bin count.
+
+    Invalid source shape, ordering or required unit/polarization/time labels
+    raises ``ValueError``. File and FITS metadata errors otherwise propagate.
+    For exact requested time edges and selected-band curves, use
+    :func:`solar_toolkit.radio.cso_comparison.read_cso_comparison`.
+    """
     te = np.arange(bounds[0], bounds[1] + dt, dt)
     fe = np.arange(frequency_bounds[0], frequency_bounds[1] + df, df)
     sums = np.zeros((len(fe) - 1, len(te) - 1))

@@ -21,6 +21,14 @@ __all__ = [
 
 @dataclass(frozen=True)
 class MuserSpectrum:
+    """Detached total-power samples with explicit spectral/time coordinates.
+
+    ``data`` has shape ``(frequency, time)`` in the source ``BUNIT`` (or the
+    literal fallback ``"Arbitrary"``); ``frequency_mhz`` is ascending and
+    ``time`` is an Astropy UTC Julian-day time axis. Missing/negative source
+    pixels are retained. Freezing the record does not make its arrays read-only.
+    """
+
     data: np.ndarray
     frequency_mhz: np.ndarray
     time: Time
@@ -28,7 +36,24 @@ class MuserSpectrum:
 
 
 def read_muser_spectrum(path):
-    """Read total power I without assuming XX or YY is circular polarization."""
+    """Read a file-declared PWR_I spectrum without polarization conversion.
+
+    ``path`` names a FITS file whose primary image is frequency by time and
+    declares ``POLARIZA='PWR_I'``. The ``FMHZ`` extension's ``FMHZ`` column is
+    interpreted in MHz; the ``TIME`` extension's ``TIME`` column is interpreted
+    as UTC Julian days. Those conventions are required, rather than inferred
+    from another frequency header or an XX/YY product label.
+
+    Returns a :class:`MuserSpectrum` detached from the closed FITS file, with
+    stable ascending frequency rows and unchanged time order. Frequency
+    coordinates must be finite and unique, and times must increase strictly.
+    Nonfinite intensity samples remain nonfinite; no calibration, background
+    subtraction or missing-value filling is performed. ``BUNIT`` is retained
+    as text, defaulting to ``"Arbitrary"`` when absent.
+
+    Invalid polarization, data/coordinate shape or spectral/time ordering
+    raises ``ValueError``. File/extension errors propagate from the FITS reader.
+    """
     with fits.open(path, memmap=False) as hdus:
         if hdus[0].header.get("POLARIZA", "").strip() != "PWR_I":
             raise ValueError("A PWR_I spectrum is required")
@@ -52,7 +77,24 @@ def read_muser_spectrum(path):
 
 
 def read_muser_images(path):
-    """Return frequency, image, 2D celestial header and beam for every SPW."""
+    """Read explicit Stokes-I planes from a combined MUSER image FITS file.
+
+    The primary array must have shape ``(frequency, 1, 1, y, x)``. Its fourth
+    FITS axis must declare ``STOKES`` with first-plane coordinate I=1, using
+    ``CRVAL4``, ``CRPIX4`` and ``CDELT4``. ``FMHZ`` supplies one finite positive
+    MHz value per plane; no frequency sorting or polarization synthesis occurs.
+    ``BMAJ``, ``BMIN`` and ``BPA`` extensions supply per-plane beam metadata in
+    their source FITS conventions, without unit conversion or deconvolution.
+
+    Returns a list of ``(frequency_mhz, image, header, beam)`` tuples in source
+    plane order. Each image is a copied 2-D float array, preserving negative and
+    missing pixels. Each copied celestial header retains selected observation,
+    unit and observer cards and the corresponding beam. ``BUNIT`` is preserved
+    when present; no extra intensity normalization or calibration is applied.
+
+    Unsupported Stokes/array declarations or invalid frequency coordinates
+    raise ``ValueError``. Missing FITS extensions and I/O errors propagate.
+    """
     with fits.open(path, memmap=False) as hdus:
         header = hdus[0].header
         code = float(header.get("CRVAL4", np.nan)) + (

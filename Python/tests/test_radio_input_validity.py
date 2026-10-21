@@ -17,6 +17,8 @@ from solar_toolkit.radio.newkirk import (
     newkirk_radius_from_frequency_mhz,
     plasma_density_from_frequency_mhz,
 )
+from solar_toolkit.radio.physical_diagnostics import build_drift_newkirk_table
+from solar_toolkit.radio.reprojection import nearest_time_index
 from solar_toolkit.radio.trajectory import (
     filter_time_range,
     normalize_centers_dataframe,
@@ -190,3 +192,32 @@ def test_model_quality_normalization_matches_table_filter():
     out = extrapolate_drift_line_with_newkirk(row, 1, 1)
     assert out["newkirk_quality_flag"] == "ok"
     assert np.isfinite(out["speed_km_s"])
+
+
+@pytest.mark.parametrize("key", ["multipliers", "harmonics"])
+@pytest.mark.parametrize("value", [None, 0.0, -1.0, np.nan, np.inf, "unknown"])
+def test_invalid_model_configuration_is_rejected_without_observed_rows(key, value):
+    with pytest.raises(ValueError, match=key):
+        build_drift_newkirk_table([], {key: [value]})
+
+
+@pytest.mark.parametrize(
+    "candidate",
+    [
+        pd.Timestamp("2000-01-01T08:00:00+08:00"),
+        Time("2000-01-01T00:00:00", scale="utc").tai,
+    ],
+)
+def test_nearest_lookup_normalizes_equivalent_time_representations(candidate):
+    target = pd.Timestamp("2000-01-01T00:00:00").to_pydatetime()
+    assert nearest_time_index(target, [candidate], max_delta_seconds=0.0) == 0
+
+
+def test_nearest_lookup_preserves_submicrosecond_offsets():
+    target = Time("2000-01-01T00:00:00.000000300", scale="utc")
+    candidates = [
+        Time("2000-01-01T00:00:00.000000100", scale="utc"),
+        Time("2000-01-01T00:00:00.000000310", scale="utc"),
+    ]
+    assert nearest_time_index(target, candidates, max_delta_seconds=10e-9) == 1
+    assert nearest_time_index(target, candidates, max_delta_seconds=9e-9) is None

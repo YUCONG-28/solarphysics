@@ -239,15 +239,39 @@ def extract_spectrum(
     frequency_bounds: tuple[float, float] = (90.0, 300.0),
     frequency_bin_mhz: float | None = 0.25,
 ) -> tuple[dict[str, np.ndarray], dict[str, Any]]:
-    """Extract a bounded interval, preserving missing bins and exact overlaps.
+    """Extract a sample-weighted CSO spectrum with explicit unit provenance.
+
+    ``paths`` must contain at least one FITS cube with native shape
+    ``(2, frequency, time)``, explicit UTC and RCP/LCP labels, and validated
+    date/table coordinates. ``bounds_unix`` is an increasing pair of UTC Unix
+    seconds; ``frequency_bounds`` is an increasing MHz pair. Both selections
+    include their upper endpoint. Finite positive bin widths are required.
+    Fixed-bin final edges are clipped to the requested upper bound.
 
     ``frequency_bin_mhz=None`` retains native selected frequency centers and
-    midpoint edges.  It prevents a sparse native grid becoming artificial blank
+    midpoint edges. It prevents a sparse native grid becoming artificial blank
     stripes when displayed on unnecessarily finer frequency bins.
 
     ``encoded_polarization`` selects RCP or RCP+LCP for eight-bit products only.
     The sum is formed in float64 before binning, without applying BSCALE/BZERO
     or interpreting encoded values as SFU.  Floating products always use RCP+LCP.
+    Floating samples apply the FITS scale/offset and require explicit linear
+    SFU units; both polarization samples and their sum must be finite.
+
+    Returns ``(arrays, metadata)``. ``arrays`` contains UTC Unix-second time
+    edges, MHz frequency edges/centers, a float ``intensity`` array shaped
+    ``(frequency_bin, time_bin)``, and equally shaped integer ``sample_count``.
+    Each valid native frequency/time sample contributes once; empty bins are
+    NaN with count zero. Native columns are stably sorted with their pixels.
+    Identical absolute timestamps keep the first column from the source with
+    the earliest start, breaking source ties by path. Distinct timestamps in
+    overlapping ranges remain eligible. Metadata records this policy, actual
+    coverage and unit caveats; no interpolation or time shift is performed.
+
+    Invalid bounds, bin widths, product declarations or coordinate metadata
+    raise ``ValueError``. A source size/mtime change during extraction raises
+    ``RuntimeError``; FITS and filesystem errors propagate. Source files are
+    never modified, and an empty fixed-bin selection stays entirely missing.
     """
     lower, upper = map(float, bounds_unix)
     freq_lower, freq_upper = map(float, frequency_bounds)
