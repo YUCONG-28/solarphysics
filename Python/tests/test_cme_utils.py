@@ -3,6 +3,7 @@ from __future__ import annotations
 import datetime as dt
 
 import numpy as np
+import pytest
 
 
 def test_lasco_timestamp_scan_and_running_difference(tmp_path):
@@ -26,3 +27,23 @@ def test_lasco_timestamp_scan_and_running_difference(tmp_path):
         running_difference(np.array([[1, 4], [3, 8]]), np.array([[1, 1], [5, 2]])),
         np.array([[0, 3], [-2, 6]]),
     )
+
+
+@pytest.mark.parametrize("dtype", [np.uint8, np.uint16, np.int16, np.float32])
+def test_running_difference_preserves_negative_values_and_inputs(dtype):
+    from solar_toolkit.cme import running_difference
+
+    current = np.array([[10, 30]], dtype=dtype)
+    previous = np.array([[20, 10]], dtype=dtype)
+    result = running_difference(current, previous)
+    np.testing.assert_array_equal(result, [[-10, 20]])
+    assert result.dtype.kind == "f"
+    np.testing.assert_array_equal(current, [[10, 30]])
+    np.testing.assert_array_equal(previous, [[20, 10]])
+
+
+def test_running_difference_rejects_broadcasting():
+    from solar_toolkit.cme import running_difference
+
+    with pytest.raises(ValueError, match="shape"):
+        running_difference(np.zeros((3, 3)), np.zeros(3))

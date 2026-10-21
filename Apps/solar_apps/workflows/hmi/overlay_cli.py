@@ -9,7 +9,6 @@ from solar_toolkit.hmi.overlay import (
     DEFAULT_AIA_DIR,
     DEFAULT_HMI_DIR,
     DEFAULT_OUTPUT_DIR,
-    DEFAULT_ROI_BOUNDS,
     run_overlay_workflow,
 )
 from solar_apps.platform.config import load_script_config
@@ -18,7 +17,7 @@ _DEFAULT_CONFIG = {
     "input_dir_AIA": str(DEFAULT_AIA_DIR),
     "input_dir_HMI": str(DEFAULT_HMI_DIR),
     "output_dir": str(DEFAULT_OUTPUT_DIR),
-    "roi_bounds": DEFAULT_ROI_BOUNDS,
+    "roi_bounds": None,
     "threshold_gauss": 0.0,
     "gaussian_sigma": 3.0,
     "vmin": 16.0,
@@ -44,7 +43,9 @@ def _build_parser(config: dict) -> argparse.ArgumentParser:
         nargs=4,
         type=float,
         metavar=("X_MIN", "Y_MIN", "X_MAX", "Y_MAX"),
-        default=config.get("roi_bounds", DEFAULT_ROI_BOUNDS),
+        default=config.get("roi_bounds"),
+        required=config.get("roi_bounds") is None,
+        help="Explicit helioprojective ROI in arcsec: xmin ymin xmax ymax.",
     )
     parser.add_argument(
         "--threshold-gauss",

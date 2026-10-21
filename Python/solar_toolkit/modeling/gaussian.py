@@ -48,7 +48,7 @@ def true_indices(mask: np.ndarray) -> IntArray:
 
 
 def initial_guess_from_peak(data, x, y):
-    """Build the legacy peak/FWHM initial guess for Gaussian fitting."""
+    """Build a peak/FWHM guess with positive widths for either axis direction."""
 
     max_y, max_x = unravel_2d_index(int(np.argmax(data)), data.shape)
     init_x0 = x[max_x]
@@ -59,16 +59,16 @@ def initial_guess_from_peak(data, x, y):
     row_max = data[max_y, :]
     indices = true_indices(row_max >= half_max)
     if len(indices) > 1:
-        init_sigma_x = (x[indices[-1]] - x[indices[0]]) / 2.355
+        init_sigma_x = abs(x[indices[-1]] - x[indices[0]]) / 2.355
     else:
-        init_sigma_x = (x[-1] - x[0]) / 10.0
+        init_sigma_x = abs(x[-1] - x[0]) / 10.0
 
     col_max = data[:, max_x]
     indices_y = true_indices(col_max >= half_max)
     if len(indices_y) > 1:
-        init_sigma_y = (y[indices_y[-1]] - y[indices_y[0]]) / 2.355
+        init_sigma_y = abs(y[indices_y[-1]] - y[indices_y[0]]) / 2.355
     else:
-        init_sigma_y = (y[-1] - y[0]) / 10.0
+        init_sigma_y = abs(y[-1] - y[0]) / 10.0
 
     return (init_A, init_x0, init_y0, init_sigma_x, init_sigma_y, 0.0)
 
@@ -76,8 +76,9 @@ def initial_guess_from_peak(data, x, y):
 def fit_elliptical_gaussian(data, x, y, initial_guess=None):
     """Fit the legacy rotated 2D Gaussian model to image data.
 
-    This function preserves the model, initial-guess rule, bounds, and
-    ``curve_fit`` settings used by the legacy script-level implementation.
+    The model, bounds and ``curve_fit`` settings retain their legacy behavior.
+    Ascending and descending coordinate axes both use positive initial widths;
+    data and coordinate ordering are preserved.
     """
 
     X, Y = np.meshgrid(x, y)

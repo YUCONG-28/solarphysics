@@ -36,7 +36,7 @@ def run_overlay_workflow(
     input_dir_hmi: str | Path = DEFAULT_HMI_DIR,
     output_dir: str | Path = DEFAULT_OUTPUT_DIR,
     *,
-    roi_bounds: tuple[float, float, float, float] = DEFAULT_ROI_BOUNDS,
+    roi_bounds: tuple[float, float, float, float] | None = None,
     threshold_gauss: float = 0.0,
     gaussian_sigma: float = 3.0,
     vmin: float = 16.0,
@@ -52,10 +52,16 @@ def run_overlay_workflow(
 ) -> list[Path]:
     """Render AIA/HMI overlays and return successfully generated image paths.
 
-    The defaults preserve the historical 171 Å workflow, including its ROI,
-    24-second matching tolerance, ±50 G contours, logarithmic AIA scaling, and
-    ``YYYYMMDD_HHMMSS.png`` output names.
+    ``roi_bounds`` is required as ``(xmin, ymin, xmax, ymax)`` in arcseconds.
+    The exported historical ROI constant remains available for explicit legacy
+    calls. Images use the shared scientific naming contract with observation UTC,
+    wavelength and ``magnetic_contour_overlay`` product tokens.
     """
+
+    if roi_bounds is None:
+        raise ValueError(
+            "roi_bounds must be supplied explicitly as (xmin, ymin, xmax, ymax)"
+        )
 
     import astropy.units as u
     import matplotlib.colors as mpl_colors

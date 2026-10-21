@@ -21,7 +21,8 @@ def prepare_boundary(source, *, nphi=360, ns=180, component=None):
 
     ``component='Br'`` is a caller declaration, retained as provenance; it does
     not override a known LOS product. Only Carrington CEA/CAR maps are accepted.
-    NaNs, incomplete coverage and noncanonical rotated grids fail closed.
+    NaNs, explicitly masked cells, incomplete coverage and noncanonical rotated
+    grids fail closed. Masked finite values never substitute for observations.
     """
     import astropy.units as u
     import sunpy.map
@@ -29,6 +30,10 @@ def prepare_boundary(source, *, nphi=360, ns=180, component=None):
     m = sunpy.map.Map(source) if isinstance(source, (str, Path)) else source
     if int(nphi) != nphi or int(ns) != ns or min(nphi, ns) < 4:
         raise ValueError("Output dimensions must be integer and at least four")
+    if m.mask is not None and np.any(m.mask):
+        raise ValueError(
+            "Global boundary contains masked observations; no filling is performed"
+        )
     data = np.asarray(m.data, dtype=float)
     meta = m.meta.copy()
     series = str(meta.get("series", "")) + " " + str(meta.get("content", ""))

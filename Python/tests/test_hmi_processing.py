@@ -97,6 +97,34 @@ def test_all_missing_map_remains_missing():
     assert np.isnan(result.data).all()
 
 
+def test_explicit_mask_excludes_finite_bad_pixels_and_is_preserved():
+    import sunpy.map
+
+    data = np.full((9, 9), 75.0)
+    data[4, 4] = 1e6
+    mask = np.zeros(data.shape, dtype=bool)
+    mask[4, 4] = True
+    source = sunpy.map.Map(data, magnetic_map(data).meta, mask=mask)
+    original_mask = source.mask.copy()
+    result = process_hmi_magnetic_field(source, sigma=1)
+    np.testing.assert_allclose(result.data[~mask], 75)
+    assert np.isnan(result.data[4, 4])
+    np.testing.assert_array_equal(result.mask, mask)
+    np.testing.assert_array_equal(source.mask, original_mask)
+    np.testing.assert_array_equal(source.data, data)
+    assert not np.shares_memory(source.mask, result.mask)
+
+
+def test_all_masked_hmi_map_remains_missing():
+    import sunpy.map
+
+    source = magnetic_map(np.ones((3, 3)))
+    source = sunpy.map.Map(source.data, source.meta, mask=np.ones((3, 3), bool))
+    result = process_hmi_magnetic_field(source)
+    assert np.isnan(result.data).all()
+    assert result.mask.all()
+
+
 @pytest.mark.parametrize("sigma", [-1, np.nan, np.inf])
 def test_invalid_smoothing_width_is_rejected(sigma):
     with pytest.raises(ValueError, match="sigma"):
@@ -131,3 +159,15 @@ def test_contours_are_symmetric_and_keep_requested_magnetic_unit():
     levels = create_magnetic_contour_levels(0.005 * u.T)
     assert levels.unit == u.T
     np.testing.assert_allclose(levels.to_value(u.Gauss), [-50, 50])
+
+
+def test_hmi_workflows_require_explicit_roi_before_creating_output(tmp_path):
+    from solar_toolkit.hmi.magnetogram import run_magnetogram_workflow
+    from solar_toolkit.hmi.overlay import run_overlay_workflow
+
+    output = tmp_path / "output"
+    with pytest.raises(ValueError, match="roi_bounds"):
+        run_magnetogram_workflow(tmp_path / "missing", output)
+    with pytest.raises(ValueError, match="roi_bounds"):
+        run_overlay_workflow(tmp_path / "missing_aia", tmp_path / "missing_hmi", output)
+    assert not output.exists()

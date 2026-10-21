@@ -124,10 +124,14 @@ def _coerce_utc_datetime(value: Any) -> dt.datetime:
     elif hasattr(value, "to_pydatetime"):
         result = value.to_pydatetime()
     elif hasattr(value, "to_datetime"):
+        # Astronomical scales require conversion before assigning a UTC zone.
+        candidate = getattr(value, "utc", value)
+        if not hasattr(candidate, "to_datetime"):
+            candidate = value
         try:
-            result = value.to_datetime(timezone=dt.timezone.utc)
+            result = candidate.to_datetime(timezone=dt.timezone.utc)
         except TypeError:
-            result = value.to_datetime()
+            result = candidate.to_datetime()
     else:
         raise TypeError(f"Unsupported image filename time value: {type(value)!r}")
     if not isinstance(result, dt.datetime):
@@ -141,6 +145,10 @@ def _parse_datetime_text(value: str) -> dt.datetime:
     text = value.strip()
     if not text:
         raise ValueError("Image filename time is required.")
+    if re.search(r"(?:_(?:TAI|UTC)|\s+(?:TAI|UTC))$", text, re.IGNORECASE):
+        from solar_toolkit.time import parse_time
+
+        return parse_time(text)
     iso_text = text[:-1] + "+00:00" if text.endswith(("Z", "z")) else text
     # Older fromisoformat implementations accept only millisecond/microsecond
     # precision. Filenames deliberately discard subseconds, so normalize the

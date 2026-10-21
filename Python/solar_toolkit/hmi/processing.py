@@ -19,7 +19,8 @@ def process_hmi_magnetic_field(
     ``threshold`` is a finite, non-negative scalar magnetic-field quantity;
     ``sigma`` is a finite, non-negative Gaussian width in pixels. Missing BUNIT
     retains the historical Gauss assumption, applied only to the output map.
-    Nonfinite pixels remain NaN. Smoothing is normalized by finite-pixel
+    Nonfinite and explicitly masked pixels remain NaN. The input mask is copied
+    to the output. Smoothing is normalized by valid-pixel
     support, so missing measurements do not contaminate nearby valid pixels.
     """
 
@@ -39,6 +40,10 @@ def process_hmi_magnetic_field(
 
     values = np.array(hmi_map.data, dtype=float, copy=True)
     valid = np.isfinite(values)
+    mask = getattr(hmi_map, "mask", None)
+    if mask is not None:
+        mask = np.array(mask, dtype=bool, copy=True)
+        valid &= ~mask
     values[~valid | (np.abs(values) < threshold_value)] = 0.0
     smoothed = gaussian_filter(values, sigma=width)
     if not valid.all():
@@ -48,7 +53,7 @@ def process_hmi_magnetic_field(
     metadata = hmi_map.meta.copy()
     if hmi_map.unit is None:
         metadata["bunit"] = "G"
-    return sunpy.map.Map(smoothed * hmi_unit, metadata)
+    return sunpy.map.Map(smoothed * hmi_unit, metadata, mask=mask)
 
 
 def create_magnetic_contour_levels(

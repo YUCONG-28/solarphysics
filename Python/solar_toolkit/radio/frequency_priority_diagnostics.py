@@ -1779,14 +1779,7 @@ def _classify_speed_c(v_c):
 
 
 def _truthy(value):
-    if isinstance(value, str):
-        return value.strip().lower() in {"1", "true", "yes", "y", "ok"}
-    try:
-        if pd.isna(value):
-            return False
-    except (TypeError, ValueError):
-        pass
-    return bool(value)
+    return truthy(value)
 
 
 def _fmt_float(value, digits=3):

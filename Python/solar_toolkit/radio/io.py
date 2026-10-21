@@ -6,6 +6,7 @@ import csv
 import datetime
 import json
 import os
+from numbers import Real
 from pathlib import Path
 from typing import Any
 
@@ -281,7 +282,26 @@ def index_range_from_time_values(
     return index_range_from_values(arr, lo, hi, allow_full_fallback=False)
 
 
+def _sample_float(value) -> float:
+    """Coerce an observed scalar to float, retaining missing samples as NaN."""
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return float("nan")
+
+
 def truthy(value) -> bool:
+    """Accept an explicit true quality flag; unknown or missing values are false.
+
+    Accepted values are booleans, numeric one, and the case-insensitive strings
+    ``1``, ``true``, ``yes``, ``y`` and ``ok``. This intentionally differs from
+    Python truth testing: NaN, arbitrary numbers and containers are not evidence
+    that a scientific measurement passed validation.
+    """
     if isinstance(value, str):
         return value.strip().lower() in {"1", "true", "yes", "y", "ok"}
-    return bool(value)
+    if isinstance(value, (bool, np.bool_)):
+        return bool(value)
+    if isinstance(value, Real):
+        return bool(np.isfinite(value) and value == 1)
+    return False

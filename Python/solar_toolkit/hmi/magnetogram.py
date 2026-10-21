@@ -28,7 +28,7 @@ def run_magnetogram_workflow(
     data_dir: str | Path = DEFAULT_DATA_DIR,
     output_dir: str | Path = DEFAULT_OUTPUT_DIR,
     *,
-    roi_bounds: tuple[float, float, float, float] = DEFAULT_ROI_BOUNDS,
+    roi_bounds: tuple[float, float, float, float] | None = None,
     frame_count: int = 1,
     show_plot: bool = False,
     dpi: int = 200,
@@ -42,8 +42,8 @@ def run_magnetogram_workflow(
     output_dir
         Directory receiving images under the shared scientific naming contract.
     roi_bounds
-        ``(x_min, y_min, x_max, y_max)`` in arcseconds. The default preserves
-        the historical active-region crop.
+        Required ``(x_min, y_min, x_max, y_max)`` in arcseconds. The exported
+        historical ROI constant is available for explicit legacy calls.
     frame_count
         Number of aligned frames to render. The historical workflow rendered
         only the first frame.
@@ -52,6 +52,11 @@ def run_magnetogram_workflow(
     dpi
         Output resolution passed to Matplotlib.
     """
+
+    if roi_bounds is None:
+        raise ValueError(
+            "roi_bounds must be supplied explicitly as (xmin, ymin, xmax, ymax)"
+        )
 
     import astropy.units as u
     import matplotlib.pyplot as plt
