@@ -255,7 +255,11 @@ def summarize_invalid_reasons(
 
 
 def parse_datetime_value(value) -> datetime.datetime | None:
-    """Normalize UTC/time scales centrally, preserving the legacy naive return."""
+    """Return naive UTC or None using the shared radio calendar-time parser.
+
+    Compact calendar integers and strings are equivalent. Floats and unlabelled
+    numeric epochs are invalid rather than implicitly treated as Unix time.
+    """
     from .centers import parse_datetime_value as canonical_parse
 
     return canonical_parse(value)

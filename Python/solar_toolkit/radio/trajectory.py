@@ -12,6 +12,7 @@ from __future__ import annotations
 import math
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 from .centers import POL_LCP, POL_RCP, POL_SUM, POL_UNKNOWN, parse_datetime_value
@@ -58,20 +59,28 @@ STANDARD_COLUMNS = [
 
 
 def load_centers_table(path_or_buffer, *, valid_only: bool = True) -> pd.DataFrame:
-    """Read CSV/XLSX radio center tables and normalize their columns."""
+    """Read CSV/XLSX radio center tables and normalize their columns.
+
+    CSV ``time``/``obs_time`` columns are read as text before numeric inference,
+    preserving compact calendar digits even when another row has no timestamp.
+    Spreadsheet compact timestamps should likewise be stored as text to avoid
+    precision loss in the spreadsheet itself.
+    """
 
     if isinstance(path_or_buffer, str | Path):
         path = Path(path_or_buffer).expanduser()
         if path.suffix.lower() in {".xlsx", ".xls"}:
             df = pd.read_excel(path)
         else:
-            df = pd.read_csv(path)
+            df = pd.read_csv(path, dtype={"time": "string", "obs_time": "string"})
     else:
         name = str(getattr(path_or_buffer, "name", ""))
         if name.lower().endswith((".xlsx", ".xls")):
             df = pd.read_excel(path_or_buffer)
         else:
-            df = pd.read_csv(path_or_buffer)
+            df = pd.read_csv(
+                path_or_buffer, dtype={"time": "string", "obs_time": "string"}
+            )
     return normalize_centers_dataframe(df, valid_only=valid_only)
 
 
@@ -84,7 +93,10 @@ def normalize_centers_dataframe(
     a Gaussian diagnostics table with ``time``/``freq``. Returned times are
     timezone-naive UTC. Absent validity columns retain the legacy table
     contract; present but unknown flags are rejected when ``valid_only`` is true.
-    The input DataFrame is not modified.
+    Compact calendar integers are parsed like strings. Floats, unlabelled
+    numeric epochs and missing/invalid times are excluded for both validity
+    modes, since their observation instant is unknown. The input DataFrame is
+    not modified.
     """
 
     if df is None:
@@ -169,6 +181,8 @@ def normalize_polarization_label(value: object) -> str:
 
 
 def _to_timestamp(value) -> pd.Timestamp:
+    if isinstance(value, np.datetime64):
+        value = pd.Timestamp(value)
     if isinstance(value, pd.Timestamp):
         return (
             value.tz_convert("UTC").tz_localize(None)
@@ -178,6 +192,8 @@ def _to_timestamp(value) -> pd.Timestamp:
     parsed = parse_datetime_value(value)
     if parsed is not None:
         return pd.Timestamp(parsed)
+    if not isinstance(value, str):
+        return pd.NaT
     return pd.to_datetime(value, errors="coerce", utc=True).tz_localize(None)
 
 

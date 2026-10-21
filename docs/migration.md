@@ -104,6 +104,15 @@ The following stricter input handling can affect existing analyses:
 - A supplied but empty trajectory `quality_flag` is `unknown`, rather than
   `ok`. Older tables without that column retain their compatibility behavior.
   Timezone-aware timestamps are converted to UTC before trajectory processing.
+  The shared radio calendar parser accepts exact compact integers and strings
+  consistently: `20000101044829509` represents
+  `2000-01-01T04:48:29.509` UTC, rather than Unix nanoseconds. CSV center-table
+  loaders preserve time columns as text before inference, including columns
+  with missing values. Floating-point timestamps are invalid because their
+  digits may already be rounded; they and other invalid times are excluded
+  from normalized trajectories even with `valid_only=False`. Use ISO text or
+  exact compact text, and store spreadsheet timestamps as text. Numeric Unix
+  epochs require explicit conversion by the caller.
   `radio.reprojection.nearest_time_index` also normalizes naive UTC, offset-aware
   and explicitly scaled times before comparing integer nanoseconds; ties still
   select the first candidate and tolerances remain inclusive.
