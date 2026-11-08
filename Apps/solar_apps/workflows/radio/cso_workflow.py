@@ -326,7 +326,13 @@ def _array_stats(name: str, data: np.ndarray) -> None:
 
 
 def get_config_file_paths(cfg: PlotConfig) -> list[str]:
-    """Return FITS paths from cfg.file_paths, with cfg.file_path kept as fallback."""
+    """Resolve explicit FITS/gzip candidates, retaining legacy multi-file config.
+
+    An existing explicit file wins. Only a missing path's literal ``.gz``
+    counterpart is tried, through the same shared resolver as the readers.
+    """
+    from solar_toolkit.io import resolve_fits_path
+
     file_paths = getattr(cfg, "file_paths", None)
     if file_paths:
         if isinstance(file_paths, (str, os.PathLike)):
@@ -341,11 +347,7 @@ def get_config_file_paths(cfg: PlotConfig) -> list[str]:
             "No FITS file path is configured. Set cfg.file_path or cfg.file_paths."
         )
 
-    missing = [path for path in paths if not os.path.exists(path)]
-    if missing:
-        raise FileNotFoundError("FITS file(s) not found:\n" + "\n".join(missing))
-
-    return paths
+    return [str(resolve_fits_path(path)) for path in paths]
 
 
 def _spec_time_bounds(
@@ -2495,6 +2497,34 @@ def build_parser() -> argparse.ArgumentParser:
     """Build the legacy-compatible CSO workflow parser."""
     parser = argparse.ArgumentParser(add_help=True)
     parser.add_argument("--file-path", help="CSO FITS file to process.")
+    parser.add_argument(
+        "--file-paths",
+        nargs="+",
+        help="Explicit CSO FITS or FITS.gz inputs in either mode.",
+    )
+    parser.add_argument(
+        "--native-polarization",
+        action="store_true",
+        help="Export native-time paired polarization as NPZ/JSON/PNG without time rebinning.",
+    )
+    parser.add_argument(
+        "--frequency-bin-mhz",
+        type=float,
+        help="Native mode's explicit frequency-bin width in MHz.",
+    )
+    parser.add_argument(
+        "--cache-root", help="Optional private cache for gzip FITS materialization."
+    )
+    parser.add_argument(
+        "--chunk-columns",
+        type=int,
+        help="Native-mode bounded read block size (default: 128 columns).",
+    )
+    parser.add_argument(
+        "--gap-factor",
+        type=float,
+        help="Native-mode support gap factor (default: 1.5).",
+    )
     parser.add_argument("--time-start", help="UTC spectrum start time.")
     parser.add_argument("--time-end", help="UTC spectrum end time.")
     parser.add_argument("--frequency-start", type=float, help="Lower frequency in MHz.")
@@ -2559,6 +2589,11 @@ def _apply_cli_overrides(cfg: PlotConfig, args: argparse.Namespace) -> None:
     """Apply only explicit CLI overrides to a CSO plot configuration."""
     if args.file_path:
         cfg.file_path = str(args.file_path)
+        cfg.file_paths = None
+    if args.file_paths:
+        cfg.file_paths = ([str(args.file_path)] if args.file_path else []) + list(
+            args.file_paths
+        )
     if args.time_start:
         parsed = _parse_datetime_value(args.time_start)
         if parsed is None:
@@ -2697,8 +2732,59 @@ def _print_config_summary(cfg: PlotConfig, file_paths: list[str]) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     """Run the CSO dynamic-spectrogram workflow."""
+    parser = build_parser()
+    args, unknown = parser.parse_known_args(argv)
+    if args.native_polarization:
+        if unknown:
+            parser.error(f"unrecognized arguments: {' '.join(unknown)}")
+        if args.rebin_time is not None or args.rebin_frequency is not None:
+            parser.error(
+                "native polarization uses native times and --frequency-bin-mhz; legacy rebin options do not apply"
+            )
+        required = (
+            "time_start",
+            "time_end",
+            "frequency_start",
+            "frequency_end",
+            "frequency_bin_mhz",
+            "output_dir",
+        )
+        missing = [
+            "--" + name.replace("_", "-")
+            for name in required
+            if getattr(args, name) is None
+        ]
+        paths = ([args.file_path] if args.file_path else []) + (args.file_paths or [])
+        if not paths:
+            missing.append("--file-path or --file-paths")
+        if missing:
+            parser.error("native polarization requires explicit " + ", ".join(missing))
+        from .cso_native import export_native_polarization
+
+        try:
+            export_native_polarization(
+                paths,
+                (args.time_start, args.time_end),
+                (args.frequency_start, args.frequency_end),
+                frequency_bin_mhz=args.frequency_bin_mhz,
+                output_dir=args.output_dir,
+                cache_root=args.cache_root,
+                chunk_columns=128 if args.chunk_columns is None else args.chunk_columns,
+                gap_factor=1.5 if args.gap_factor is None else args.gap_factor,
+            )
+        except Exception as exc:
+            print(f"CSO native polarization failed: {exc}")
+            return 1
+        print(f"Native CSO bundle: {os.path.abspath(args.output_dir)}")
+        return 0
+    native_only = [
+        "--" + name.replace("_", "-")
+        for name in ("frequency_bin_mhz", "chunk_columns", "gap_factor")
+        if getattr(args, name) is not None
+    ]
+    if native_only:
+        parser.error(", ".join(native_only) + " requires --native-polarization")
     cfg = PlotConfig()
-    args, _unknown = build_parser().parse_known_args(argv)
     _apply_cli_overrides(cfg, args)
 
     is_valid, errors = ConfigManager.validate_all(cfg)
@@ -2706,14 +2792,19 @@ def main(argv: list[str] | None = None) -> int:
         print("Configuration errors:", "\n".join(errors))
         return 1
 
-    file_paths = get_config_file_paths(cfg)
+    try:
+        file_paths = get_config_file_paths(cfg)
+    except (OSError, ValueError) as exc:
+        print(f"Configuration errors: {exc}")
+        return 1
     _print_config_summary(cfg, file_paths)
     t0 = time.perf_counter()
     hdus = []
     data_list = []
     try:
         for file_path in file_paths:
-            data_part, hdu = read_cso_fits(file_path)
+            cache_options = {"cache_root": args.cache_root} if args.cache_root else {}
+            data_part, hdu = read_cso_fits(file_path, **cache_options)
             data_list.extend(data_part)
             hdus.append(hdu)
         process_and_plot(cfg, data_list)
