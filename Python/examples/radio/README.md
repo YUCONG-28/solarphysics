@@ -17,7 +17,9 @@ Replace `<run>` with a unique run identifier.
 
 The output directory must be explicitly selected and new. Use the ignored
 `Local` directory or a private directory outside the repository. The example
-writes a tiny synthetic FITS file, display arrays and a JSON record.
+writes a tiny synthetic FITS file, display arrays and a JSON record. It also
+writes `native_polarization.npz` with one column per native observation time
+and checks the percent polarization against the channel sums of the input cube.
 
 `relative_background_db` keeps the original UTC axis. The separate
 `compact_spectrum_time` display transform omits entirely missing columns and

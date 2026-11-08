@@ -104,6 +104,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Apps\run.ps1 workflow 
 ```
 
 ```bash
+./Apps/run.sh workflow radio cso --help
 ./Apps/run.sh workflow radio source-map --help
 ./Apps/run.sh workflow radio source-map --config-file "<private-config-dir>/radio.json"
 ```

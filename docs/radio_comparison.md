@@ -8,6 +8,36 @@ Scientific inputs and output locations must be supplied by the caller. Keep
 event configurations, FITS observations, figures, and run receipts in private
 runtime storage.
 
+## Native CSO polarization
+
+The following example reads the synthetic observation produced by the
+[radio example](../Python/examples/radio/README.md). Run it from the repository
+root, replacing the input and output paths with your local paths. On Windows
+use `Apps/run.ps1` with the same workflow arguments.
+
+```bash
+./Apps/run.sh workflow radio cso --native-polarization \
+  --file-path Local/outputs/example/synthetic.fits \
+  --time-start 2000-01-01T00:00:00Z --time-end 2000-01-01T00:00:00.800Z \
+  --frequency-start 100 --frequency-end 200 --frequency-bin-mhz 100 \
+  --output-dir Local/outputs/native-example
+```
+
+Supply multiple files with `--file-paths`. For gzip inputs, `--cache-root`
+selects the temporary directory used for random reads. Allow enough free space
+for the expanded FITS files. The workflow writes `native_polarization.npz`,
+`native_polarization.json` and `native_polarization.png`.
+
+Each time column represents an observed instant. For each frequency bin, only
+channels with a finite pair enter both sums. Mean total intensity in SFU is
+`(sum_rcp + sum_lcp) / sample_count`. Circular polarization in percent is
+`100 * (sum_rcp - sum_lcp) / (sum_rcp + sum_lcp)`. Empty bins, nonpositive
+totals and negative aggregated channel intensities have undefined polarization.
+The figure plots elapsed SI seconds from the labeled UTC start and draws each
+coverage segment separately so gaps remain visible. The Python API
+returns the arrays and metadata directly through
+`solar_toolkit.radio.cso_extract.extract_native_polarization`.
+
 ## Comparison workflows
 
 Run through `Apps/run.sh workflow radio muser-raw-preview --config <private.json>

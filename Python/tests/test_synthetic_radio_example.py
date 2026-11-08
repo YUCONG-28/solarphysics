@@ -65,6 +65,7 @@ def test_radio_example_main_writes_fresh_local_output(example):
     assert {path.name for path in output.iterdir()} == {
         "synthetic.fits",
         "display_arrays.npz",
+        "native_polarization.npz",
         "summary.json",
     }
     assert all(path.stat().st_size > 0 for path in output.iterdir())

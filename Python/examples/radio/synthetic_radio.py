@@ -14,7 +14,10 @@ import numpy as np
 from astropy.io import fits
 from astropy.time import Time
 
-from solar_toolkit.radio.cso_extract import extract_spectrum
+from solar_toolkit.radio.cso_extract import (
+    extract_native_polarization,
+    extract_spectrum,
+)
 from solar_toolkit.radio.muser_comparison import nearest_index
 from solar_toolkit.radio.spectrum_display import compact_spectrum_time
 
@@ -55,6 +58,17 @@ def run_example(output: Path) -> dict:
     )
     source = output / "synthetic.fits"
     fits.HDUList([fits.PrimaryHDU(data, header), table]).writeto(source)
+    # Keep each measured time and combine the two frequency channels into one bin.
+    native, _ = extract_native_polarization(
+        [source],
+        ("2000-01-01T00:00:00Z", "2000-01-01T00:00:00.8Z"),
+        (100.0, 200.0),
+        frequency_bin_mhz=100.0,
+    )
+    r_sum, l_sum = data.sum(axis=1)
+    expected_percent = 100.0 * (r_sum - l_sum) / (r_sum + l_sum)
+    np.testing.assert_allclose(native["polarization_percent"][0], expected_percent)
+    np.savez(output / "native_polarization.npz", **native)
     arrays, metadata = extract_spectrum(
         [str(source)],
         (base, base + 0.9),

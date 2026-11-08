@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Added read-only gzip FITS discovery and staging for random access, including
+  compressed inputs to AIA, HMI and CSO workflows.
+- Added native-time CSO spectra of total intensity and circular polarization
+  with paired sample counts, gap coverage and duplicate-record validation.
+
 - Raised the scientific-library Python floor to 3.12 and adopted Astropy 8,
   SunPy 8 and NumPy 2 contracts. Added CI that installs and verifies declared
   direct runtime floors; Apps retain Python 3.14.
