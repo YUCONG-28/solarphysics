@@ -11,15 +11,100 @@ from __future__ import annotations
 
 import hashlib
 import math
+import mmap
 import re
-from datetime import datetime, timezone
+from contextlib import ExitStack, contextmanager
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 from astropy.io import fits
+from astropy.time import Time
 
-__all__ = ["extract_spectrum"]
+from solar_toolkit.io import materialize_fits, resolve_fits_path
+from solar_toolkit.time import TimeStamp, normalize_time, seconds_to_ns
+
+__all__ = ["extract_native_polarization", "extract_spectrum"]
+
+
+@contextmanager
+def _raw_hdus(path):
+    """Own an internal raw reader; only detached arrays may escape its scope."""
+    hdul = fits.open(path, memmap=True, do_not_scale_image_data=True)
+    try:
+        yield hdul
+    finally:
+        mappings = {}
+        for hdu in hdul:
+            backing = hdu.__dict__.get("data")
+            while getattr(backing, "base", None) is not None:
+                backing = backing.base
+            if isinstance(backing, mmap.mmap):
+                mappings[id(backing)] = backing
+            if "data" in hdu.__dict__:
+                del hdu.data
+        try:
+            hdul.close()
+        finally:
+            # This internal reader exposes no mappings in its public results.
+            # Tracebacks may nevertheless retain local views after failure.
+            for mapping in mappings.values():
+                if not mapping.closed:
+                    mapping.close()
+
+
+@contextmanager
+def _source_read_paths(paths, cache_root=None):
+    """Keep temporary input paths scoped to one extraction, never provenance."""
+    with ExitStack() as stack:
+        resolved = [resolve_fits_path(path).resolve() for path in paths]
+        reads = {}
+        for path in resolved:
+            key = str(path)
+            if key not in reads:
+                reads[key] = stack.enter_context(
+                    materialize_fits(path, cache_root=cache_root)
+                )
+        yield resolved, reads
+
+
+def _continuous_times(offsets, start_value, end_value):
+    """Anchor file-declared SI-second offsets on a validated UTC midnight."""
+    start = normalize_time(start_value, scale="utc")
+    end = normalize_time(end_value, scale="utc")
+    relative = [seconds_to_ns(value) for value in offsets]
+    estimated_origin = start.tai_ns - relative[0]
+    estimated_date = datetime.fromisoformat(
+        TimeStamp.from_tai_ns(estimated_origin).utc[:10]
+    ).date()
+    candidates = [
+        normalize_time(f"{estimated_date + timedelta(days=day)}T00:00:00", scale="utc")
+        for day in (-1, 0, 1)
+    ]
+    origin = min(candidates, key=lambda stamp: abs(stamp.tai_ns - estimated_origin))
+    origin_error = (estimated_origin - origin.tai_ns) / 1e9
+    if abs(origin_error) > 0.001:
+        raise ValueError("CSO time origin must agree with UTC midnight within 1 ms")
+    values = [origin.tai_ns + value for value in relative]
+    if any(
+        value < np.iinfo(np.int64).min or value > np.iinfo(np.int64).max
+        for value in values
+    ):
+        raise ValueError("CSO timestamps exceed the int64 TAI nanosecond range")
+    tai_ns = np.asarray(values, dtype=np.int64)
+    end_error = (int(tai_ns[-1]) - end.tai_ns) / 1e9
+    if abs(end_error) > 0.1:
+        raise ValueError(
+            "Final CSO table time disagrees with the declared end by over 0.1 s"
+        )
+    unix = Time(
+        tai_ns // 1_000_000_000,
+        (tai_ns % 1_000_000_000) / 1e9,
+        format="unix_tai",
+        scale="tai",
+    ).utc.to_value("unix")
+    return tai_ns, unix, origin.utc, origin_error, end_error
 
 
 def _unix(value: Any) -> float:
@@ -58,15 +143,17 @@ def _column(table: Any, name: str) -> tuple[np.ndarray, str | None]:
         raise ValueError(f"CSO table has no {name!r} coordinate")
     actual = names[name]
     return (
-        np.asarray(table.data[actual], dtype=np.float64).ravel(),
+        np.array(table.data[actual], dtype=np.float64, copy=True).ravel(),
         table.columns[actual].unit,
     )
 
 
-def _read_index(path: str, quantized: bool) -> dict[str, Any]:
+def _read_index(
+    path: str, quantized: bool, *, read_path=None, continuous_time=False
+) -> dict[str, Any]:
     p = Path(path)
     stat = p.stat()
-    with fits.open(p, memmap=True, do_not_scale_image_data=True) as hdul:
+    with _raw_hdus(read_path or p) as hdul:
         header = hdul[0].header
         if str(header.get("TIMESYS", "")).strip().upper() != "UTC":
             raise ValueError(f"{p}: TIMESYS must explicitly be UTC")
@@ -121,22 +208,29 @@ def _read_index(path: str, quantized: bool) -> dict[str, Any]:
             )
         start_key, start_value = _date_card(header, "DATE_BEG", "DATE-BEG", "DATE-OBS")
         end_key, end_value = _date_card(header, "DATE_END", "DATE-END")
-        declared_start = _unix(start_value)
-        declared_end = _unix(end_value)
-        origin = declared_start - float(time_seconds[0])
-        midnight = round(origin / 86400.0) * 86400.0
-        if abs(origin - midnight) > 0.001:
-            raise ValueError(
-                f"{p}: time origin is {origin - midnight:.6f} s from UTC midnight"
+        exact = {}
+        if continuous_time:
+            tai_ns, time_unix, origin_utc, origin_error, end_error = _continuous_times(
+                time_seconds, start_value, end_value
             )
-        # The declared first timestamp can have rounded fractions.  An explicitly
-        # validated midnight is the stable origin for negative time coordinates.
-        time_unix = midnight + time_seconds
-        end_error = float(time_unix[-1] - declared_end)
-        if abs(end_error) > 0.1:
-            raise ValueError(
-                f"{p}: final table time disagrees with {end_key} by {end_error:.6f} s"
-            )
+            exact["time_tai_ns"] = tai_ns
+        else:
+            declared_start = _unix(start_value)
+            declared_end = _unix(end_value)
+            origin = declared_start - float(time_seconds[0])
+            midnight = round(origin / 86400.0) * 86400.0
+            origin_error = origin - midnight
+            if abs(origin_error) > 0.001:
+                raise ValueError(
+                    f"{p}: time origin is {origin_error:.6f} s from UTC midnight"
+                )
+            time_unix = midnight + time_seconds
+            origin_utc = _iso(midnight)
+            end_error = float(time_unix[-1] - declared_end)
+            if abs(end_error) > 0.1:
+                raise ValueError(
+                    f"{p}: final table time disagrees with {end_key} by {end_error:.6f} s"
+                )
         index_hash = hashlib.sha256()
         index_hash.update(header.tostring().encode("ascii"))
         index_hash.update(hdul[1].header.tostring().encode("ascii"))
@@ -171,21 +265,30 @@ def _read_index(path: str, quantized: bool) -> dict[str, Any]:
             "declared_unit": unit,
             "index_sha256": index_hash.hexdigest(),
             "index_hash_scope": "primary and table headers plus complete time/frequency coordinates; excludes image payload",
-            "first_actual_utc": _iso(float(np.min(time_unix))),
-            "last_actual_utc": _iso(float(np.max(time_unix))),
+            "first_actual_utc": (
+                TimeStamp.from_tai_ns(int(tai_ns.min())).utc
+                if continuous_time
+                else _iso(float(np.min(time_unix)))
+            ),
+            "last_actual_utc": (
+                TimeStamp.from_tai_ns(int(tai_ns.max())).utc
+                if continuous_time
+                else _iso(float(np.max(time_unix)))
+            ),
             "native_time_axis_inversion_count": int(backward_steps.size),
             "largest_backward_step_seconds": (
                 float(-backward_steps.min()) if backward_steps.size else 0.0
             ),
             "native_columns_reordered_count": reordered_native_columns,
             "time_order_policy": "stable ascending native timestamps, carrying each original paired image column; no timestamp shifts or interpolation",
-            "origin_midnight_utc": _iso(midnight),
-            "origin_validation_error_seconds": float(origin - midnight),
+            "origin_midnight_utc": origin_utc,
+            "origin_validation_error_seconds": float(origin_error),
             "end_validation_error_seconds": end_error,
             "time_unix": time_unix,
             "frequency": frequency,
             "bscale": float(header.get("BSCALE", 1.0)),
             "bzero": float(header.get("BZERO", 0.0)),
+            **exact,
         }
 
 
@@ -238,6 +341,7 @@ def extract_spectrum(
     time_bin_seconds: float = 0.1,
     frequency_bounds: tuple[float, float] = (90.0, 300.0),
     frequency_bin_mhz: float | None = 0.25,
+    cache_root=None,
 ) -> tuple[dict[str, np.ndarray], dict[str, Any]]:
     """Extract a sample-weighted CSO spectrum with explicit unit provenance.
 
@@ -273,6 +377,30 @@ def extract_spectrum(
     ``RuntimeError``; FITS and filesystem errors propagate. Source files are
     never modified, and an empty fixed-bin selection stays entirely missing.
     """
+    with _source_read_paths(paths, cache_root) as (resolved, reads):
+        return _extract_spectrum(
+            resolved,
+            bounds_unix,
+            quantized=quantized,
+            encoded_polarization=encoded_polarization,
+            time_bin_seconds=time_bin_seconds,
+            frequency_bounds=frequency_bounds,
+            frequency_bin_mhz=frequency_bin_mhz,
+            read_paths=reads,
+        )
+
+
+def _extract_spectrum(
+    paths,
+    bounds_unix,
+    *,
+    quantized,
+    encoded_polarization,
+    time_bin_seconds,
+    frequency_bounds,
+    frequency_bin_mhz,
+    read_paths,
+):
     lower, upper = map(float, bounds_unix)
     freq_lower, freq_upper = map(float, frequency_bounds)
     if not paths:
@@ -288,7 +416,9 @@ def extract_spectrum(
     ):
         raise ValueError("Frequency-bin width must be positive or None")
 
-    sources = [_read_index(path, quantized) for path in paths]
+    sources = [
+        _read_index(path, quantized, read_path=read_paths[str(path)]) for path in paths
+    ]
     sources.sort(
         key=lambda source: (float(np.min(source["time_unix"])), source["path"])
     )
@@ -386,9 +516,7 @@ def extract_spectrum(
         # At most about two million frequency/time samples per working chunk;
         # output arrays and small coordinate vectors are the only lasting data.
         chunk_columns = max(1, 2_000_000 // native_frequency.size)
-        with fits.open(
-            source["path"], memmap=True, do_not_scale_image_data=True
-        ) as hdul:
+        with _raw_hdus(read_paths[source["path"]]) as hdul:
             data = hdul[0].data
             if (
                 Path(source["path"]).stat().st_size,
@@ -447,6 +575,8 @@ def extract_spectrum(
                 source["mtime_ns"],
             ):
                 raise RuntimeError(f"Source changed while extracting: {source['path']}")
+            del data
+            del hdul[0].data
     intensity = np.full(shape, np.nan, dtype=np.float64)
     np.divide(sums, counts, out=intensity, where=counts > 0)
     arrays = {
@@ -506,3 +636,6 @@ def extract_spectrum(
         "source_mutation": "none",
     }
     return arrays, metadata
+
+
+from ._cso_native import extract_native_polarization  # noqa: E402

@@ -3,15 +3,17 @@
 from pathlib import Path
 
 import numpy as np
-from astropy.io import fits
 from astropy.time import Time
 
 from .cso import cso_base_datetime
+from .cso_extract import _raw_hdus, _source_read_paths
 
 __all__ = ["read_cso_total_window"]
 
 
-def read_cso_total_window(paths, bounds, frequency_bounds, dt=0.1, df=0.25):
+def read_cso_total_window(
+    paths, bounds, frequency_bounds, dt=0.1, df=0.25, *, cache_root=None
+):
     """Bin finite native RCP+LCP samples for a legacy CSO preview.
 
     ``paths`` names FITS cubes shaped ``(2, frequency, time)`` with explicit
@@ -39,6 +41,11 @@ def read_cso_total_window(paths, bounds, frequency_bounds, dt=0.1, df=0.25):
     For exact requested time edges and selected-band curves, use
     :func:`solar_toolkit.radio.cso_comparison.read_cso_comparison`.
     """
+    with _source_read_paths(paths, cache_root) as (resolved, reads):
+        return _read_cso_total_window(resolved, bounds, frequency_bounds, dt, df, reads)
+
+
+def _read_cso_total_window(paths, bounds, frequency_bounds, dt, df, read_paths):
     te = np.arange(bounds[0], bounds[1] + dt, dt)
     fe = np.arange(frequency_bounds[0], frequency_bounds[1] + df, df)
     sums = np.zeros((len(fe) - 1, len(te) - 1))
@@ -46,8 +53,12 @@ def read_cso_total_window(paths, bounds, frequency_bounds, dt=0.1, df=0.25):
     records = []
     previous_end = None
     for path in sorted(map(Path, paths)):
-        with fits.open(path, memmap=True) as hd:
+        with _raw_hdus(read_paths[str(path)]) as hd:
             h = hd[0].header
+            scale, zero = float(h.get("BSCALE", 1)), float(h.get("BZERO", 0))
+            blank = h.get("BLANK") if h.get("BITPIX", -1) > 0 else None
+            if not np.isfinite([scale, zero]).all():
+                raise ValueError("FITS scale and offset must be finite")
             if h.get("TIMESYS") != "UTC" or h.get("POLARIZA") != "RCP and LCP":
                 raise ValueError("CSO requires explicit UTC and RCP/LCP channels")
             unit = str(h.get("BUNIT", ""))
@@ -73,6 +84,9 @@ def read_cso_total_window(paths, bounds, frequency_bounds, dt=0.1, df=0.25):
                 if b == a:
                     continue
                 raw = np.asarray(hd[0].data[:, a:b, ti[0] : ti[-1]], dtype=float)
+                if blank is not None:
+                    raw = np.where(raw == blank, np.nan, raw)
+                raw = raw * scale + zero
                 total = raw[0] + raw[1]
                 ok = np.isfinite(total)
                 ss = np.r_[0.0, np.cumsum(np.where(ok, total, 0).sum(axis=0))]
@@ -90,6 +104,7 @@ def read_cso_total_window(paths, bounds, frequency_bounds, dt=0.1, df=0.25):
                     "unit": unit,
                 }
             )
+            del hd[0].data
     result = np.full_like(sums, np.nan)
     np.divide(sums, counts, out=result, where=counts > 0)
     return (

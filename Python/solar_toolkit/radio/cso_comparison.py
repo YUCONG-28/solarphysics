@@ -10,10 +10,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
-from astropy.io import fits
 from astropy.time import Time
 
 from .cso import cso_base_datetime
+from .cso_extract import _raw_hdus, _source_read_paths
 
 __all__ = ["CsoComparison", "read_cso_comparison", "normalize_spectrum_db"]
 
@@ -37,8 +37,8 @@ class CsoComparison:
         return (self.frequency_edges[:-1] + self.frequency_edges[1:]) / 2
 
 
-def _inspect(path):
-    with fits.open(path, memmap=True) as hd:
+def _inspect(path, *, read_path=None):
+    with _raw_hdus(read_path or path) as hd:
         header = hd[0].header
         if header.get("TIMESYS") != "UTC" or header.get("POLARIZA") != "RCP and LCP":
             raise ValueError(f"CSO requires explicit UTC and RCP/LCP channels: {path}")
@@ -87,6 +87,7 @@ def read_cso_comparison(
     dt=0.1,
     df=0.25,
     max_chunk_bytes=64 * 1024**2,
+    cache_root=None,
 ):
     """Return full positive-frequency CSO spectrum and selected-band curves.
 
@@ -101,6 +102,22 @@ def read_cso_comparison(
     in any order, but overlapping native time ranges are rejected to prevent
     accidental double counting. No files is a supported NO DATA result.
     """
+    with _source_read_paths(paths, cache_root) as (resolved, reads):
+        return _read_cso_comparison(
+            resolved,
+            bounds,
+            bands_mhz=bands_mhz,
+            half_width_mhz=half_width_mhz,
+            dt=dt,
+            df=df,
+            max_chunk_bytes=max_chunk_bytes,
+            read_paths=reads,
+        )
+
+
+def _read_cso_comparison(
+    paths, bounds, *, bands_mhz, half_width_mhz, dt, df, max_chunk_bytes, read_paths
+):
     bounds = np.asarray(bounds, dtype=float)
     bands = np.asarray(bands_mhz, dtype=float)
     if bounds.shape != (2,) or not np.isfinite(bounds).all() or bounds[1] <= bounds[0]:
@@ -131,7 +148,10 @@ def read_cso_comparison(
     )
     time_edges = bounds[0] + np.arange(nt + 1) * dt
     time_edges[-1] = bounds[1]
-    sources = sorted((_inspect(Path(p)) for p in paths), key=lambda s: s[1][0])
+    sources = sorted(
+        (_inspect(Path(p), read_path=read_paths[str(p)]) for p in paths),
+        key=lambda s: s[1][0],
+    )
     for previous, current in zip(sources[:-1], sources[1:], strict=True):
         if current[1][0] <= previous[1][-1]:
             raise ValueError("Overlapping CSO files require explicit deduplication")
@@ -179,8 +199,18 @@ def read_cso_comparison(
             for center, mask in zip(bands, band_native, strict=True)
         ]
         records.append(record)
-        with fits.open(path, memmap=True) as hd:
+        with _raw_hdus(read_paths[str(path)]) as hd:
             data = hd[0].data
+            scale, zero = float(hd[0].header.get("BSCALE", 1)), float(
+                hd[0].header.get("BZERO", 0)
+            )
+            blank = (
+                hd[0].header.get("BLANK")
+                if hd[0].header.get("BITPIX", -1) > 0
+                else None
+            )
+            if not np.isfinite([scale, zero]).all():
+                raise ValueError("FITS scale and offset must be finite")
             for k, (a, b) in enumerate(
                 zip(frequency_indices[:-1], frequency_indices[1:], strict=True)
             ):
@@ -194,8 +224,12 @@ def read_cso_comparison(
                     for ta in range(left, right, time_step):
                         tb = min(right, ta + time_step)
                         total = np.array(data[0, fa:fb, ta:tb], dtype=float)
+                        other = np.array(data[1, fa:fb, ta:tb], dtype=float)
+                        if blank is not None:
+                            total[total == blank] = np.nan
+                            other[other == blank] = np.nan
                         with np.errstate(invalid="ignore", over="ignore"):
-                            total += np.asarray(data[1, fa:fb, ta:tb], dtype=float)
+                            total = total * scale + zero + other * scale + zero
                         valid = np.isfinite(total)
                         total[~valid] = 0.0
                         bins = bin_indices[ta - left : tb - left]
@@ -219,6 +253,9 @@ def read_cso_comparison(
                                 weights=valid[local_mask].sum(axis=0),
                                 minlength=nt,
                             ).astype(np.uint64)
+            del data
+            del other
+            del hd[0].data
     spectrum = _means(spectrum_sums, spectrum_counts)
     curves = _means(band_sums, band_counts)
     metadata = {
