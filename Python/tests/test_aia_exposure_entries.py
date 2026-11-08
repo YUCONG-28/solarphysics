@@ -62,6 +62,7 @@ def source_and_capture(monkeypatch):
         )
 
     monkeypatch.setattr(impl.sunpy.map, "Map", read_or_construct)
+    monkeypatch.setattr(impl, "_load_fits_map", lambda path: source)
     return create, plotted
 
 

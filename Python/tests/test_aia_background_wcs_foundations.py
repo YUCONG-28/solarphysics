@@ -1,5 +1,7 @@
 """Full-WCS display resampling keeps regular axes scientifically meaningful."""
 
+from pathlib import Path
+
 import numpy as np
 import pytest
 from astropy.io import fits
@@ -80,6 +82,7 @@ def test_masked_or_missing_samples_never_become_background_signal(
     monkeypatch.setattr(
         module, "_read_first_image_hdu", lambda *_a, **_k: (image, header)
     )
+    monkeypatch.setattr(module, "resolve_fits_path", lambda value: Path(value))
     background = read_aia_background(
         "synthetic.fits", log_scale=False, percentile_limits=(0, 100)
     )

@@ -26,6 +26,7 @@ from astropy.coordinates import SkyCoord
 from sunpy.coordinates import propagate_with_solar_surface
 from tqdm import tqdm
 
+from solar_toolkit.io.fits import _read_solar_map as _load_fits_map
 from solar_toolkit.map.operations import normalize_aia_exposure
 from solar_toolkit.visualization.image_naming import (
     ImageFilenameSpec,
@@ -197,7 +198,7 @@ def _resolve_difference_params(
 
 
 def _load_exposure_normalized_map(path: Path) -> sunpy.map.GenericMap:
-    return normalize_aia_exposure(sunpy.map.Map(path))
+    return normalize_aia_exposure(_load_fits_map(path))
 
 
 def _cutout_roi(
@@ -742,7 +743,7 @@ def _process_single_worker(
             matplotlib.use("Agg", force=True)
         import matplotlib.pyplot as plt
 
-        current_map = sunpy.map.Map(file_path)
+        current_map = _load_fits_map(file_path)
         _unused_wave_val = int(current_map.wavelength.value)
 
         tx1, tx2, ty1, ty2 = cfg.roi_bounds
@@ -855,7 +856,7 @@ def _load_aia_cutout_panel(path: Path, expected_wave: int, cfg: AIAConfig) -> Pa
     normalized_data = None
 
     try:
-        current_map = sunpy.map.Map(path)
+        current_map = _load_fits_map(path)
         wave_val = int(current_map.wavelength.value)
         if wave_val != expected_wave:
             raise ValueError(

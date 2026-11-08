@@ -39,8 +39,10 @@ import pytest
             "solar_toolkit.io",
             {
                 "natural_key": "solar_toolkit.io.sorting",
+                "materialize_fits": "solar_toolkit.io.fits",
                 "read_fits_data_header": "solar_toolkit.io.fits",
                 "read_manifest": "solar_toolkit.io.manifest",
+                "resolve_fits_path": "solar_toolkit.io.fits",
                 "scan_files": "solar_toolkit.io.discovery",
                 "scan_fits": "solar_toolkit.io.discovery",
                 "write_manifest": "solar_toolkit.io.manifest",

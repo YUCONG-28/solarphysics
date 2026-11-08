@@ -248,7 +248,6 @@ def test_cso_lazy_and_overlay_windows_use_si_offset_axis():
 
 def test_hmi_overlay_rejects_match_outside_si_tolerance(monkeypatch, tmp_path):
     import astropy.coordinates
-    import sunpy.map
 
     from solar_toolkit.hmi.overlay import run_overlay_workflow
 
@@ -259,6 +258,7 @@ def test_hmi_overlay_rejects_match_outside_si_tolerance(monkeypatch, tmp_path):
             [("hmi", base)] if path.endswith("hmi") else [("aia1", end), ("aia2", end)]
         ),
     )
+    monkeypatch.setattr("solar_toolkit.hmi.overlay.scan_fits", lambda path: [])
     monkeypatch.setattr(
         "solar_toolkit.visualization.plotting.setup_chinese_font", lambda: None
     )
@@ -273,7 +273,10 @@ def test_hmi_overlay_rejects_match_outside_si_tolerance(monkeypatch, tmp_path):
     reference = SimpleNamespace(
         coordinate_frame=None, submap=lambda *args, **kw: SimpleNamespace(wcs=None)
     )
-    monkeypatch.setattr(sunpy.map, "Map", lambda path: calls.append(path) or reference)
+    monkeypatch.setattr(
+        "solar_toolkit.hmi.overlay._load_fits_map",
+        lambda path: calls.append(path) or reference,
+    )
     assert (
         run_overlay_workflow(
             tmp_path / "aia",

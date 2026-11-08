@@ -66,13 +66,30 @@ def scan_fits(
     recursive: bool = False,
     min_size_kb: float | None = None,
 ) -> list[Path]:
-    """Scan for FITS-like files using common suffixes."""
+    """Scan .fits/.fit/.fts and their .gz forms, case-insensitively.
 
-    return scan_files(
-        folder,
-        suffixes=(".fits", ".fit", ".fts"),
-        recursive=recursive,
-        min_size_kb=min_size_kb,
+    An uncompressed file wins when its exact ``name + '.gz'`` counterpart also
+    exists, so discovery does not double-count that source. Size thresholds
+    apply to physical stored bytes, including compressed sizes.
+    """
+    candidates = scan_files(
+        folder, suffixes=(".fits", ".fit", ".fts", ".gz"), recursive=recursive
+    )
+    selected = {}
+    for path in candidates:
+        logical = path.with_suffix("") if path.suffix.casefold() == ".gz" else path
+        if logical.suffix.casefold() not in {".fits", ".fit", ".fts"}:
+            continue
+        if logical not in selected or path == logical:
+            selected[logical] = path
+    min_bytes = None if min_size_kb is None else int(float(min_size_kb) * 1024)
+    return sorted(
+        (
+            path
+            for path in selected.values()
+            if min_bytes is None or path.stat().st_size >= min_bytes
+        ),
+        key=natural_key,
     )
 
 
@@ -82,14 +99,15 @@ def get_sorted_fits_files(
     *,
     recursive: bool = False,
 ) -> list[tuple[Path, dt.datetime]]:
-    """Return valid ``.fits`` files paired with parsed times, sorted by time."""
+    """Return discovered FITS files with parsed UTC, sorted by time.
+
+    ``min_size_kb`` applies to physical bytes; use zero explicitly to include
+    small gzip files. Uncompressed/compressed counterparts occur once.
+    """
 
     files: list[tuple[Path, dt.datetime]] = []
     input_path = Path(input_dir)
-    iterator = input_path.rglob("*") if recursive else input_path.iterdir()
-    for path in iterator:
-        if path.suffix.lower() != ".fits":
-            continue
+    for path in scan_fits(input_path, recursive=recursive):
         try:
             if path.stat().st_size < min_size_kb * 1024:
                 warnings.warn(

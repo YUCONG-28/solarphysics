@@ -13,6 +13,8 @@ from __future__ import annotations
 import datetime as dt
 from pathlib import Path
 
+from solar_toolkit.io import scan_fits
+from solar_toolkit.io.fits import _read_solar_map
 from solar_toolkit.visualization.image_naming import (
     ImageFilenameSpec,
     build_image_filename,
@@ -38,7 +40,7 @@ def run_magnetogram_workflow(
     Parameters
     ----------
     data_dir
-        Directory containing the input ``.fits`` files.
+        Directory containing FITS files or their stream-gzip counterparts.
     output_dir
         Directory receiving images under the shared scientific naming contract.
     roi_bounds
@@ -65,9 +67,7 @@ def run_magnetogram_workflow(
     from sunpy.coordinates import propagate_with_solar_surface
 
     input_dir = Path(data_dir)
-    file_paths = sorted(
-        path for path in input_dir.iterdir() if path.suffix.lower() == ".fits"
-    )
+    file_paths = sorted(scan_fits(input_dir))
     if len(file_paths) < 2:
         raise ValueError(
             "At least two HMI FITS files are required to define the target WCS"
@@ -75,7 +75,9 @@ def run_magnetogram_workflow(
     if frame_count < 0:
         raise ValueError("frame_count must be non-negative")
 
-    hmi_sequence = sunpy.map.Map(file_paths, sequence=True)
+    hmi_sequence = sunpy.map.Map(
+        [_read_solar_map(path) for path in file_paths], sequence=True
+    )
     reference_map = sunpy.map.Map(hmi_sequence[1])
     x_min, y_min, x_max, y_max = roi_bounds
     roi_bottom_left = SkyCoord(
@@ -109,7 +111,6 @@ def run_magnetogram_workflow(
         axes = figure.add_subplot(projection=aligned_sequence[index])
         aligned_sequence[index].plot(axes=axes)
 
-        base_name = file_paths[index].name
         observation_time = getattr(aligned_sequence[index], "date", None)
         try:
             format_utc_filename_time(observation_time)
@@ -126,7 +127,7 @@ def run_magnetogram_workflow(
                 time_source=time_source,
             )
         )
-        time_str = base_name.split(".")[2]
+        time_str = format_utc_filename_time(observation_time)
         plt.title(time_str)
         plt.savefig(output_path, dpi=dpi, bbox_inches="tight")
         output_paths.append(output_path)
