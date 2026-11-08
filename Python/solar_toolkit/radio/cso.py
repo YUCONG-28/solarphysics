@@ -120,7 +120,7 @@ def read_cso_spectrogram_hdul(hdul) -> list[CSOSpectrogram]:
 
 
 def read_cso_spectrogram(path: str | Path, *, cache_root=None) -> list[CSOSpectrogram]:
-    """Read a CSO cube; gzip results are detached before temporary cleanup.
+    """Read an entire CSO cube and its coordinates into detached memory.
 
     This legacy API returns the full cube. Use bounded extraction APIs for
     large compressed observations. An absent path may resolve to path+'.gz'.
@@ -128,13 +128,12 @@ def read_cso_spectrogram(path: str | Path, *, cache_root=None) -> list[CSOSpectr
 
     from astropy.io import fits
 
-    from solar_toolkit.io import materialize_fits, resolve_fits_path
+    from solar_toolkit.io import materialize_fits
 
-    source = resolve_fits_path(path)
-    with materialize_fits(source, cache_root=cache_root) as readable:
-        with fits.open(
-            readable, memmap=False if source.suffix.casefold() == ".gz" else None
-        ) as hdul:
+    with materialize_fits(path, cache_root=cache_root) as readable:
+        # Image scaling can detach the cube while the table coordinates still
+        # retain a file mapping. The path-based reader owns both lifetimes.
+        with fits.open(readable, memmap=False) as hdul:
             return read_cso_spectrogram_hdul(hdul)
 
 

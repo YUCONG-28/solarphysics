@@ -269,6 +269,8 @@ def test_direct_module_imports_work_in_both_orders(order):
 
 
 def test_full_legacy_reader_plain_and_gzip_preserve_physical_scaling(tmp_path):
+    import mmap
+
     from solar_toolkit.radio.cso import read_cso_spectrogram
 
     path = source_file(
@@ -281,6 +283,12 @@ def test_full_legacy_reader_plain_and_gzip_preserve_physical_scaling(tmp_path):
     )
     expected = read_cso_spectrogram(path)
     np.testing.assert_equal(expected[0].data, [[12, 14], [16, 18]])
+    for spectrum in expected:
+        for array in (spectrum.data, spectrum.time, spectrum.freq):
+            backing = array
+            while backing is not None:
+                assert not isinstance(backing, mmap.mmap)
+                backing = getattr(backing, "base", None)
     with gzip.open(str(path) + ".gz", "wb") as handle:
         handle.write(path.read_bytes())
     path.unlink()
