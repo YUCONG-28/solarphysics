@@ -251,6 +251,12 @@ jobs:
             python -m pytest Apps\tests -ra `
               --basetemp Local\tmp\pytest-apps-ci
 
+      - name: Verify compressed FITS and CSO file lifetimes on Windows
+        run: |
+          conda run --no-capture-output -n solarphysics_env_latest `
+            python -m pytest Python\tests\test_compressed_fits_io.py Python\tests\test_cso_native.py -ra `
+              --basetemp Local\tmp\pytest-fits-ci
+
       - name: Run offline Apps health matrix
         run: |
           $env:SOLAR_MINIFORGE_ROOT = $env:CONDA

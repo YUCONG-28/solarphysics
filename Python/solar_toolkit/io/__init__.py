@@ -7,14 +7,16 @@ that avoid science-specific defaults.
 """
 
 from .discovery import scan_files, scan_fits
-from .fits import read_fits_data_header
+from .fits import materialize_fits, read_fits_data_header, resolve_fits_path
 from .manifest import read_manifest, write_manifest
 from .sorting import natural_key
 
 __all__ = [
     "natural_key",
+    "materialize_fits",
     "read_fits_data_header",
     "read_manifest",
+    "resolve_fits_path",
     "scan_files",
     "scan_fits",
     "write_manifest",

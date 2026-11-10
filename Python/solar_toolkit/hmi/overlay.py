@@ -14,6 +14,8 @@ import datetime as dt
 import time
 from pathlib import Path
 
+from solar_toolkit.io import scan_fits
+from solar_toolkit.io.fits import _read_solar_map as _load_fits_map
 from solar_toolkit.time import elapsed_seconds
 from solar_toolkit.visualization.image_naming import (
     ImageFilenameSpec,
@@ -104,7 +106,7 @@ def run_overlay_workflow(
     norm = mpl_colors.LogNorm(vmin=vmin, vmax=vmax)
 
     print("Loading AIA files...")
-    direct_aia_files = any(aia_dir.glob("*.fits"))
+    direct_aia_files = bool(scan_fits(aia_dir))
     default_wave_dir = aia_dir / "171"
     aia_search_dir = (
         default_wave_dir
@@ -126,7 +128,7 @@ def run_overlay_workflow(
 
     print(f"Found {len(aia_files)} AIA files and {len(hmi_files)} HMI files")
 
-    reference_map = sunpy.map.Map(aia_files[1][0])
+    reference_map = _load_fits_map(aia_files[1][0])
     x_min, y_min, x_max, y_max = roi_bounds
     roi_bottom_left = SkyCoord(
         Tx=x_min * u.arcsec,
@@ -204,7 +206,7 @@ def run_overlay_workflow(
         figure = None
         try:
             try:
-                aia_map = sunpy.map.Map(aia_path)
+                aia_map = _load_fits_map(aia_path)
                 normalized_aia_map = normalize_aia_exposure(aia_map)
                 aligned_aia_map = align_maps_to_reference(
                     normalized_aia_map,
@@ -222,7 +224,7 @@ def run_overlay_workflow(
             aligned_hmi_map = _HMI_ALIGN_CACHE.get(cache_key)
             if aligned_hmi_map is None:
                 try:
-                    hmi_map = sunpy.map.Map(hmi_path)
+                    hmi_map = _load_fits_map(hmi_path)
                     aligned = align_maps_to_reference(hmi_map, target_wcs)
                     # Keep a private copy so later consumers never mutate the
                     # cached reprojected map.

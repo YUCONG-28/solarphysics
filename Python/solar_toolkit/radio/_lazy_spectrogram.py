@@ -8,12 +8,16 @@ handle is open; callers must close the returned handle.
 from __future__ import annotations
 
 import datetime
+import mmap
+import shutil
+from contextlib import ExitStack
 
 import numpy as np
 from astropy.io import fits
 from tqdm import tqdm
 
 from solar_toolkit._utils.logging import timing_decorator
+from solar_toolkit.io import materialize_fits, resolve_fits_path
 from solar_toolkit.time import elapsed_seconds
 
 from .cso import cso_base_datetime
@@ -56,6 +60,10 @@ class LazySpectrogram:
         "unit",
         "dt_base",
         "source_path",
+        "_closed",
+        "_bscale",
+        "_bzero",
+        "_blank",
     )
 
     def __init__(
@@ -68,7 +76,13 @@ class LazySpectrogram:
         unit,
         dt_base,
         source_path="",
+        *,
+        bscale=1.0,
+        bzero=0.0,
+        blank=None,
     ):
+        self._closed = False
+        self._bscale, self._bzero, self._blank = bscale, bzero, blank
         self._raw = raw_memmap
         self.time = time_arr.astype(np.float64)
         self.freq = freq_arr.astype(np.float32)
@@ -97,6 +111,8 @@ class LazySpectrogram:
           2. Read chunk_cols_raw columns per iteration (approx chunk_mem_mb / freq rows)
           3. Reshape+mean each chunk for downsampling, write to output array
         """
+        if self._closed:
+            raise RuntimeError("The CSO FITS handle is closed")
         t1s = elapsed_seconds(self.dt_base, t1)
         t2s = elapsed_seconds(self.dt_base, t2)
 
@@ -129,7 +145,7 @@ class LazySpectrogram:
 
         # Columns per chunk: keep memory approx chunk_mem_mb, must be multiple of t_bin
         cols_per_chunk = max(
-            t_bin, (int(chunk_mem_mb * 1e6 / (n_freq_trim * 4)) // t_bin) * t_bin
+            t_bin, (int(chunk_mem_mb * 1e6 / (n_freq_trim * 8)) // t_bin) * t_bin
         )
 
         Z_out = np.empty((n_freq_out, n_time_out), dtype=np.float32)
@@ -145,16 +161,21 @@ class LazySpectrogram:
             if n_cols == 0:
                 continue
 
-            # Trigger actual disk I/O, immediately copy to float32
+            # Decode a bounded chunk into physical values before averaging.
             chunk = np.array(
                 self._raw[fi0 : fi0 + n_freq_trim, ti0 + col0 : ti0 + col0 + n_cols],
-                dtype=np.float32,
+                dtype=np.float64,
             )  # (n_freq_trim, n_cols)
+            invalid = chunk == self._blank if self._blank is not None else None
+            chunk *= self._bscale
+            chunk += self._bzero
+            if invalid is not None:
+                chunk[invalid] = np.nan
 
             # Perform block-mean for both frequency and time axes
             n_t_chunk = n_cols // t_bin
             chunk_rb = chunk.reshape(n_freq_out, f_bin, n_t_chunk, t_bin).mean(
-                axis=(1, 3), dtype=np.float32
+                axis=(1, 3), dtype=np.float64
             )
 
             Z_out[:, out_col : out_col + n_t_chunk] = chunk_rb
@@ -171,17 +192,34 @@ class LazySpectrogram:
 
 
 @timing_decorator
-def read_cso_fits(fn: str):
+def read_cso_fits(fn: str, *, cache_root=None):
     """
     Open FITS file, read metadata, and return (list of LazySpectrogram, hdu handle).
     The hdu must remain open until all read_slice_rebinned() calls complete.
     """
-    hdu = fits.open(fn, memmap=True)
+    stack = ExitStack()
+    source = resolve_fits_path(fn)
+    readable = stack.enter_context(materialize_fits(source, cache_root=cache_root))
+    try:
+        hdu = fits.open(readable, memmap=True, do_not_scale_image_data=True)
+    except BaseException:
+        stack.close()
+        raise
+    results = []
+    mapping = None
     try:
         header = hdu[0].header
         raw = hdu[0].data
-        time_ = np.ravel(hdu[1].data["time"])
-        freq_ = np.ravel(hdu[1].data["frequency"])
+        backing = raw
+        while getattr(backing, "base", None) is not None:
+            backing = backing.base
+        if isinstance(backing, mmap.mmap):
+            mapping = backing
+        backing = None
+        if raw is None or raw.ndim not in (2, 3):
+            raise ValueError("CSO spectrogram data must be a 2D or 3D image")
+        time_ = np.array(hdu[1].data["time"], copy=True).ravel()
+        freq_ = np.array(hdu[1].data["frequency"], copy=True).ravel()
 
         dateobs = header.get("DATE-OBS") or header.get("DATE_OBS")
         dt_base = cso_base_datetime(dateobs, time_)
@@ -192,13 +230,31 @@ def read_cso_fits(fn: str):
         polars = header["POLARIZA"]
         if header["NAXIS"] == 3 and polars == "RCP and LCP":
             polars = "RL"
+        if raw.ndim == 3 and len(polars) != raw.shape[0]:
+            raise ValueError("Polarization labels do not match the CSO channel count")
 
         unit = header.get("BUNIT") or header.get("QUANTITY", "K")
+        scaling = {
+            "bscale": float(header.get("BSCALE", 1)),
+            "bzero": float(header.get("BZERO", 0)),
+            "blank": header.get("BLANK") if header.get("BITPIX", -1) > 0 else None,
+        }
+        if not np.isfinite([scaling["bscale"], scaling["bzero"]]).all():
+            raise ValueError("FITS scale and offset must be finite")
 
-        results = []
         if raw.ndim == 2:
             results.append(
-                LazySpectrogram(raw, time_, freq_, polars, dateobs, unit, dt_base, fn)
+                LazySpectrogram(
+                    raw,
+                    time_,
+                    freq_,
+                    polars,
+                    dateobs,
+                    unit,
+                    dt_base,
+                    str(source),
+                    **scaling,
+                )
             )
             print(
                 f"  Single polarization: {polars}  Size: {raw.shape}  "
@@ -209,7 +265,15 @@ def read_cso_fits(fn: str):
                 polar = polars[ii] * 2
                 results.append(
                     LazySpectrogram(
-                        raw[ii], time_, freq_, polar, dateobs, unit, dt_base, fn
+                        raw[ii],
+                        time_,
+                        freq_,
+                        polar,
+                        dateobs,
+                        unit,
+                        dt_base,
+                        str(source),
+                        **scaling,
                     )
                 )
             print(
@@ -217,10 +281,64 @@ def read_cso_fits(fn: str):
                 f"({raw.nbytes/1e9:.2f} GB, not loaded into memory)"
             )
 
+        original_close = hdu.close
+        closed = False
+        pending_cleanup = None
+
+        def close(*args, **kwargs):
+            nonlocal closed, pending_cleanup
+            if closed:
+                if pending_cleanup is not None:
+                    try:
+                        if pending_cleanup.exists():
+                            shutil.rmtree(pending_cleanup)
+                    except PermissionError as exc:
+                        raise RuntimeError(
+                            "Temporary CSO FITS is still in use: release external "
+                            f"array views, then call handle.close() again ({pending_cleanup})"
+                        ) from exc
+                    pending_cleanup = None
+                return
+            closed = True
+            try:
+                for spectrum in results:
+                    spectrum._closed = True
+                    spectrum._raw = None
+                for item in hdu:
+                    if "data" in item.__dict__:
+                        del item.data
+                original_close(*args, **kwargs)
+            finally:
+                # The caller may retain hdu[0].data or views of it. Those
+                # mappings belong to Astropy/NumPy after public exposure.
+                try:
+                    stack.close()
+                except PermissionError as exc:
+                    if readable != source:
+                        pending_cleanup = readable.parent
+                        raise RuntimeError(
+                            "Temporary CSO FITS is still in use: release external "
+                            f"array views, then call handle.close() again ({pending_cleanup})"
+                        ) from exc
+                    raise
+
+        hdu.close = close
         return results, hdu
 
-    except Exception:
-        hdu.close()
+    except BaseException:
+        raw = time_ = freq_ = None
+        for spectrum in results:
+            spectrum._closed = True
+            spectrum._raw = None
+        try:
+            for item in hdu:
+                if "data" in item.__dict__:
+                    del item.data
+            hdu.close()
+        finally:
+            if mapping is not None and not mapping.closed:
+                mapping.close()
+            stack.close()
         raise
 
 

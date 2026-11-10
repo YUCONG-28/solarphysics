@@ -35,6 +35,7 @@ def private_runtime(tmp_path, monkeypatch):
         ["tools", "--help"],
         ["admin", "--help"],
         ["workflow", "radio", "--help"],
+        ["workflow", "radio", "cso", "--help"],
         ["tools", "release", "prepare", "--help"],
         ["frontend", "image-composer", "--help"],
     ],

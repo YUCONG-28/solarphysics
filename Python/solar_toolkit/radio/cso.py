@@ -119,13 +119,22 @@ def read_cso_spectrogram_hdul(hdul) -> list[CSOSpectrogram]:
     raise ValueError("CSO spectrogram data must be 2D or 3D")
 
 
-def read_cso_spectrogram(path: str | Path) -> list[CSOSpectrogram]:
-    """Open and read a CSO spectrogram FITS file."""
+def read_cso_spectrogram(path: str | Path, *, cache_root=None) -> list[CSOSpectrogram]:
+    """Read an entire CSO cube and its coordinates into detached memory.
+
+    This legacy API returns the full cube. Use bounded extraction APIs for
+    large compressed observations. An absent path may resolve to path+'.gz'.
+    """
 
     from astropy.io import fits
 
-    with fits.open(path) as hdul:
-        return read_cso_spectrogram_hdul(hdul)
+    from solar_toolkit.io import materialize_fits
+
+    with materialize_fits(path, cache_root=cache_root) as readable:
+        # Image scaling can detach the cube while the table coordinates still
+        # retain a file mapping. The path-based reader owns both lifetimes.
+        with fits.open(readable, memmap=False) as hdul:
+            return read_cso_spectrogram_hdul(hdul)
 
 
 # Legacy spelling used by existing scripts.

@@ -18,8 +18,9 @@ import pandas as pd
 from astropy.io import fits
 
 from solar_toolkit._utils.numeric import numeric_data
+from solar_toolkit.io import materialize_fits, resolve_fits_path, scan_fits
+from solar_toolkit.io.fits import _check_identity, _file_identity
 from solar_toolkit.map.coordinates import hpc_world_bounds, hpc_world_to_pixel
-from solar_toolkit.radio.centers import FITS_SUFFIXES
 from solar_toolkit.radio.time_matching import observation_stamp
 from solar_toolkit.time import extract_timestamp_from_filename
 
@@ -68,7 +69,12 @@ def scan_aia_folder(
     pattern: str = "*.fits",
     recursive: bool = False,
 ) -> pd.DataFrame:
-    """Scan an AIA FITS folder and return ``path``, ``obs_time``, ``wavelength``."""
+    """Scan AIA FITS/.gz files and retain original source paths and HDUs.
+
+    The default pattern includes common FITS suffixes and their gzip forms;
+    uncompressed/compressed counterparts occur once. Other patterns remain
+    explicit glob filters.
+    """
 
     folder = Path(aia_dir).expanduser()
     columns = [
@@ -88,13 +94,19 @@ def scan_aia_folder(
     if not str(aia_dir).strip() or not folder.exists():
         return pd.DataFrame(columns=columns)
 
-    files = folder.rglob(pattern) if recursive else folder.glob(pattern)
+    if pattern == "*.fits":
+        files = scan_fits(folder, recursive=recursive)
+    else:
+        files = folder.rglob(pattern) if recursive else folder.glob(pattern)
     rows: list[dict[str, object]] = []
     for path in sorted(files):
-        if not path.is_file() or path.suffix.lower() not in FITS_SUFFIXES:
+        if not path.is_file():
             continue
         try:
-            with fits.open(path, memmap=True, ignore_missing_end=True) as hdul:
+            identity = _file_identity(path)
+            file_rows = []
+            # Astropy can stream gzip headers without creating a full disk copy.
+            with fits.open(path, memmap=False, ignore_missing_end=True) as hdul:
                 for hdu_index, hdu in enumerate(hdul):
                     if (
                         not isinstance(
@@ -113,7 +125,7 @@ def scan_aia_folder(
                             stamp = extract_timestamp_from_filename(str(path))
                         except ValueError:
                             continue
-                    rows.append(
+                    file_rows.append(
                         {
                             "path": str(path),
                             "obs_time": pd.Timestamp(stamp.utc).tz_localize(None),
@@ -125,10 +137,12 @@ def scan_aia_folder(
                             "time_source": stamp.source,
                             "quality": header.get("QUALITY"),
                             "exposure_seconds": header.get("EXPTIME"),
-                            "size_bytes": path.stat().st_size,
-                            "mtime_ns": path.stat().st_mtime_ns,
+                            "size_bytes": identity[2],
+                            "mtime_ns": identity[3],
                         }
                     )
+            _check_identity(path, identity)
+            rows.extend(file_rows)
         except Exception:
             continue
     return (
@@ -239,14 +253,13 @@ def read_aia_background(
     1D angular axes are pixel centers, permitting existing Plotly consumers.
     """
 
-    resolved = Path(path).expanduser()
+    resolved = resolve_fits_path(path)
     mode = str(wcs_mode or "header").lower()
     if mode not in {"header", "sunpy"}:
         raise ValueError("wcs_mode must be 'header' or 'sunpy'")
-    if mode == "sunpy":
-        _validate_sunpy_map_readable(resolved)
-
     image, header = _read_first_image_hdu(resolved, hdu_index=hdu_index)
+    if mode == "sunpy":
+        _validate_sunpy_map_readable(image, header)
     image = numeric_data(image)
     image[~np.isfinite(image)] = np.nan
     ny, nx = image.shape
@@ -305,18 +318,21 @@ def read_aia_background(
     )
 
 
-def _validate_sunpy_map_readable(path: Path) -> None:
+def _validate_sunpy_map_readable(image: np.ndarray, header: fits.Header) -> None:
     try:
         import sunpy.map
-    except Exception as exc:  # pragma: no cover - depends on optional runtime pieces.
+    except ImportError as exc:  # pragma: no cover - depends on optional runtime pieces.
         raise ImportError("SunPy WCS mode requires sunpy.map.") from exc
-    sunpy.map.Map(path)
+    sunpy.map.Map(image, header)
 
 
 def _read_first_image_hdu(
     path: Path, *, hdu_index: int | None = None
 ) -> tuple[np.ndarray, fits.Header]:
-    with fits.open(path, memmap=False, ignore_missing_end=True) as hdul:
+    with (
+        materialize_fits(path) as readable,
+        fits.open(readable, memmap=False, ignore_missing_end=True) as hdul,
+    ):
         candidates = [hdul[hdu_index]] if hdu_index is not None else hdul
         for hdu in candidates:
             if hdu.data is None:

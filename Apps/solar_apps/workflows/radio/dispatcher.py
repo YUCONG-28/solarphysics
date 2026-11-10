@@ -9,6 +9,7 @@ from importlib import import_module
 from typing import Any
 
 _COMMANDS = {
+    "cso": ("solar_apps.workflows.radio.cso_workflow", "main"),
     "time-matching-acceptance": (
         "solar_apps.workflows.radio.time_matching_acceptance",
         "main",

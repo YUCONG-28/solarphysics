@@ -14,6 +14,8 @@ import re
 from functools import lru_cache
 from pathlib import Path
 
+from solar_toolkit.io import resolve_fits_path, scan_fits
+
 from .config import AIAConfig
 
 __all__ = [
@@ -31,6 +33,8 @@ __all__ = [
 @lru_cache(maxsize=8192)
 def _parse_timestr_from_name(name: str) -> str:
     """Extract a stable time string such as 2000-01-01T000000Z."""
+    if name.casefold().endswith((".fits.gz", ".fit.gz", ".fts.gz")):
+        name = name[:-3]
     match = re.search(r"\d{4}-\d{2}-\d{2}T\d{6}Z", name)
     if match:
         return match.group(0)
@@ -49,12 +53,13 @@ def parse_timestr(file_path: Path) -> str:
 
 def resolve_files(input_path: Path, start_idx: int, end_idx: int | None) -> list:
     """Return a deterministic FITS slice from either one file or a directory."""
-    if input_path.is_file():
-        file_list = [input_path]
-    elif input_path.is_dir():
-        file_list = sorted(input_path.rglob("*.fits"), key=lambda p: parse_timestr(p))
+    if input_path.is_dir():
+        file_list = sorted(scan_fits(input_path, recursive=True), key=parse_timestr)
     else:
-        raise ValueError(f"Invalid path: {input_path}")
+        try:
+            file_list = [resolve_fits_path(input_path)]
+        except (FileNotFoundError, IsADirectoryError) as exc:
+            raise ValueError(f"Invalid path: {input_path}") from exc
 
     total = len(file_list)
     if total == 0:
@@ -90,7 +95,7 @@ def sorted_fits_for_band(
     band_dir = (data_path / str(wave)) if use_band_subdirs else data_path
     if not band_dir.is_dir():
         raise ValueError(f"Missing AIA band directory for {wave} Å: {band_dir}")
-    files = sorted(band_dir.rglob("*.fits"), key=lambda p: parse_timestr(p))
+    files = sorted(scan_fits(band_dir, recursive=True), key=parse_timestr)
     if not files:
         raise ValueError(f"No FITS files found in band directory: {band_dir}")
     return files
@@ -110,7 +115,7 @@ def resolve_single_files(cfg: AIAConfig) -> list[Path]:
     data_path = Path(cfg.data_path)
     waves = cfg.multi_band_wavelengths
 
-    if data_path.is_file():
+    if not data_path.is_dir():
         return resolve_files(data_path, cfg.start_idx, cfg.end_idx)
     if not cfg.use_band_subdirs or waves is None:
         return resolve_files(data_path, cfg.start_idx, cfg.end_idx)
@@ -132,9 +137,10 @@ def resolve_single_files(cfg: AIAConfig) -> list[Path]:
 def resolve_test_file(cfg: AIAConfig) -> Path:
     """Resolve the single FITS file used by AIA test-mode previews."""
     if cfg.test_file:
-        test_path = Path(cfg.test_file)
-        if not test_path.is_file():
-            raise ValueError(f"Test file does not exist: {test_path}")
+        try:
+            test_path = resolve_fits_path(cfg.test_file)
+        except (FileNotFoundError, IsADirectoryError) as exc:
+            raise ValueError(f"Test file does not exist: {cfg.test_file}") from exc
         print("Test mode selected file:")
         print("Test wave: from FITS header")
         print("Test index: direct file")
@@ -145,7 +151,7 @@ def resolve_test_file(cfg: AIAConfig) -> Path:
     if not band_dir.is_dir():
         raise ValueError(f"Test band directory does not exist: {band_dir}")
 
-    files = sorted(band_dir.glob("*.fits"), key=lambda p: parse_timestr(p))
+    files = sorted(scan_fits(band_dir), key=parse_timestr)
     if not files:
         raise ValueError(f"No FITS files found in test band directory: {band_dir}")
 
