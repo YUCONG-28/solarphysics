@@ -126,7 +126,8 @@ Apps/run.ps1 tools <command> [arguments]
 ```
 
 Use `./Apps/run.sh` with the same arguments on macOS. Workflow domains are
-`aia`, `radio`, `hmi`, `net`, `data`, `visualization`, `xray-dem` and `pfss`.
+`aia`, `radio`, `hmi`, `net`, `data`, `visualization`, `xray-dem`, `pfss`
+and `nlfff`.
 Run a group or command with `--help` to inspect its options. In particular,
 `workflow radio --help` lists the radio catalog. Help and invalid-command
 handling do not initialize the private runtime.
@@ -171,6 +172,10 @@ pointing and is not full instrument calibration. `legacy` remains accepted for
 compatibility. The optional `secchi-prep` mode requires an explicitly configured
 SolarSoft installation and IDL executable; it stops if calibration is unavailable
 or fails. Those external dependencies are installed separately.
+
+Use `workflow pfss bands` for completed PFSS bundles and `workflow nlfff
+inspect-boundary` or `workflow nlfff inspect-result` to check local magnetic
+inputs. See the [command and coordinate guide](../docs/magnetic_models.md).
 
 The PFSS viewer opens with `frontend app-v1 --module pfss`. Computing a result
 uses `workflow pfss` and separate optional dependencies. A visible-disk LOS

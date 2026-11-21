@@ -9,6 +9,7 @@ from importlib import import_module
 
 _SUBMODULES = {
     "pfss": "solar_toolkit.modeling.pfss",
+    "nlfff": "solar_toolkit.modeling.nlfff",
     "gaussian": "solar_toolkit.modeling.gaussian",
     "newkirk": "solar_toolkit.radio.newkirk",
 }

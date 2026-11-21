@@ -69,6 +69,14 @@ time/frequency. Its table contains precomputed whole-window model statistics.
 Parameter export creates a new configuration for the existing compute-host
 execution path. The viewer neither starts remote jobs nor requires the backend.
 
+## Frequency bands
+
+Pass `sample_field_strength=True` to `trace_fieldlines` or use
+`"sample_field_strength": true` in the workflow configuration to retain along-line
+field strength in Gauss. Sampling errors are separate from trace validity.
+The [magnetic models guide](../../../../docs/magnetic_models.md) describes the
+backend-free band analysis for completed bundles and the conditional physics.
+
 ## Validation and dependency evidence
 
 `Python/tests/test_pfss.py` covers harmonic source surfaces, open flux, interior

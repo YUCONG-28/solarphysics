@@ -26,6 +26,7 @@ FRONTEND_TARGETS = {item.id: item.entry_module for item in FRONTENDS}
 
 WORKFLOW_TARGETS = {
     "pfss": "solar_apps.workflows.pfss.cli",
+    "nlfff": "solar_apps.workflows.nlfff.cli",
     "aia": "solar_apps.workflows.aia.cli",
     "radio": "solar_apps.workflows.radio.cli",
 }

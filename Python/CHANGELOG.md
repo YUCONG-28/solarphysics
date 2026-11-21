@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Read SHARP CEA vector boundaries and explicitly specified local magnetic NPZ
+  grids. Analyze model radio frequency bands along PFSS field lines, with
+  opt-in field-strength sampling and compatibility for older bundles.
+
 - Added read-only gzip FITS discovery and staging for random access, including
   compressed inputs to AIA, HMI and CSO workflows.
 - Added native-time CSO spectra of total intensity and circular polarization
