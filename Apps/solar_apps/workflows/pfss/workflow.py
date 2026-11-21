@@ -34,6 +34,9 @@ def run(config):
     )
     from solar_toolkit.radio.io import truthy
 
+    sample_field_strength = config.get("sample_field_strength", False)
+    if not isinstance(sample_field_strength, bool):
+        raise ValueError("sample_field_strength must be a JSON boolean")
     output = Path(config["output_dir"])
     if output.exists() and (output / "manifest.json").exists():
         raise FileExistsError(
@@ -165,6 +168,7 @@ def run(config):
             max_seeds=physics.max_seeds,
             step_size=float(config.get("trace_step_size", 0.25)),
             max_steps=int(config.get("trace_max_steps", 4096)),
+            sample_field_strength=sample_field_strength,
         )
     projections = project_fieldlines(
         lines, observer=aia.observer_coordinate, obstime=aia_mid

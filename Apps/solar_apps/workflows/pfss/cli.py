@@ -2,16 +2,26 @@
 
 import argparse
 import json
+import sys
 from pathlib import Path
 
 from solar_apps.platform.paths import validate_allowed_path
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description=__doc__)
+    arguments = list(sys.argv[1:] if argv is None else argv)
+    if arguments and arguments[0] == "bands":
+        from .bands import main as bands_main
+
+        return bands_main(arguments[1:], prog=f"{sys.argv[0]} bands")
+    parser = argparse.ArgumentParser(
+        prog=sys.argv[0],
+        description=__doc__,
+        epilog="Use 'bands --help' for frequency analysis of a completed bundle.",
+    )
     parser.add_argument("--config", required=True)
     parser.add_argument("--allowed-roots", nargs="+", required=True)
-    args = parser.parse_args(argv)
+    args = parser.parse_args(arguments)
     config_path = validate_allowed_path(
         args.config, allowed_roots=args.allowed_roots, kind="file"
     )
@@ -44,7 +54,6 @@ def main(argv=None):
         )
     )
     from .workflow import run
-    import sys
     import signal
 
     if sys.platform.startswith("linux"):
