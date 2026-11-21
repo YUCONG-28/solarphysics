@@ -26,6 +26,11 @@ def _safe_member(root, value):
 
 
 def save_bundle(directory, records, projections, metadata):
+    """Write geometry and optional aligned ``b_gauss`` arrays, schema 1.
+
+    Old records need no field array. New arrays are magnitudes in Gauss with
+    NaNs for unavailable samples; sampling status remains separate metadata.
+    """
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
     if (directory / "manifest.json").exists():
@@ -34,13 +39,31 @@ def save_bundle(directory, records, projections, metadata):
     for index, (record, projected) in enumerate(zip(records, projections, strict=True)):
         arrays[f"xyz_{index}"] = np.asarray(record["xyz_carrington_rsun"], float)
         arrays[f"hpc_{index}"] = np.asarray(projected["hpc_arcsec"], float)
+        if "b_gauss" in record:
+            from astropy import units as u
+
+            from solar_toolkit._utils.numeric import as_value
+
+            if np.asanyarray(record["b_gauss"]).dtype.kind not in {"i", "u", "f"}:
+                raise ValueError("b_gauss must contain real numerical magnitudes")
+            field = as_value(record["b_gauss"], u.G, "b_gauss")
+            if field.shape != (len(arrays[f"xyz_{index}"]),) or np.any(field < 0):
+                raise ValueError(
+                    "b_gauss must have aligned shape (N,) and nonnegative magnitudes"
+                )
+            arrays[f"b_gauss_{index}"] = field
         lines.append(
             {
                 k: v
                 for k, v in record.items()
-                if k not in {"xyz_carrington_rsun", "hpc_arcsec"}
+                if k not in {"xyz_carrington_rsun", "hpc_arcsec", "b_gauss"}
             }
         )
+    if (
+        any(key.startswith("b_gauss_") for key in arrays)
+        and metadata.get("field_strength_unit", "G") != "G"
+    ):
+        raise ValueError("Bundle field_strength_unit must be G")
     np.savez_compressed(directory / "fieldlines.npz", **arrays)
     payload = {
         "schema_version": 1,
@@ -51,6 +74,8 @@ def save_bundle(directory, records, projections, metadata):
         "lines": lines,
         **metadata,
     }
+    if any(key.startswith("b_gauss_") for key in arrays):
+        payload["field_strength_unit"] = "G"
     (directory / "metadata.json").write_text(
         json.dumps(payload, indent=2, allow_nan=False), encoding="utf-8"
     )
@@ -75,6 +100,7 @@ def complete_manifest(directory):
 
 
 def load_bundle(directory):
+    """Verify and read old geometry-only or optional magnetic-array bundles."""
     root = Path(directory).resolve()
     manifest = json.loads((root / "manifest.json").read_text())
     if manifest.get("schema_version") != 1 or manifest.get("status") != "complete":
@@ -107,7 +133,21 @@ def load_bundle(directory):
                 raise ValueError("Malformed fieldline arrays")
             if line.get("trace_valid") and (len(xyz) < 2 or not np.isfinite(xyz).all()):
                 raise ValueError("Valid fieldline contains missing coordinates")
-            records.append({**line, "xyz_carrington_rsun": xyz, "hpc_arcsec": xy})
+            record = {**line, "xyz_carrington_rsun": xyz, "hpc_arcsec": xy}
+            if f"b_gauss_{i}" in arrays:
+                if meta.get("field_strength_unit") != "G":
+                    raise ValueError("Unsupported PFSS field-strength unit")
+                if arrays[f"b_gauss_{i}"].dtype.kind not in {"i", "u", "f"}:
+                    raise ValueError("Malformed field-strength magnitude dtype")
+                field = np.array(arrays[f"b_gauss_{i}"], dtype=float, copy=True)
+                if (
+                    field.shape != (len(xyz),)
+                    or np.any(field < 0)
+                    or np.isinf(field).any()
+                ):
+                    raise ValueError("Malformed aligned field-strength array")
+                record["b_gauss"] = field
+            records.append(record)
     meta["_verified_files"] = sorted(names)
     return meta, records
 

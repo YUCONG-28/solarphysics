@@ -203,9 +203,276 @@ def model_shell_candidates(records, frequencies, *, rss, models=None):
     return candidates
 
 
+def _band_values(value, unit, name):
+    from solar_toolkit._utils.numeric import as_value
+
+    if np.asanyarray(value).dtype.kind not in {"i", "u", "f"}:
+        raise ValueError(f"{name} must contain real numerical values")
+    return as_value(value, unit, name)
+
+
+def _band_scalar(value, unit, name):
+    result = _band_values(value, unit, name)
+    if (
+        isinstance(value, (bool, np.bool_))
+        or result.ndim
+        or not np.isfinite(result)
+        or result <= 0
+    ):
+        raise ValueError(f"{name} must be a finite positive scalar")
+    return float(result)
+
+
+def _edge_sphere_fractions(start, direction, length, radius):
+    """Both chord/sphere roots; tangent roots are retained for diagnostics."""
+    along = float(start @ direction)
+    perpendicular = start - along * direction
+    square = radius * radius - float(perpendicular @ perpendicular)
+    tolerance = (
+        64 * np.finfo(float).eps * max(1.0, radius * radius, float(start @ start))
+    )
+    if square < -tolerance:
+        return []
+    half = np.sqrt(max(0.0, square))
+    roots = [(-along - half) / length, (-along + half) / length]
+    return [float(np.clip(t, 0, 1)) for t in roots if -1e-12 <= t <= 1 + 1e-12]
+
+
+def fieldline_band_segments(
+    xyz_carrington_rsun,
+    frequency_bounds_mhz,
+    *,
+    mechanism,
+    harmonic,
+    rss,
+    newkirk_multiplier=None,
+    field_strength_gauss=None,
+):
+    """Clip original 3D edges to a conditionally predicted emission band.
+
+    Coordinates are ``(N, 3)`` Carrington Cartesian solar radii. Frequency
+    bounds are an increasing positive MHz pair, ``rss > 1`` is a solar radius,
+    and the emission harmonic is a positive integer. Compatible Quantities
+    are converted explicitly. Inputs are copied; masked/nonfinite coordinates
+    break paths rather than being joined or filled.
+
+    ``plasma`` requires an explicit positive Newkirk multiplier and intersects
+    each straight edge with exact radial model shells. ``cyclotron`` requires
+    an aligned ``(N,)`` field-magnitude array in Gauss, using
+    ``f_MHz = 2.8 * harmonic * B_G`` and linear interpolation of sampled B on
+    each edge. Negative/nonfinite B samples break paths. The rounded gyro
+    coefficient follows the NRL Plasma Formulary. Unused model inputs are not
+    consumed. No density, magnetic field, calibration or mechanism is inferred.
+
+    Return ``{'segments': [...], 'metadata': {...}}``. Each segment contains
+    ``xyz_carrington_rsun`` (M,3), ``frequency_mhz`` (M,), original
+    ``source_edge_indices`` (M-1,) and ``source_edge_fractions`` (M-1,2).
+    Adjacent supported edges stay joined; gaps remain separate. Both models
+    are clipped to ``1 <= r <= rss``. Isolated boundary touches and paths
+    shorter than 1e-12 R_sun are omitted: they have no finite path support.
+    ``omitted_point_touches`` counts contacts per original edge. Constant-B
+    edges lying on a band boundary are finite supported segments and remain.
+
+    This is a forward-model candidate, never an independent measured height or
+    evidence that the selected emission mechanism operates. Missing B gives
+    ``field_strength_unavailable`` without a radial approximation. Invalid
+    configuration or misaligned arrays raises ValueError, including for empty
+    input. Old shell/source-association interfaces are unchanged.
+    """
+    from astropy import units as u
+
+    from .newkirk import PLASMA_FREQ_COEFF_KHZ, newkirk_density_cm3
+
+    if mechanism not in {"plasma", "cyclotron"}:
+        raise ValueError("mechanism must be 'plasma' or 'cyclotron'")
+    harmonic = _band_scalar(harmonic, u.dimensionless_unscaled, "harmonic")
+    if not harmonic.is_integer():
+        raise ValueError("harmonic must be a positive integer")
+    harmonic = int(harmonic)
+    rss = _band_scalar(rss, u.R_sun, "rss")
+    if rss <= 1:
+        raise ValueError("rss must be greater than one solar radius")
+    bounds = _band_values(frequency_bounds_mhz, u.MHz, "frequency_bounds_mhz")
+    if (
+        bounds.shape != (2,)
+        or not np.isfinite(bounds).all()
+        or not 0 < bounds[0] < bounds[1]
+    ):
+        raise ValueError(
+            "frequency_bounds_mhz must be two increasing positive MHz values"
+        )
+    multiplier = None
+    if mechanism == "plasma":
+        if newkirk_multiplier is None:
+            raise ValueError("plasma requires explicit newkirk_multiplier")
+        multiplier = _band_scalar(
+            newkirk_multiplier, u.dimensionless_unscaled, "newkirk_multiplier"
+        )
+    points = _band_values(xyz_carrington_rsun, u.R_sun, "xyz_carrington_rsun")
+    if points.ndim != 2 or points.shape[1:] != (3,):
+        raise ValueError("xyz_carrington_rsun must have shape (N, 3)")
+    metadata = dict(
+        mechanism=mechanism,
+        harmonic=harmonic,
+        rss=rss,
+        frequency_bounds_mhz=bounds.tolist(),
+        newkirk_multiplier=multiplier,
+        geometry_method="conditional_model_candidate",
+        independent_geometry_valid=False,
+        status="no_in_band_segment",
+        input_point_count=len(points),
+        invalid_coordinate_count=int(
+            np.count_nonzero(~np.isfinite(points).all(axis=1))
+        ),
+        omitted_point_touches=0,
+        zero_length_tolerance_rsun=1e-12,
+        interpolation=(
+            "exact Newkirk radial shells on piecewise-linear 3D edges"
+            if mechanism == "plasma"
+            else "linear sampled field magnitude on piecewise-linear 3D edges"
+        ),
+    )
+    result = {"segments": [], "metadata": metadata}
+    strength = None
+    shell_inner, shell_outer = 1.0, rss
+    if mechanism == "cyclotron":
+        if field_strength_gauss is None:
+            metadata["status"] = "field_strength_unavailable"
+            return result
+        strength = _band_values(field_strength_gauss, u.G, "field_strength_gauss")
+        if strength.shape != (len(points),):
+            raise ValueError(
+                "field_strength_gauss must have shape (N,) aligned with xyz"
+            )
+        strength[strength < 0] = np.nan
+        metadata["invalid_field_count"] = int(np.count_nonzero(~np.isfinite(strength)))
+        metadata["gyrofrequency_mhz_per_gauss"] = 2.8
+        if not np.isfinite(strength).any():
+            metadata["status"] = "field_strength_unavailable"
+            return result
+    else:
+        domain_frequency = (
+            harmonic
+            * PLASMA_FREQ_COEFF_KHZ
+            / 1000
+            * np.sqrt(newkirk_density_cm3([rss, 1.0], multiplier))
+        )
+        if not np.isfinite(domain_frequency).all():
+            raise ValueError("Model frequencies overflow within the PFSS domain")
+        low, high = max(bounds[0], domain_frequency[0]), min(
+            bounds[1], domain_frequency[1]
+        )
+        if low > high:
+            return result
+        shell_inner, shell_outer = np.clip(
+            newkirk_radius_from_frequency_mhz([high, low], multiplier, harmonic),
+            1.0,
+            rss,
+        )
+
+    def frequency_at(index, fraction, point):
+        if mechanism == "plasma":
+            return float(
+                harmonic
+                * PLASMA_FREQ_COEFF_KHZ
+                / 1000
+                * np.sqrt(newkirk_density_cm3(np.linalg.norm(point), multiplier))
+            )
+        return float(
+            2.8
+            * harmonic
+            * (strength[index] + fraction * (strength[index + 1] - strength[index]))
+        )
+
+    def inside(index, fraction, point):
+        radius = np.linalg.norm(point)
+        tolerance = 64 * np.finfo(float).eps * max(1.0, rss)
+        if not shell_inner - tolerance <= radius <= shell_outer + tolerance:
+            return False
+        if mechanism == "plasma":
+            return True
+        freq = frequency_at(index, fraction, point)
+        tolerance = 64 * np.finfo(float).eps * max(1.0, bounds[-1])
+        return (
+            np.isfinite(freq) and bounds[0] - tolerance <= freq <= bounds[1] + tolerance
+        )
+
+    current = None
+    for index in range(max(0, len(points) - 1)):
+        start, end = points[index : index + 2]
+        if not np.isfinite([start, end]).all() or (
+            strength is not None and not np.isfinite(strength[index : index + 2]).all()
+        ):
+            current = None
+            continue
+        delta = end - start
+        length = np.linalg.norm(delta)
+        if not np.isfinite(length) or length <= 1e-12:
+            current = None
+            continue
+        knots = [0.0, 1.0]
+        for radius in {1.0, rss, float(shell_inner), float(shell_outer)}:
+            knots.extend(_edge_sphere_fractions(start, delta / length, length, radius))
+        if strength is not None and strength[index] != strength[index + 1]:
+            frequencies = 2.8 * harmonic * strength[index : index + 2]
+            for bound in bounds:
+                fraction = (bound - frequencies[0]) / (frequencies[1] - frequencies[0])
+                if 0 <= fraction <= 1:
+                    knots.append(float(fraction))
+        knots = sorted(set(knots))
+        intervals = [
+            (left, right)
+            for left, right in zip(knots[:-1], knots[1:], strict=True)
+            if (right - left) * length > 1e-12
+            and inside(index, (left + right) / 2, start + (left + right) / 2 * delta)
+        ]
+        for fraction in knots:
+            if inside(index, fraction, start + fraction * delta) and not any(
+                left - 1e-12 <= fraction <= right + 1e-12 for left, right in intervals
+            ):
+                metadata["omitted_point_touches"] += 1
+        for left, right in intervals:
+            a, b = start + left * delta, start + right * delta
+            fa, fb = frequency_at(index, left, a), frequency_at(index, right, b)
+            join = (
+                current is not None
+                and np.linalg.norm(current["xyz_carrington_rsun"][-1] - a) <= 1e-12
+            )
+            if join:
+                previous = current["source_edge_indices"][-1]
+                join = previous == index or (
+                    previous == index - 1
+                    and current["source_edge_fractions"][-1][1] >= 1 - 1e-12
+                    and left <= 1e-12
+                )
+            if not join:
+                current = dict(
+                    xyz_carrington_rsun=[a],
+                    frequency_mhz=[fa],
+                    source_edge_indices=[],
+                    source_edge_fractions=[],
+                )
+                result["segments"].append(current)
+            current["xyz_carrington_rsun"].append(b)
+            current["frequency_mhz"].append(fb)
+            current["source_edge_indices"].append(index)
+            current["source_edge_fractions"].append([left, right])
+        if not intervals:
+            current = None
+    for segment in result["segments"]:
+        for key in segment:
+            segment[key] = np.asarray(
+                segment[key], dtype=np.int64 if key == "source_edge_indices" else float
+            )
+    if result["segments"]:
+        metadata["status"] = "ok"
+    return result
+
+
 __all__ = [
     "sphere_intersections",
     "projected_distances",
     "associate_sources",
     "model_shell_candidates",
+    "fieldline_band_segments",
 ]

@@ -15,11 +15,19 @@ def _digest(value):
 
 
 def cache_keys(config):
-    """Hash scientific inputs, backend versions and stage implementation bytes."""
+    """Hash inputs and code, preserving absent/False sampling equivalence.
+
+    Opt-in field sampling invalidates trace and downstream stages only. Source
+    implementation edits still invalidate keys through existing file hashes;
+    compatibility does not promise historical digests survive code updates.
+    """
     from dataclasses import asdict
 
     from .solver import PFSSConfig
 
+    sample_field = config.get("sample_field_strength", False)
+    if not isinstance(sample_field, bool):
+        raise ValueError("sample_field_strength must be a boolean")
     physics = asdict(PFSSConfig(**config.get("pfss", {})))
     versions = {
         name: version(name)
@@ -54,18 +62,19 @@ def cache_keys(config):
             "code": code["solver"],
         }
     )
-    trace = _digest(
-        {
-            "solve": solve,
-            "code": code["tracing"],
-            "seed_policy_version": 1,
-            "event": config["event_utc"],
-            "box": config.get("seed_hpc_box"),
-            "local_seed_side": config.get("local_seed_side", 8),
-            "step": config.get("trace_step_size", 0.25),
-            "max_steps": config.get("trace_max_steps", 4096),
-        }
-    )
+    trace_inputs = {
+        "solve": solve,
+        "code": code["tracing"],
+        "seed_policy_version": 1,
+        "event": config["event_utc"],
+        "box": config.get("seed_hpc_box"),
+        "local_seed_side": config.get("local_seed_side", 8),
+        "step": config.get("trace_step_size", 0.25),
+        "max_steps": config.get("trace_max_steps", 4096),
+    }
+    if sample_field:
+        trace_inputs["sample_field_strength"] = True
+    trace = _digest(trace_inputs)
     projection = _digest(
         {
             "trace": trace,

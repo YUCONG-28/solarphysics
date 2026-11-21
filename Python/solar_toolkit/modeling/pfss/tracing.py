@@ -67,15 +67,26 @@ def trace_fieldlines(
     tracer="performance",
     max_steps="auto",
     step_size=1,
+    sample_field_strength=False,
 ):
-    """Per-seed warnings are retained, and failures never count as closed lines."""
-    import astropy.units as u
-    from sunkit_magex.pfss.tracing import PerformanceTracer, PythonTracer
+    """Trace geometry, optionally sampling aligned field magnitudes in Gauss.
 
+    Sampling is explicit and uses public ``Output.get_bvec`` on copied line
+    coordinates; geometry and seeds are unchanged. ``b_gauss`` has one value
+    per returned XYZ point, with NaN for unavailable samples. Sampling failures
+    have their own status/reason and never turn a valid trace into a failed one.
+    The default records retain their previous fields and require no sampling.
+    """
+    import astropy.units as u
+
+    if not isinstance(sample_field_strength, bool):
+        raise ValueError("sample_field_strength must be a boolean")
     if len(seeds) > max_seeds:
         raise ValueError("Seed count exceeds the explicit resource budget")
     if tracer not in {"performance", "python"}:
         raise ValueError("Unknown tracer")
+    from sunkit_magex.pfss.tracing import PerformanceTracer, PythonTracer
+
     engine = (
         PerformanceTracer(max_steps=max_steps, step_size=step_size)
         if tracer == "performance"
@@ -89,7 +100,8 @@ def trace_fieldlines(
                 warnings.simplefilter("always")
                 line = engine.trace(seeds[index : index + 1], output)[0]
             messages = [str(w.message) for w in caught]
-            points = line.coords.cartesian.xyz.to_value(u.R_sun).T
+            coordinates = line.coords
+            points = coordinates.cartesian.xyz.to_value(u.R_sun).T
             polarity = int(line.polarity)
             state = validate_line(
                 points, rss=rss, polarity=polarity, warnings_seen=messages
@@ -102,20 +114,68 @@ def trace_fieldlines(
                 trace_valid=False,
                 reason=f"{type(exc).__name__}: {exc}",
             )
-        records.append(
-            dict(
-                fieldline_id=f"line-{index:05d}",
-                seed_index=index,
-                xyz_carrington_rsun=points,
-                polarity=polarity,
-                warnings=messages,
-                tracer=tracer,
-                geometry_method="conditional_pfss_field_line",
-                independent_geometry_valid=False,
-                **state,
-            )
+        record = dict(
+            fieldline_id=f"line-{index:05d}",
+            seed_index=index,
+            xyz_carrington_rsun=points,
+            polarity=polarity,
+            warnings=messages,
+            tracer=tracer,
+            geometry_method="conditional_pfss_field_line",
+            independent_geometry_valid=False,
+            **state,
         )
+        if sample_field_strength:
+            record.update(
+                _sample_field(output, coordinates, points)
+                if state["trace_valid"]
+                else dict(
+                    b_gauss=np.full(len(points), np.nan),
+                    field_strength_status="trace_invalid",
+                    field_strength_reason="Trace failed validation",
+                    field_strength_warnings=[],
+                )
+            )
+        records.append(record)
     return records
+
+
+def _sample_field(output, coordinates, points):
+    """Sample without mutating the coordinate representation used by tracing."""
+    import astropy.units as u
+
+    from solar_toolkit._utils.numeric import as_value
+
+    magnitudes = np.full(len(points), np.nan)
+    caught = []
+    reason = ""
+    try:
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            sampled = output.get_bvec(coordinates.copy(), out_type="cartesian")
+            if not isinstance(sampled, u.Quantity):
+                raise ValueError("Backend field vectors must declare magnetic units")
+            vectors = as_value(sampled, u.G, "backend field vectors")
+        if vectors.shape != (len(points), 3):
+            raise ValueError("Backend field vectors must have shape (N, 3)")
+        magnitudes = np.hypot.reduce(vectors, axis=1)
+        magnitudes[~np.isfinite(magnitudes)] = np.nan
+        finite = np.isfinite(magnitudes)
+        status = (
+            "ok" if finite.all() else "partial" if finite.any() else "sampling_failed"
+        )
+        if not finite.all():
+            reason = "Backend returned unavailable field samples; no interpolation or extrapolation applied"
+    except Exception as exc:
+        status = "sampling_failed"
+        reason = f"{type(exc).__name__}: {exc}"
+    return dict(
+        b_gauss=magnitudes,
+        field_strength_status=status,
+        field_strength_reason=reason,
+        field_strength_warnings=[str(w.message) for w in caught],
+        field_strength_method="sunkit_magex.pfss.Output.get_bvec_cartesian_norm",
+    )
 
 
 __all__ = ["uniform_seeds", "validate_line", "trace_fieldlines"]
