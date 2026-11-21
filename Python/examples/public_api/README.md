@@ -12,6 +12,9 @@ used as small installation smoke checks.
   intervals, equivalent frequency units, millisecond spacing and masked samples.
 - `native_radio_fit_example.py` fits a synthetic source with explicit pixel ROI
   and helioprojective WCS, then checks its native-pixel center and model.
+- `magnetic_models_example.py` generates synthetic PFSS, SHARP and local
+  grid files in a new output directory. It checks field-line band clipping
+  and the magnetic input readers.
 
 After [installing the library](../../README.md#install), run from the repository
 root through Miniforge:
@@ -23,6 +26,7 @@ MINIFORGE_CONDA="<miniforge-root>/bin/conda"
 "$MINIFORGE_CONDA" run -n solarphysics_env_latest python Python/examples/public_api/gaussian_model_example.py
 "$MINIFORGE_CONDA" run -n solarphysics_env_latest python Python/examples/public_api/native_radio_fit_example.py
 "$MINIFORGE_CONDA" run -n solarphysics_env_latest python Python/examples/public_api/scientific_contracts_example.py
+"$MINIFORGE_CONDA" run -n solarphysics_env_latest python Python/examples/public_api/magnetic_models_example.py --output-dir Local/magnetic-demo
 ```
 
 On Windows, use the Miniforge PowerShell invocation in the library guide.
@@ -30,8 +34,8 @@ On Windows, use the Miniforge PowerShell invocation in the library guide.
 The time example takes an explicit target UTC and a tolerance in seconds,
 and returns a filename or `None`. The Gaussian example returns a deterministic
 `(size, size)` array from coordinate grids, widths in grid units and an angle
-in radians. None of these examples reads an observation, writes generated files or
-starts an application.
+in radians. The magnetic example writes synthetic inputs. The other examples
+work in memory.
 
 The sequence example filters a half-open UTC window, orders synthetic streams
 by increasing frame count, and prints four output rows. The smallest stream

@@ -13,6 +13,7 @@ version linked below. Guides written in Chinese are marked in the table.
 | Read local EUVI FITS files | [STEREO example](../Python/examples/stereo/README.md) |
 | Read, match and display synthetic radio data | [Radio example](../Python/examples/radio/README.md) |
 | Match complete chronological image sequences | [Time matching (中文)](time_matching.md) |
+| Analyze PFSS frequency bands and read local magnetic fields | [Magnetic models](magnetic_models.md) |
 | Compare original radio/AIA images and localize sources | [Radio comparison](radio_comparison.md) |
 | Plot a supplied SXR dataset | [SXR example](../Python/examples/sxr/README.md) |
 | Run the application demonstration | [Application guide](../Apps/README.md) |
