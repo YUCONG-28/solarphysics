@@ -50,6 +50,8 @@ remain outside public source.
 | [foundations.md](foundations.md) | S | Time, units, masks, coordinates and dependency evidence shared by every module |
 | [magnetic_models.md](magnetic_models.md) | S | PFSS frequency bands, global radial boundaries, and local magnetic grids |
 | [radio_comparison.md](radio_comparison.md) | S | Original-image comparison and source localization, with its review flags and uncertainty |
+| [gaussian-fitting.md](gaussian-fitting.md) | S | The rotated Gaussian model, its initialization, quality control, centroid validation, and what its covariance does not cover |
+| [muser_preview.md](muser_preview.md) | S | How the MUSER contour preview and its synchronized movie are assembled, and what they do not calibrate |
 | [aia_radio_composite.md](aia_radio_composite.md) | S | How to operate the AIA/radio composite frontend and what its outputs retain (中文) |
 | [migration.md](migration.md) | P | How to move an existing checkout, import or configuration onto the current layout |
 
