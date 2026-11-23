@@ -142,14 +142,17 @@ Bilingual rules:
 
 | File | Asserted content |
 | --- | --- |
-| `README.md`, `README.zh-CN.md` | start with `# Solar Physics Toolkit`; contain `(Python/README.md)` before `(Apps/README.md)`; contain `solarphysics_env_latest`; contain `create -n solarphysics_env_latest -c conda-forge python=3.14 pip`; no `Local repository`, `PUBLIC_BASE`, `SHA256SUMS` |
+| `README.md`, `README.zh-CN.md` | start with `# Solar Physics Toolkit`; contain `(Python/README.md)` before `(Apps/README.md)`; contain `solarphysics_env_latest`; contain `create -n solarphysics_env_latest -c conda-forge python=3.14 pip`; no legacy distribution wording and no historical publication-manifest marker |
 | `Apps/README.md` + `Apps/docs/architecture.md` + `Apps/docs/development.md` | together contain `solarphysics_env_latest`, `solarphysics_env`, `Python 3.14`, `run.sh`, `run.ps1`, `frontend app-v1`, `app-v1-preview`, `--config-file`, `paths.local.yaml`, `Local/`, `Auto`, `Light`, `Dark`, `.spapp.json`, `.spflow.json`, `MPL-2.0` |
 | `docs/README.md` | links `../Python/README.md`, `../Python/docs/FUNCTION_MAP.md`, `../Apps/README.md`, `../CONTRIBUTING.md`, `../CONTRIBUTING.zh-CN.md`, `../environment/README.md`, `../Python/CHANGELOG.md`, `../LICENSING.md`, `../CITATION.cff`, `radio_comparison.md`, `time_matching.md`, `aia_radio_composite.md`, `migration.md` |
 | `LICENSING.md` | links `LICENSE`, `Python/LICENSE`, `Apps/LICENSE`, `Apps/solar_apps/frontends/app_v1/LICENSE.md`, `Apps/LICENSES/GPL-3.0-only.txt`, `Apps/solar_apps/ui/media/NOTICE.txt` |
-| all tracked Markdown | no machine path (`D:\solarphysics`, `D:\miniforge3`, non-placeholder `X:\Users\`), no private mail address, no `PUBLIC_BASE`/`SHA256SUMS`, no test-count phrase |
+| all tracked Markdown | no drive-letter repository or toolchain path, no drive-letter user-profile path other than an explicit `<user>` or `<username>` placeholder, no private mail address, no historical publication-manifest filename pair, no test-count phrase |
 
 If a required string conflicts with the new structure, keep the string, add a
 footnote, and leave the test untouched.
+
+Describe a forbidden token by its class, never by quoting it: the contract test
+scans every tracked Markdown file, so a quoted token is itself an offence.
 
 ## 8. Verification
 
