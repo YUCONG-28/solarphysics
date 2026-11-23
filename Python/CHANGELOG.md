@@ -1,5 +1,9 @@
 # Changelog
 
+> **Record type:** date-ordered release history of the library partition
+> **Effective version:** 0.3.0
+> **Status:** current; earlier entries are retained unedited
+
 ## Unreleased
 
 - Read SHARP CEA vector boundaries and explicitly specified local magnetic NPZ

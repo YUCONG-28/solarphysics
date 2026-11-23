@@ -1,5 +1,15 @@
 # Project Instructions
 
+Purpose: the library partition's environment rule, its API discipline, and the
+verification expectation for a change under `Python/`.
+
+Reader: anyone editing `Python/`, including an agent delegated to work there. The
+repository-wide rules in `../AGENTS.md` still apply; dependency directions and
+the source/runtime boundary are owned by `../ARCHITECTURE.md`.
+
+Precedence: this file is more specific than `../AGENTS.md` where the two differ,
+and a direct instruction from the user wins over both.
+
 These instructions apply to this Python project and its subdirectories.
 
 ## Python environment
@@ -75,3 +85,13 @@ guideline conflicts with them.
 - Do not expose raw observations, large generated outputs, local paths, or
   private research artifacts through Calendar or Sites. Publish only a
   separately reviewed export after an explicit request.
+
+## Related documents
+
+- [README.md](README.md) — library boundary, install and verification.
+- [CONTRIBUTING.md](CONTRIBUTING.md) — the library change loop and its checks.
+- [docs/FUNCTION_MAP.md](docs/FUNCTION_MAP.md) — public modules and their input and output contracts.
+- [CHANGELOG.md](CHANGELOG.md) — the dated record of library changes.
+- [../AGENTS.md](../AGENTS.md) — repository-wide source boundary and environment rule.
+- [../ARCHITECTURE.md](../ARCHITECTURE.md) — partitions and the forbidden dependency directions.
+- [../docs/writing-standard.md](../docs/writing-standard.md) — document classes and claim discipline.

@@ -1,8 +1,33 @@
 # Public function map
 
+Purpose: name every public entry point of the library partition, the input
+contract each one honours, and the compatibility imports a reorganization keeps
+available.
+
+Reader: anyone looking up which module owns an operation, and the reviewer who
+must decide whether a new entry point belongs in this table. Shared vocabulary
+is in [terminology](../../docs/terminology.md); the document classes in
+[the writing standard](../../docs/writing-standard.md).
+
 The [scientific data contracts](../../docs/foundations.md) define shared time,
 unit, mask, WCS and uncertainty behavior. Numerical and coordinate operations
 never use plotting fallbacks to manufacture valid observations.
+
+## Purpose and boundary
+
+| Owned here | Belongs elsewhere |
+| --- | --- |
+| The public module inventory and the responsibility of each area | Scientific method and validity: [scientific data contracts](../../docs/foundations.md) |
+| The input and output contract of each listed entry point | Command syntax, interfaces and frontends: [Apps guide](../../Apps/README.md) |
+| Compatibility imports and their canonical replacements | Partitions, runtime layout and allowed roots: [ARCHITECTURE](../../ARCHITECTURE.md) |
+
+Scientific configuration objects accept explicit caller inputs. Real event
+parameters remain private. Application servers, CLIs and workflow orchestration
+are owned by `Apps/solar_apps`, with dependency direction
+`solar_apps -> solar_toolkit`. Imports do not start an interface, download data
+or discover workstation events.
+
+## Layout
 
 | Area | Public modules | Responsibility |
 | --- | --- | --- |
@@ -22,13 +47,7 @@ never use plotting fallbacks to manufacture valid observations.
 | Quality | `radio.quality_science`, `radio.quality_ml`, `radio.quality_autoencoder` | Rule evidence and optional learned diagnostics; ML and Torch dependencies are separate profiles |
 | Visualization | `solar_toolkit.visualization` | Reusable plotting, frame, media and deterministic image-filename helpers |
 
-Scientific configuration objects accept explicit caller inputs. Real event
-parameters remain private. Application servers, CLIs and workflow orchestration
-are owned by `Apps/solar_apps`, with dependency direction
-`solar_apps -> solar_toolkit`. Imports do not start an interface, download data
-or discover workstation events.
-
-## Compose explicit inputs
+### Compose explicit inputs
 
 Choose a reader, normalize its time/coordinate conventions, then pass its
 arrays or tables into a numerical helper. Plotting and writing outputs are
@@ -75,13 +94,49 @@ time derivatives and plotting; flux is in W m^-2 and its derivative in
 W m^-2 s^-1. These examples exercise software contracts, not observation
 calibration or feature identification.
 
+## Dependency directions
+
+A listed module is imported by the application layer, never the reverse:
+
+```text
+solar_apps -> solar_toolkit
+```
+
+The forbidden direction is `solar_toolkit -> solar_apps`. Nothing in this
+table starts an interface, downloads data or discovers a workstation event, and
+no application workflow is listed here.
+
+## Run and verify
+
+This page is reference material: its rows are contracts, not steps. The
+environment requirement and the commands that exercise them have one home.
+Install and verify the library with Miniforge `solarphysics_env_latest` and
+Python 3.12 or later, following [the library guide](../README.md#install) and
+[its verification commands](../README.md#verify); the library-specific rules
+are in [the Python contribution guide](../CONTRIBUTING.md).
+
 Optional dependency profiles are listed in the [library guide](../README.md#install).
 PFSS backend and input requirements are documented in its
 [module guide](../solar_toolkit/modeling/pfss/README.md).
 See the [migration guide](../../docs/migration.md#scientific-input-validation)
 for stricter scientific input handling and explicit compatibility choices.
 
-## Compatibility imports
+## Rules that must not be violated
+
+1. A module is imported as `solar_toolkit.<module>`; only public entry points
+   appear in the tables above.
+2. Every listed entry point takes its inputs explicitly: no filename-inferred
+   times, no implicit sorting and no hidden download.
+3. Numerical and coordinate operations never use a plotting fallback to
+   manufacture a valid observation.
+4. Documented input failures raise; a listed `ValueError` or `KeyError` is not
+   converted into a silent default.
+5. A compatibility import stays importable and keeps warning with
+   `SolarToolkitDeprecationWarning`; documentation cleanup never drops it.
+6. Scientific configuration objects accept caller inputs. Real event parameters
+   and machine paths never appear in this table.
+
+### Compatibility imports
 
 The following imports remain available and warn with
 `SolarToolkitDeprecationWarning`. New code uses the replacement API;
@@ -94,5 +149,11 @@ documentation and structural cleanup preserve the compatibility imports.
 | `solar_toolkit.gaussian` | `solar_toolkit.modeling.gaussian` |
 | `solar_toolkit.solar_analysis_utils` | The corresponding `time`, `io`, `map`, `hmi`, or `visualization` API |
 
-See [public API examples](../examples/public_api/README.md) for explicit inputs
-and [the library guide](../README.md) for installation and verification.
+## Related documents
+
+- [Python/README.md](../README.md) — library boundary, install and verification.
+- [Python/CONTRIBUTING.md](../CONTRIBUTING.md) — library test, API and distribution rules.
+- [Python/solar_toolkit/modeling/pfss/README.md](../solar_toolkit/modeling/pfss/README.md) — PFSS backend and input requirements.
+- [Apps/README.md](../../Apps/README.md) — the application layer that composes these modules.
+- [ARCHITECTURE.md](../../ARCHITECTURE.md) — partition map and dependency directions.
+- [docs/migration.md](../../docs/migration.md#scientific-input-validation) — stricter scientific input handling.

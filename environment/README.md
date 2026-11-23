@@ -1,5 +1,14 @@
 # Reproducible environment locks
 
+Purpose: state when an environment may be called exact, what evidence a sealed
+lock must carry, and how to create or replay one.
+
+Reader: whoever runs a confirmatory analysis, or maintains the committed
+platform locks. The claim boundary is the important part: a source-specification
+install is not a lock, and a lock from one platform is never relabelled for
+another.
+
+
 Use the Miniforge `solarphysics_env_latest` environment for normal development.
 `Apps/environment.miniforge.yml` and the two `pyproject.toml` files are source
 specifications with version ranges. Conda and pip resolve those ranges again
@@ -189,3 +198,10 @@ does not reconstruct an installed wheel archive from `site-packages`, so the
 fresh install command must retain `--require-hashes`. Keep the receipt in a
 private run directory and generate it against the current combined lock digest;
 source rebinding changes that digest even when the artifacts remain unchanged.
+
+## Related documents
+
+- [ARCHITECTURE.md](../ARCHITECTURE.md) — runtime boundary and partitions.
+- [Python/README.md](../Python/README.md) — library install and verification.
+- [Apps/README.md](../Apps/README.md) — application environment requirements.
+- [docs/writing-standard.md](../docs/writing-standard.md) — documented claim classes.

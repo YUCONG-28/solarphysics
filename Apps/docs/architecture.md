@@ -1,8 +1,30 @@
 # Apps architecture
 
+Purpose: own the application partition's internal structure, interface
+ownership, private formats and the contracts its interfaces present.
+
+Reader: anyone adding or reviewing a frontend, workflow or shared service under
+`solar_apps`. Repository-level partitions and dependency rules are in
+[ARCHITECTURE.md](../../ARCHITECTURE.md); installation and the command surface in
+the [Apps guide](../README.md).
+
 `solar_apps` adapts the reusable `solar_toolkit` library into interfaces and
 composed workflows. The [repository architecture](../../ARCHITECTURE.md) defines
 the dependency direction and public-source boundary.
+
+## 1. Purpose and boundary
+
+| Owned here | Belongs elsewhere |
+| --- | --- |
+| Which APIs each native page and retained interface adapts | Command syntax, launcher options and installation: [Apps guide](../README.md) |
+| The native execution model, shared services and parameter catalogs | Reusable calculations and their validity: [library guide](../../Python/README.md) |
+| Private persistence formats and the `Local/` runtime layout | Repository partitions and the forbidden dependency directions: [ARCHITECTURE.md](../../ARCHITECTURE.md) |
+| Display contracts and compatibility aliases | Environment locks and exact replay: [environment guide](../../environment/README.md) |
+| Workflow maintenance boundaries | Checks, health reports and release stages: [Apps development](development.md) |
+
+## 2. Layout
+
+The package tree:
 
 ```text
 solar_apps/
@@ -18,7 +40,7 @@ coordinate operations while reusable calculations remain in `solar_toolkit`.
 Platform services are domain-neutral; UI services handle framework-specific
 interaction. The library remains independently importable.
 
-## Interface ownership
+### Interface ownership
 
 The native App 1.0 pages adapt existing implementations:
 
@@ -41,30 +63,7 @@ Interface availability describes how code is reached. Scientific equivalence
 requires validation of the selected inputs, parameters and outputs. PFSS solver
 execution and optional backends are separate from viewer availability.
 
-## Native execution and shared services
-
-The native interface runs PyQt6 in a dedicated process and rejects an already
-loaded foreign Qt binding. Normal actions use supervised `QProcess` workers.
-The application queue is FIFO; typed workflows use 1–4 process lanes for
-same-level nodes. A failed node blocks its descendants while independent
-branches may continue. Tasks and flows support cancellation and retry.
-
-`ParameterSpec` and `FunctionSpec` provide one catalog for forms, validation,
-argv/config construction, confirmations, presets, migration and typed artifact
-ports. Unknown legacy arguments block execution and remain visible in the
-migration report. `VariantFamilySpec` represents choices that change scientific
-meaning; style choices remain data in `PlotSpec`.
-
-Shared services cover path fields, image canvases, ROI import/export, playback,
-artifact preview and export. `ScientificPlotRenderer` uses Matplotlib Agg in
-workers. Real loads, calculations, exports and cross-module transfers retain
-input/parameter/output/workload confirmation.
-
-Workers may emit `APP_V1_EVENT` schema-1 records for progress, logs, previews,
-artifacts and terminal results. Legacy line output remains accepted. UTC is
-exchanged through one coordinator and a rebuildable private SQLite index.
-
-## Private persistence and formats
+### Private formats
 
 `RuntimeLayout` resolves runtime directories under `Local/` or an explicitly
 configured external root. Directory validation precedes creation and rejects
@@ -93,25 +92,7 @@ operation, frontend and global entries, then an allowed root. Files remember
 their parent; directory selectors remember the selected directory. Memory is
 re-resolved against current allowed roots and never grants access.
 
-## Display contracts
-
-Auto, Light, Dark and the native Dark Dimmed theme change application chrome.
-Scientific arrays, WCS, normalization, sidecars, exports and scientific cache
-signatures are theme-invariant. Auto follows the system Light/Dark setting.
-
-`SpatialRadioDisplay` defines colormap, invalid-value color, linear/log10
-transform, percentile/fixed range, range scope, units, field of view and
-preview/export profile. It applies to spatial source maps, Gaussian main
-panels, pipeline map products, ROI references and RR/LL comparisons.
-
-Effective display values resolve from scientific constraints, explicit current
-CLI/UI overrides, private scientific configuration or saved settings, then
-Source Map defaults. The optional schema-1 sidecar `display` object records the
-effective values. Scientific display settings participate in preview/export
-cache signatures. Spectra, residuals, light curves, trajectories and
-multi-instrument overlays retain their own display and analysis contracts.
-
-## Compatibility entry points
+### Compatibility entry points
 
 Use canonical IDs in new scripts. Retained aliases dispatch to the same
 implementation:
@@ -137,7 +118,7 @@ with a predecessor expose it through **More → Open legacy interface**, with a
 separate confirmation and no automatic fallback. Data Download and Image
 Composer are native-only.
 
-## Workflow maintenance boundaries
+### Workflow maintenance boundaries
 
 Keep public workflow modules as compatibility entry points. Internal modules
 divide application responsibilities:
@@ -150,5 +131,99 @@ divide application responsibilities:
 | `frontends.app_v1.phase4_page` | `phase4_canvas` handles canvas controls; `phase4_project` owns persistence and dirty state; `phase4_export` handles output controls and confirmation. |
 | `frontends.radio.roi_lightcurve.roi_lightcurve_app` | `_roi_app_files`, `_roi_app_regions`, `_roi_app_analysis`, `_roi_app_display`, `_roi_app_page` and `_roi_app_state` separate file planning, regions, analysis, display, page construction and state. |
 
-Validation commands and contribution rules are in
-[Apps development](development.md).
+## 3. Dependency directions
+
+```text
+solar_apps/frontends --> solar_apps/ui --------> solar_apps/platform
+solar_apps/frontends --> solar_apps/workflows --> solar_apps/platform
+solar_apps/frontends --> solar_toolkit
+solar_toolkit        -X-> solar_apps
+solar_apps/platform  -X-> frontends or workflows
+```
+
+Frontends adapt user actions to shared UI, platform, workflow and library APIs.
+Workflows orchestrate library functions and platform services and never import a
+concrete frontend. Platform services stay domain-neutral. The two `-X->` arrows
+are the forbidden directions: the library never imports the application layer,
+and the platform layer never imports a frontend or a workflow. The
+repository-level diagram is owned by [ARCHITECTURE.md](../../ARCHITECTURE.md).
+
+## 4. Run and verify
+
+Apps run in the Miniforge `solarphysics_env_latest` environment with Python 3.14;
+`solarphysics_env` is reserved for an explicitly selected compatibility check.
+Installation, the launchers and the command hierarchy are documented once in the
+[Apps guide](../README.md#install). Validation commands and contribution rules are
+in [Apps development](development.md). The offline health matrix described there
+exercises a catalog-driven subset of this behaviour.
+
+### Native execution and shared services
+
+The native interface runs PyQt6 in a dedicated process and rejects an already
+loaded foreign Qt binding. Normal actions use supervised `QProcess` workers.
+The application queue is FIFO; typed workflows use 1–4 process lanes for
+same-level nodes. A failed node blocks its descendants while independent
+branches may continue. Tasks and flows support cancellation and retry.
+
+`ParameterSpec` and `FunctionSpec` provide one catalog for forms, validation,
+argv/config construction, confirmations, presets, migration and typed artifact
+ports. Unknown legacy arguments block execution and remain visible in the
+migration report. `VariantFamilySpec` represents choices that change scientific
+meaning; style choices remain data in `PlotSpec`.
+
+Shared services cover path fields, image canvases, ROI import/export, playback,
+artifact preview and export. `ScientificPlotRenderer` uses Matplotlib Agg in
+workers. Real loads, calculations, exports and cross-module transfers retain
+input/parameter/output/workload confirmation.
+
+Workers may emit `APP_V1_EVENT` schema-1 records for progress, logs, previews,
+artifacts and terminal results. Legacy line output remains accepted. UTC is
+exchanged through one coordinator and a rebuildable private SQLite index.
+
+## 5. Rules that must not be violated
+
+1. Dependency direction is one-way: `solar_toolkit` never imports `solar_apps`,
+   and `solar_apps/platform` imports neither a frontend nor a workflow.
+2. `RuntimeLayout` resolves runtime directories under `Local/` or an explicitly
+   configured external root. Directory validation precedes creation and rejects
+   a resolved destination in public source.
+3. Machine path authorization and private scientific configuration remain
+   separate inputs. Neither one supplies the other.
+4. Production code must not inject paths into `sys.path` or discover roots using
+   fixed parent indexes.
+5. Project and flow files reference observations without embedding their bytes or
+   implicitly reusing earlier calculations.
+6. Configuration-layout versions are independent of frontend state schemas.
+7. Project writes, workflow manifests and composer exports use atomic replacement
+   or staging contracts.
+8. Downloads stay in private observations directories; task manifests and
+   receipts stay in private outputs directories.
+9. `RecentPathMemory` is re-resolved against current allowed roots and never
+   grants access.
+10. Auto, Light, Dark and the native Dark Dimmed theme change application chrome.
+    Scientific arrays, WCS, normalization, sidecars, exports and scientific cache
+    signatures are theme-invariant. Auto follows the system Light/Dark setting.
+    Spectra, residuals, light curves, trajectories and multi-instrument overlays
+    retain their own display and analysis contracts.
+11. `SpatialRadioDisplay` defines colormap, invalid-value color, linear/log10
+    transform, percentile/fixed range, range scope, units, field of view and
+    preview/export profile. It applies to spatial source maps, Gaussian main
+    panels, pipeline map products, ROI references and RR/LL comparisons.
+12. Effective display values resolve from scientific constraints, explicit
+    current CLI/UI overrides, private scientific configuration or saved settings,
+    then Source Map defaults. The optional schema-1 sidecar `display` object
+    records the effective values. Scientific display settings participate in
+    preview/export cache signatures.
+13. Use canonical IDs in new scripts; retained aliases dispatch to the same
+    implementation, and public workflow modules remain compatibility entry
+    points.
+
+## 6. Related documents
+
+- [Apps guide](../README.md) — installation, command hierarchy, themes and troubleshooting.
+- [Apps development](development.md) — environment, checks, health reports and release stages.
+- [ARCHITECTURE.md](../../ARCHITECTURE.md) — repository partitions and the dependency diagram.
+- [Library guide](../../Python/README.md) — `solar_toolkit` boundary and API surface.
+- [Environment guide](../../environment/README.md) — platform locks and exact replay.
+- [AIA/radio guide](../../docs/aia_radio_composite.md) — composite inputs, controls and output files.
+- [Technical guides](../../docs/README.md) — methods and scientific contracts.

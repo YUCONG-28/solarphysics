@@ -5,7 +5,53 @@ This guide describes current repository compatibility boundaries. The
 remain synchronized between the two distributions; documentation cleanup alone
 does not create a release.
 
-## Documentation and metadata
+Purpose: collect the compatibility boundaries a reader meets when moving a
+checkout, an analysis or a delivery forward, and name the explicit escape for
+each historical behavior.
+
+Reader: someone upgrading an existing checkout or analysis, and the maintainer
+preparing a release.
+
+Vocabulary: [terminology](terminology.md). File structure:
+[writing-standard](writing-standard.md).
+
+## Daily loop
+
+The routine is to raise the environment when the checkout's floors rise, install
+both partitions as editable sources, and keep runtime state outside the checkout.
+
+### Installations and imports
+
+The library now requires Python 3.12 or later and the Astropy 8 / SunPy 8 /
+NumPy 2 generation. Python 3.10 and 3.11 installations must upgrade their
+Miniforge environment before installing this checkout. Apps continue to use
+Python 3.14. The minimum-dependency CI job verifies direct runtime floors
+separately from the current-dependency matrix.
+
+### Package installation boundaries
+
+Create the named Miniforge environment before using a fresh checkout; see the
+[library setup](../README.md#start-with-the-library). The scientific library
+keeps the `solar-physics-toolkit` distribution name, `solar_toolkit` import
+namespace and Python 3.12 minimum. Apps requires Python 3.14 and editable source
+installs of both `Python` and `Apps`; Apps wheel checks validate contents rather
+than a standalone deployment. Scientific-library wheel installation is checked
+independently of Apps. Source builds require setuptools 77 or later for SPDX
+license metadata.
+
+The source specifications resolve version ranges. For exact platform replay,
+follow the [environment manual](../environment/README.md); source-binding
+refresh is not a new artifact capture or runtime replay. Runtime state,
+observations and outputs stay under ignored `Local/` or private external roots.
+
+Scientific modules remain independent of Apps. Use public imports listed in
+the [API map](../Python/docs/FUNCTION_MAP.md); applications and workflow entry
+points use `Apps/run.sh` or `Apps/run.ps1` with explicit inputs. No built-in
+research event is supplied.
+
+## Submit a reproducible change
+
+### Documentation and metadata
 
 - [README.md](../README.md) is the canonical English home;
   [README.zh-CN.md](../README.zh-CN.md) is the Chinese counterpart. Existing
@@ -19,15 +65,28 @@ does not create a release.
   [citation entry](../CITATION.cff) and [license scope](../LICENSING.md) make the
   repository-level terms explicit; existing GPL/MPL component terms remain.
 
-## Installations and imports
+### Maintenance commands
 
-The library now requires Python 3.12 or later and the Astropy 8 / SunPy 8 /
-NumPy 2 generation. Python 3.10 and 3.11 installations must upgrade their
-Miniforge environment before installing this checkout. Apps continue to use
-Python 3.14. The minimum-dependency CI job verifies direct runtime floors
-separately from the current-dependency matrix.
+`tools quick save`, `push` and `update` now reject `main`, detached HEAD and an
+existing staged change before work begins. A failed save preserves the original
+index. `tools quick push` reuses an existing pull request for the branch when
+present. Radio help lists its catalog without initializing runtime state.
 
-## Scientific foundations
+`tools release prepare` is a preview by default; execution changes only the two
+version files and changelog on a clean feature branch. The old `release run`
+spelling is an alias for that preparation step and no longer publishes.
+After its pull request is merged and CI passes, a maintainer invokes
+`tools release publish --version <X.Y.Z> --commit <full-merged-commit-sha>`
+as a separate preview, adding `--execute` only to publish the selected target.
+See the [maintenance workflow](../WORKFLOW_README.md) for the full procedure.
+
+## Conflict and rollback
+
+A checkout written against an earlier generation meets its conflict here. Each
+paragraph names what changed and, where one exists, the explicit switch that
+reproduces the historical result.
+
+### Scientific foundations
 
 See [scientific data contracts](foundations.md) for units, masks, uncertainty
 and WCS semantics. Public imports and numeric return types remain available.
@@ -57,28 +116,36 @@ centers and local widths follow that WCS. Precomputed brightness-temperature
 loading preserves missing values by default; use `fill_missing=0` only for
 display compatibility.
 
-## Package installation boundaries
+### Output filenames
 
-Create the named Miniforge environment before using a fresh checkout; see the
-[library setup](../README.md#start-with-the-library). The scientific library
-keeps the `solar-physics-toolkit` distribution name, `solar_toolkit` import
-namespace and Python 3.12 minimum. Apps requires Python 3.14 and editable source
-installs of both `Python` and `Apps`; Apps wheel checks validate contents rather
-than a standalone deployment. Scientific-library wheel installation is checked
-independently of Apps. Source builds require setuptools 77 or later for SPDX
-license metadata.
+The [image-naming API](../Python/README.md#scientific-image-filenames) defines a
+contract for workflows that adopt it. Explicit caller filenames remain valid.
+Retained exporters may keep their documented naming, including the AIA/radio
+composite stem and collision suffixes. Do not infer that every directory-only
+export uses the image-naming contract or rename historical results implicitly.
 
-The source specifications resolve version ranges. For exact platform replay,
-follow the [environment manual](../environment/README.md); source-binding
-refresh is not a new artifact capture or runtime replay. Runtime state,
-observations and outputs stay under ignored `Local/` or private external roots.
+## Troubleshooting
 
-Scientific modules remain independent of Apps. Use public imports listed in
-the [API map](../Python/docs/FUNCTION_MAP.md); applications and workflow entry
-points use `Apps/run.sh` or `Apps/run.ps1` with explicit inputs. No built-in
-research event is supplied.
+The table indexes the symptom a reader meets first. The ordered steps below keep
+the full description of each stricter input rule, and the closing note states
+what those flags do and do not establish.
 
-## Scientific input validation
+| Symptom | Cause | Action |
+| --- | --- | --- |
+| `ValueError` from `map.create_aia_submap` | bounds not finite or not strictly increasing on each axis | pass all four bounds as `(xmin, xmax, ymin, ymax)` in arcseconds; `legacy_roi=True` reproduces the historical horizontal-strip behavior |
+| `ValueError` from `map.normalize_aia_exposure` | missing or unsupported units, or invalid exposure | supply explicit DN, count or photon units, optionally per pixel; integrated values need finite positive exposure in seconds |
+| `ValueError` from `aia.background.find_nearest_aia` | tolerance is NaN, infinite or boolean | pass a finite nonnegative scalar tolerance; zero accepts an exact time match only |
+| A slot is read as simultaneous observations | `aia.io.build_multi_band_slots` keeps legacy index-based composition | use `time.build_sequence_match_plan` with caller-selected tolerances |
+| `KeyError` from `map.get_map_obs_time` | no observation metadata | supply `TIME-OBS` or `TIME_OBS`; incomplete or invalid timestamps raise `ValueError` |
+| `ValueError` from `cme.running_difference` | array shapes differ | pass identical shapes; implicit shape broadcasting is rejected |
+| `ValueError` from `xray_dem.processing.calculate_derivative` | invalid method, axis or spacing | use `median-gradient`, `gradient` or `forward`; one-dimensional flux, equally many valid increasing timestamps, finite positive scalar spacing |
+| `ValueError` from `xray_dem.hxi.load_hxi_lightcurve` | reversed interval, or offsets and channel counts that do not match | convert bounds to UTC in order and pass finite one-dimensional offsets with four-channel counts |
+| Trajectory rows missing from a normalized table | floating-point or invalid timestamps | use ISO text or exact compact text; store spreadsheet timestamps as text; numeric Unix epochs need explicit conversion |
+| `newkirk_quality_flag` set on accepted rows | non-positive or non-finite frequency | read `newkirk_invalid_reason`; quality-rejected fits are still excluded |
+| The HMI overlay CLI refuses to start | no explicit ROI | pass `--roi-bounds` in `(xmin, ymin, xmax, ymax)` arcseconds, or a caller-owned private configuration |
+| `tools quick save` refuses to run | on `main`, detached HEAD or with an existing staged change | work on a feature branch with a clean index; a failed save preserves the original index |
+
+### Scientific input validation
 
 The following stricter input handling can affect existing analyses:
 
@@ -173,25 +240,36 @@ The following stricter input handling can affect existing analyses:
 These flags describe software validity conditions. They do not replace
 instrument calibration or scientific assessment of a result.
 
-## Output filenames
+## Pre-delivery checklist
 
-The [image-naming API](../Python/README.md#scientific-image-filenames) defines a
-contract for workflows that adopt it. Explicit caller filenames remain valid.
-Retained exporters may keep their documented naming, including the AIA/radio
-composite stem and collision suffixes. Do not infer that every directory-only
-export uses the image-naming contract or rename historical results implicitly.
+- Version numbers are synchronized between the two distributions; documentation
+  cleanup alone creates no release.
+- `tools quick save`, `push` and `update` ran on a feature branch with a clean
+  index, so none of them rejected `main`, a detached HEAD or an existing staged
+  change.
+- `tools release prepare` was reviewed as the preview it is by default, and
+  execution changed only the two version files and the changelog on a clean
+  feature branch.
+- `tools release publish --version <X.Y.Z> --commit <full-merged-commit-sha>` was
+  dispatched as its own preview, with `--execute` added only after the pull
+  request was merged and CI passed.
+- Runtime state, observations and outputs are under ignored `Local/` or a
+  private external root, not in the checkout.
+- Scientific modules still import without Apps, and workflow entry points use
+  `Apps/run.sh` or `Apps/run.ps1` with explicit inputs.
+- Each stricter input rule that can affect the delivered analysis was checked
+  under [Scientific input validation](#scientific-input-validation).
 
-## Maintenance commands
+## Related documents
 
-`tools quick save`, `push` and `update` now reject `main`, detached HEAD and an existing
-staged change before work begins. A failed save preserves the original index.
-`tools quick push` reuses an existing pull request for the branch when present.
-Radio help lists its catalog without initializing runtime state.
-
-`tools release prepare` is a preview by default; execution changes only the two
-version files and changelog on a clean feature branch. The old `release run`
-spelling is an alias for that preparation step and no longer publishes.
-After its pull request is merged and CI passes, a maintainer invokes
-`tools release publish --version <X.Y.Z> --commit <full-merged-commit-sha>`
-as a separate preview, adding `--execute` only to publish the selected target.
-See the [maintenance workflow](../WORKFLOW_README.md) for the full procedure.
+- [Changelog](../Python/CHANGELOG.md) — historical changes.
+- [Scientific data contracts](foundations.md) — units, masks, uncertainty, WCS.
+- [API map](../Python/docs/FUNCTION_MAP.md) — public imports.
+- [Image-naming API](../Python/README.md#scientific-image-filenames) — filename
+  contract.
+- [Environment manual](../environment/README.md) — exact platform replay.
+- [Maintenance workflow](../WORKFLOW_README.md) — commit, review and release
+  procedure.
+- [Terminology](terminology.md) — bilingual vocabulary.
+- [Writing standard](writing-standard.md) — document classes and claim
+  discipline.

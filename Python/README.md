@@ -2,6 +2,13 @@
 
 [![CI](https://github.com/YUCONG-28/solarphysics/actions/workflows/ci.yml/badge.svg)](https://github.com/YUCONG-28/solarphysics/actions/workflows/ci.yml)
 
+Purpose: state what this partition owns, what it must never contain, how it is
+installed and verified, and which output-naming contract its files keep.
+
+Reader: a user installing the library, and a contributor deciding whether a
+change belongs here or in `../Apps`. This page owns no scientific method and
+no application installation recipe.
+
 `solar-physics-toolkit` is the reusable scientific-library partition of the
 [`solarphysics`](https://github.com/YUCONG-28/solarphysics) repository. The
 distribution name remains `solar-physics-toolkit`, the import namespace remains
@@ -10,34 +17,94 @@ distribution name remains `solar-physics-toolkit`, the import namespace remains
 The repository is a collection of composable modules. Select APIs for your own
 inputs and scientific conditions; examples are small demonstrations of composition.
 
-## Public boundary
+## Purpose and boundary
 
 The wheel contains reusable base, time, I/O, data, map, time-series, modeling,
 visualization, AIA, HMI, CME, network, X-ray and radio computation modules.
 The [function map](docs/FUNCTION_MAP.md) describes their roles, selected input
 contracts and compatibility imports.
 
-Explicit scientific configuration types, such as `RadioEventConfig`, are part
-of the library. Real event parameters and machine paths are supplied by the
-caller and remain outside public source. Application CLIs, GUI/Web servers,
-browser launchers, static assets and workflow orchestration live in
-[`../Apps`](../Apps/README.md), with dependencies flowing
-`solar_apps -> solar_toolkit`. Private configuration, state and outputs belong
-under ignored `../Local` or a user-selected private directory.
-The library installs no console scripts and discovers no workstation events.
+| Owned here | Belongs elsewhere |
+| --- | --- |
+| Reusable computation modules and their explicit input contracts | Application CLIs, GUI/Web servers, browser launchers, static assets and workflow orchestration, in [`../Apps`](../Apps/README.md) |
+| Explicit scientific configuration types, such as `RadioEventConfig` | Real event parameters and machine paths, which the caller supplies and which stay outside public source |
+| Library tests, synthetic examples and the scientific image-naming contract | Private configuration, state and outputs, under ignored `../Local` or a user-selected private directory |
+| Compatibility imports that a reorganization keeps importable | Environment locks and replay evidence, in [`../environment`](../environment/README.md) |
 
-## Install
+## Layout
+
+| Path | Contents |
+| --- | --- |
+| `solar_toolkit/` | The installable package; the [function map](docs/FUNCTION_MAP.md) lists its public modules |
+| `tests/` | Data-independent checks |
+| `examples/` | The small compositions listed under [Compose modules](#compose-modules) |
+| [`pyproject.toml`](pyproject.toml) | The canonical dependency definition and the optional profiles |
+| [`LICENSE`](LICENSE), [`CITATION.cff`](CITATION.cff) | License text and library citation metadata |
+
+## Dependency directions
+
+Dependencies flow in one direction:
+
+```text
+solar_apps -> solar_toolkit
+```
+
+The forbidden direction is `solar_toolkit -> solar_apps`: the library never
+imports the application layer. The library installs no console scripts and
+discovers no workstation events. The full partition map is in
+[the repository architecture](../ARCHITECTURE.md).
+
+## Compose modules
+
+Choose a reader, normalize time and coordinate conventions, then pass its
+arrays or tables to a numerical helper. Library use supplies paths and
+scientific configuration explicitly:
+
+```python
+from datetime import datetime, timedelta, timezone
+
+from solar_toolkit.radio.config import RadioEventConfig
+from solar_toolkit.radio.reprojection import nearest_time_index
+
+event = RadioEventConfig.from_mapping(
+    {"user": {"data": {"multi_band_freqs": [149.0, 164.0]}}}
+)
+target = datetime(2000, 1, 1, tzinfo=timezone.utc)
+index = nearest_time_index(
+    target,
+    [target - timedelta(seconds=1), target + timedelta(seconds=2)],
+)
+print(index)  # 0
+```
+
+| Example | Inputs and role |
+| --- | --- |
+| [Public API](examples/public_api/README.md) | Deterministic time matching and Gaussian arrays; no observations or generated files |
+| [Radio](examples/radio/README.md) | Synthetic FITS reading, UTC matching and missing-column display |
+| [SXR](examples/sxr/README.md) | A synthetic or caller-supplied table, smoothing, derivatives and plotting |
+| [STEREO EUVI](examples/stereo/README.md) | Caller-selected FITS maps and an optional ROI |
+
+Examples show software composition. Users choose calibration, scientific
+conditions and result validation for their own data. Importing a library
+module does not download data, start an interface or execute an analysis.
+
+## Run and verify
+
+The environment requirement is fixed: run every command below through Miniforge
+`solarphysics_env_latest`, from the unified repository root. The library
+supports Python 3.12 and later; the shared development environment uses
+Python 3.14.
+
+### Install
 
 The editable commands below use dependency ranges. For a confirmatory run,
 recreate and verify a sealed target-platform environment as described in the
 [environment lock manual](../environment/README.md), then install this checkout
 with `--no-deps --no-build-isolation`.
 
-All shell commands in this guide run from the unified repository root. Replace
-`<miniforge-root>` with your Miniforge installation directory. For a fresh
-setup, create the development environment before installing. If it already
-exists, inspect its Python version and skip `create`. The library supports
-Python 3.12 and later; the shared development environment uses Python 3.14.
+Replace `<miniforge-root>` with your Miniforge installation directory. For a
+fresh setup, create the development environment before installing. If it
+already exists, inspect its Python version and skip `create`.
 
 On macOS/Linux:
 
@@ -86,41 +153,49 @@ and validation. The retained `solarphysics_env` environment is the formal
 compatibility fallback and can be selected explicitly with Miniforge
 `conda run -n solarphysics_env`; it is not updated or activated by default.
 
-## Compose modules
+### Verify
 
-Choose a reader, normalize time and coordinate conventions, then pass its
-arrays or tables to a numerical helper. Library use supplies paths and
-scientific configuration explicitly:
+Follow the repository [contributor setup](../CONTRIBUTING.md) to install the
+development tools. Library-specific checks are described in
+[Python contribution guidance](CONTRIBUTING.md). From the repository root:
 
-```python
-from datetime import datetime, timedelta, timezone
-
-from solar_toolkit.radio.config import RadioEventConfig
-from solar_toolkit.radio.reprojection import nearest_time_index
-
-event = RadioEventConfig.from_mapping(
-    {"user": {"data": {"multi_band_freqs": [149.0, 164.0]}}}
-)
-target = datetime(2000, 1, 1, tzinfo=timezone.utc)
-index = nearest_time_index(
-    target,
-    [target - timedelta(seconds=1), target + timedelta(seconds=2)],
-)
-print(index)  # 0
+```powershell
+$Conda = "<miniforge-root>\Scripts\conda.exe"
+& $Conda run -n solarphysics_env_latest python -m pip check
+& $Conda run -n solarphysics_env_latest python -m compileall -q Python\solar_toolkit Python\tests Python\examples
+& $Conda run -n solarphysics_env_latest python -m ruff check Python\solar_toolkit Python\tests Python\examples
+& $Conda run -n solarphysics_env_latest python -m pytest Python\tests --basetemp "Local/tmp/pytest-library-<run>"
+& $Conda run -n solarphysics_env_latest python tools/build_distributions.py --project Python --output-dir "Local/outputs/checks/library-<run>"
 ```
 
-| Example | Inputs and role |
-| --- | --- |
-| [Public API](examples/public_api/README.md) | Deterministic time matching and Gaussian arrays; no observations or generated files |
-| [Radio](examples/radio/README.md) | Synthetic FITS reading, UTC matching and missing-column display |
-| [SXR](examples/sxr/README.md) | A synthetic or caller-supplied table, smoothing, derivatives and plotting |
-| [STEREO EUVI](examples/stereo/README.md) | Caller-selected FITS maps and an optional ROI |
+Replace `<run>` with a unique run identifier. Build output must be a new or
+empty private directory. The build tool inspects the wheel and source archive,
+rebuilds the wheel outside the checkout, and compares package and license
+contents. CI also installs the rebuilt wheel in an independent Miniforge
+environment and exercises the existing synthetic examples while blocking
+application imports. These checks do not publish a release.
 
-Examples show software composition. Users choose calibration, scientific
-conditions and result validation for their own data. Importing a library
-module does not download data, start an interface or execute an analysis.
+For macOS/Linux, use `"$MINIFORGE_CONDA" run -n solarphysics_env_latest` in
+place of `& $Conda run -n solarphysics_env_latest` and use `/` in source paths.
 
-## Scientific image filenames
+## Rules that must not be violated
+
+1. The distribution name `solar-physics-toolkit` and the import namespace
+   `solar_toolkit` stay unchanged, so an existing import keeps resolving.
+2. The wheel ships no console scripts, and the library performs no workstation
+   event discovery.
+3. Importing a module downloads no data, starts no interface and executes no
+   analysis.
+4. Real event parameters and machine paths never enter public source; the caller
+   supplies them explicitly.
+5. Public exports and compatibility imports that a reorganization keeps
+   available continue to import; the [function map](docs/FUNCTION_MAP.md) records
+   the replacements.
+6. A file the library names follows the contract in
+   [Scientific image filenames](#scientific-image-filenames), unless the caller
+   passes a complete output filename.
+
+### Scientific image filenames
 
 The `solar_toolkit.visualization.image_naming` API and workflows that
 explicitly adopt it use this deterministic contract:
@@ -159,38 +234,19 @@ Examples:
 0001_20000101T000000Z-20000101T000100Z_dart_stokes_i_v_over_i_dynamic_spectrum.png
 ```
 
-## Verify
-
-Follow the repository [contributor setup](../CONTRIBUTING.md) to install the
-development tools. Library-specific checks are described in
-[Python contribution guidance](CONTRIBUTING.md). From the repository root:
-
-```powershell
-$Conda = "<miniforge-root>\Scripts\conda.exe"
-& $Conda run -n solarphysics_env_latest python -m pip check
-& $Conda run -n solarphysics_env_latest python -m compileall -q Python\solar_toolkit Python\tests Python\examples
-& $Conda run -n solarphysics_env_latest python -m ruff check Python\solar_toolkit Python\tests Python\examples
-& $Conda run -n solarphysics_env_latest python -m pytest Python\tests --basetemp "Local/tmp/pytest-library-<run>"
-& $Conda run -n solarphysics_env_latest python tools/build_distributions.py --project Python --output-dir "Local/outputs/checks/library-<run>"
-```
-
-Replace `<run>` with a unique run identifier. Build output must be a new or
-empty private directory. The build tool inspects the wheel and source archive,
-rebuilds the wheel outside the checkout, and compares package and license
-contents. CI also installs the rebuilt wheel in an independent Miniforge
-environment and exercises the existing synthetic examples while blocking
-application imports. These checks do not publish a release.
-
-For macOS/Linux, use `"$MINIFORGE_CONDA" run -n solarphysics_env_latest` in
-place of `& $Conda run -n solarphysics_env_latest` and use `/` in source paths.
-
-`solar_toolkit/` holds the installable package, `tests/` holds data-independent
-checks, and `examples/` holds the small compositions above. See the repository
-[architecture](../ARCHITECTURE.md) for application and runtime ownership.
-
 ## License and citation
 
 This Python partition is covered by [`LICENSE`](LICENSE). Other components
 retain the licenses described in the repository [license scope](../LICENSING.md).
 Library citation metadata is in [`CITATION.cff`](CITATION.cff); the repository
 also provides a [root citation entry](../CITATION.cff).
+
+## Related documents
+
+- [docs/FUNCTION_MAP.md](docs/FUNCTION_MAP.md) — public module inventory, input and output contracts.
+- [CONTRIBUTING.md](CONTRIBUTING.md) — library test, API and distribution rules.
+- [CHANGELOG.md](CHANGELOG.md) — the dated record of library changes.
+- [../ARCHITECTURE.md](../ARCHITECTURE.md) — partition map and dependency directions.
+- [../environment/README.md](../environment/README.md) — platform locks and the exact-environment gate.
+- [../LICENSING.md](../LICENSING.md) — license scope for every component.
+- [../docs/writing-standard.md](../docs/writing-standard.md) — document classes and claim discipline.

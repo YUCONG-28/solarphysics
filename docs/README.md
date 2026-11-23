@@ -34,3 +34,29 @@ hash-verified dependency replay are separate checks.
 Documentation describes interfaces, units, algorithm conditions and software
 behavior. Observations, event parameters, research records and generated results
 remain outside public source.
+
+## Document standard
+
+| Document | Answers |
+| --- | --- |
+| [writing-standard](writing-standard.md) | Document classes, required skeletons, evidence tags, and the headings, anchors and contract strings that must not move |
+| [terminology](terminology.md) | English form, Chinese form, and the document that owns each definition |
+
+## Documents in this directory
+
+| Document | Class | Answers |
+| --- | --- | --- |
+| [time_matching.md](time_matching.md) | S | How one shared observation timeline is built across independent image streams, and what a match does not prove |
+| [foundations.md](foundations.md) | S | Time, units, masks, coordinates and dependency evidence shared by every module |
+| [magnetic_models.md](magnetic_models.md) | S | PFSS frequency bands, global radial boundaries, and local magnetic grids |
+| [radio_comparison.md](radio_comparison.md) | S | Original-image comparison and source localization, with its review flags and uncertainty |
+| [aia_radio_composite.md](aia_radio_composite.md) | S | How to operate the AIA/radio composite frontend and what its outputs retain (中文) |
+| [migration.md](migration.md) | P | How to move an existing checkout, import or configuration onto the current layout |
+
+## How these documents are written
+
+A guide opens with purpose, reader and the definitions it relies on; a scientific
+guide then states its notation, method, assumptions, failure modes, uncertainty,
+verification and code anchors. Claims about data carry `[observed]`, claims about
+behavior `[implemented]`, and interpretations `[inferred]` — see the
+[writing standard](writing-standard.md).

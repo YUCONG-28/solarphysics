@@ -1,6 +1,15 @@
 # Apps development
 
-## Environment
+Purpose: the application partition's development loop — prepare the environment,
+run the checks, read the health report, and deliver a change.
+
+Reader: anyone changing code, tests or documentation under `Apps`. Installation is
+owned by the [Apps guide](../README.md#install); structure, formats and the
+dependency rules by [Apps architecture](architecture.md).
+
+## Daily loop
+
+### Environment
 
 Follow the [installation guide](../README.md#install) to create the primary
 Miniforge environment and install both source partitions. Run commands from the
@@ -23,7 +32,7 @@ installs resolve ranges. See the [environment guide](../../environment/README.md
 for platform-lock validation, artifact replay and source-binding maintenance.
 Do not describe a source-hash refresh as a new environment capture or replay.
 
-## Checks
+### Checks
 
 Compile, lint, format-check and test the affected area before broader checks.
 Use a unique private pytest temporary directory for each run.
@@ -71,7 +80,7 @@ Verify Light, Dark and Auto while changing the operating-system color scheme;
 verify Dark Dimmed on native pages that support it. Stop every supervised server
 and confirm that its port is closed when finished.
 
-## Health reports
+### Health reports
 
 The offline health matrix checks catalog-driven frontend entries, native pages
 and offline smokes. Legacy Flask/Streamlit servers are reported as `not_run` with
@@ -87,7 +96,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Apps\run.ps1 tools hea
 ./Apps/run.sh tools health --output Local/tmp/apps-health.json
 ```
 
-## Maintenance and contributions
+## Submit a reproducible change
 
 The optional `tools quick` and `tools release` commands expose repository
 maintenance operations. Inspect their help and use the
@@ -95,6 +104,8 @@ maintenance operations. Inspect their help and use the
 procedures. `release prepare` creates version changes for a normal pull
 request; `release publish` validates and publishes an explicitly selected merged
 commit as a separate stage. Both stages preview their actions by default.
+
+Hold a change to these boundaries:
 
 - Preserve dependency direction, public imports, stable CLI IDs and compatible
   artifact formats. See [Apps architecture](architecture.md).
@@ -119,3 +130,59 @@ wheel installation is tested separately.
 The public-source policy, package-content checks and contribution workflow are
 shared with the repository. Do not publish raw operation history or execution
 receipts in documentation.
+
+## Conflict and rollback
+
+The `tools release` stages are read-only unless `--execute` is supplied
+(`Apps/solar_apps/cli/release.py`), so every stage is inspected before it acts:
+
+- A version change: run the stage, read the preview, and repeat the same command
+  with `--execute` only when the preview matches the intention. A preview that is
+  abandoned leaves the prepared change unexecuted, and `prepare --execute`
+  requires a clean feature branch.
+- An existing environment: inspect it first, and use `env update` in place of
+  `env create` from the [installation guide](../README.md#install) only when you
+  intend to update that environment.
+- A failed health run: the report is written atomically, so a non-zero exit code
+  does not leave a partially written report. Fix the reported entry and rerun the
+  matrix.
+- Two concurrent test runs: each run needs its own unique private base-temporary
+  directory, so a collision means the directory was reused rather than a defect
+  in the change.
+
+## Troubleshooting
+
+| Symptom | Cause | Action |
+| --- | --- | --- |
+| `solar_apps` or `solar_toolkit` cannot be imported | One source partition is missing from the selected environment | Install both partitions in editable mode in `solarphysics_env_latest`. |
+| A compile, Ruff or Black check fails | The affected files were not formatted, or a syntax error is present | Run the same command on the affected paths and fix what it reports. |
+| A test run collides with another run | Both runs share one base-temporary directory | Rerun with a unique private directory. |
+| The health matrix reports legacy servers | The default matrix is offline | Add `--include-legacy-servers` only when local loopback ports are available. |
+| `tools health` exits non-zero | At least one entry failed | Read the JSON report at the `--output` path and fix the reported entry. |
+| A port stays occupied after a UI check | A supervised server was not stopped | Stop every supervised server and confirm the port is closed. |
+| A documentation contract fails | A renamed heading or moved link broke a reference | Update every inbound link and anchor in the same change. |
+
+## Pre-delivery checklist
+
+- The changed area compiles, lints, passes the format check, and passes its
+  focused tests; shared platform, UI, CLI or workflow changes also ran the Apps
+  suite.
+- Every test run used its own unique writable base-temporary directory.
+- A documentation change passed the relative-link and documentation/privacy
+  contracts.
+- A UI change was exercised in Light, Dark and Auto across an operating-system
+  color-scheme change, and in Dark Dimmed where the page supports it.
+- Every supervised server is stopped and its port is closed.
+- Raw verification output stayed private; no operation history or execution
+  receipt entered the documentation.
+- Third-party assets keep their license and notice files, and the
+  `Apps/pyproject.toml` resource list matches the distribution boundary checks.
+
+## Related documents
+
+- [Apps guide](../README.md) — installation, command hierarchy and runtime boundary.
+- [Apps architecture](architecture.md) — interface ownership, formats and dependency rules.
+- [Environment guide](../../environment/README.md) — platform locks and exact replay.
+- [Development workflow](../../WORKFLOW_README.md) — save, update and release procedure.
+- [ARCHITECTURE.md](../../ARCHITECTURE.md) — partitions and the source/runtime boundary.
+- [Library development](../../Python/CONTRIBUTING.md) — checks for the library partition.

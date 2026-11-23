@@ -1,5 +1,15 @@
 # Apps working agreement
 
+Purpose: the application partition's public-source boundary, its runtime
+environment rule, and the verification expectation for an Apps change.
+
+Reader: anyone editing `Apps`, including an agent delegated to work there. The
+repository-wide rules in `../AGENTS.md` still apply; dependency directions and the
+source/runtime boundary are owned by `../ARCHITECTURE.md`.
+
+Precedence: this file is more specific than `../AGENTS.md` where the two differ,
+and a direct instruction from the user wins over both.
+
 These instructions apply to the public application partition.
 
 ## Boundaries
@@ -31,3 +41,12 @@ These instructions apply to the public application partition.
 - For frontend changes, verify Light, Dark, and Auto modes and shut down every
   supervised preview server before finishing.
 - Do not update snapshots or generated artifacts merely to hide a regression.
+
+## Related documents
+
+- [README.md](README.md) — installation, command hierarchy and frontend behavior.
+- [docs/architecture.md](docs/architecture.md) — interface ownership, formats and dependency directions.
+- [docs/development.md](docs/development.md) — environment, checks and delivery steps.
+- [tests/fixtures/README.md](tests/fixtures/README.md) — what may be committed as a test fixture.
+- [../ARCHITECTURE.md](../ARCHITECTURE.md) — repository partitions and the forbidden dependency directions.
+- [../WORKFLOW_README.md](../WORKFLOW_README.md) — commit, review and release procedure.

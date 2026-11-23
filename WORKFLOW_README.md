@@ -1,11 +1,22 @@
 # Repository maintenance workflow
 
+Purpose: the repository's maintenance loop — start a change, commit only the
+intended files, review and merge, run the quick commands, and publish an
+accepted version.
+
+Reader: anyone with commit or release rights on this repository. Branch and
+release rules are owned by [AGENTS.md](AGENTS.md); partition ownership by
+[ARCHITECTURE.md](ARCHITECTURE.md).
+
+
 Start with the [contribution guide](CONTRIBUTING.md) or its
 [Chinese counterpart](CONTRIBUTING.zh-CN.md). This guide covers branches,
 selective commits, pull requests and the separate release stages. Run commands
 from the repository root and replace example arguments with your own values.
 
-## Start a change
+## Daily loop
+
+### Start a change
 
 Inspect the working tree before switching branches. With a clean checkout:
 
@@ -20,7 +31,7 @@ Use a descriptive branch name for each change. Preserve existing local work;
 use a separate checkout when a branch switch would disturb it. A synchronized
 folder does not replace Git history; keep `.git` out of two-way file sync.
 
-## Check and commit selected files
+### Check and commit selected files
 
 Run the tests relevant to the change, then broaden validation when shared
 behavior changes. The [library](Python/CONTRIBUTING.md) and
@@ -76,7 +87,9 @@ Do not discard unreviewed work to make a checkout appear clean. If a credential
 has entered a commit, rotate it and address the history; deleting the current
 file does not remove older copies.
 
-## Quick maintenance commands
+## Maintenance and release commands
+
+### Quick maintenance commands
 
 These commands use the installed Apps maintenance entry point. On Windows,
 replace `./Apps/run.sh` with `Apps\run.ps1`.
@@ -94,7 +107,7 @@ save leaves the user's original staging intact. Inspect your diff before using
 these non-interactive helpers. They do not run `git add .` or force-push.
 Help and invalid command handling do not initialize the application runtime.
 
-## Prepare a version pull request
+### Prepare a version pull request
 
 A normal source or documentation pull request needs no version bump. When a
 version change is needed, use a clean feature branch. Preview the change first:
@@ -120,7 +133,7 @@ then use the normal save/push pull-request workflow. The old
 `tools release run --bump ... --note ...` spelling remains an alias for
 `prepare`, with the same limited behavior.
 
-## Publish an accepted version
+### Publish an accepted version
 
 Publication is a distinct maintainer action after the version pull request is
 merged. Use a clean checkout of the full merged commit SHA; a detached release
@@ -142,3 +155,10 @@ and create the GitHub Release. It does not edit source or make a release commit.
 A tag or Release already pointing at the same commit can be reused on retry;
 a conflicting target is rejected. This documentation does not itself publish
 any version.
+
+## Related documents
+
+- [AGENTS.md](AGENTS.md) — public source boundary and environment rules.
+- [CONTRIBUTING.md](CONTRIBUTING.md) — contribution loop for an outside change.
+- [ARCHITECTURE.md](ARCHITECTURE.md) — partitions and dependency directions.
+- [docs/writing-standard.md](docs/writing-standard.md) — documentation classes and anchors that must not move.

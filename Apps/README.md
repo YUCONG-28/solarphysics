@@ -1,12 +1,74 @@
 # Solar Physics Applications
 
+Purpose: own the application partition's installation, private configuration,
+command surface and frontend behavior.
+
+Reader: anyone installing, running or extending the application adapters. Shared
+vocabulary is in [docs/terminology](../docs/terminology.md), document classes in
+[docs/writing-standard](../docs/writing-standard.md), dependency directions in
+[ARCHITECTURE.md](../ARCHITECTURE.md).
+
 `Apps` contains application adapters and workflow orchestration for the reusable
 [`solar_toolkit`](../Python/README.md) library. Use the library to compose your
 own analysis; the interfaces demonstrate ways to connect those APIs. Supply
 scientific inputs and parameters explicitly, and keep observations, configuration,
 state and generated products in private storage.
 
-## Install
+## 1. Purpose and boundary
+
+| Owned here | Belongs elsewhere |
+| --- | --- |
+| Application adapters, command routing and compatibility aliases (`solar_apps/cli`) | Reusable scientific calculations: [library guide](../Python/README.md) |
+| Composed AIA, HMI, radio, PFSS, visualization, data, net and X-ray workflows (`solar_apps/workflows`) | The partition map and the dependency diagram: [ARCHITECTURE.md](../ARCHITECTURE.md) |
+| Runtime layout, allowed roots, state and process supervision (`solar_apps/platform`) | Environment artifacts and replay evidence: [environment guide](../environment/README.md) |
+| Frontend interfaces, themes and framework adapters (`solar_apps/ui`, `solar_apps/frontends`) | Checks, builds, health reports and release stages: [Apps development](docs/development.md) |
+| Installation commands, launcher options and the runtime failure modes of this partition | Scientific methods and their validity: [technical guides](../docs/README.md) |
+
+## 2. Layout
+
+| Path | Role |
+| --- | --- |
+| `Apps/run.ps1`, `Apps/run.sh` | Public launchers; the only supported entry points |
+| `Apps/environment.miniforge.yml` | Source specification for the primary environment |
+| `Apps/configs/examples/paths.example.yaml` | The only public configuration template; fail-closed |
+| `Apps/solar_apps/` | `cli`, `platform`, `ui`, `frontends` and `workflows` packages |
+| `Apps/examples/` | Deterministic synthetic examples |
+| `Apps/tests/` | Contract, unit, integration, frontend and UI suites |
+| `Apps/docs/` | The architecture and development guides |
+| `Apps/LICENSE`, `Apps/LICENSES/` | License scope and third-party notices |
+| `Local/` | Ignored private runtime tree created by `admin init` |
+
+The native demonstration interface adapts existing workflows through typed forms
+and supervised workers. Open a particular page with `--module`, for example
+`frontend app-v1 --module image-composer`. The `app-v1-preview` ID is a
+compatibility alias to the same implementation. Retained interfaces are listed
+below; inspect their help for allowed-root, host, port and browser options.
+
+| Command | Interface |
+| --- | --- |
+| `frontend workbench` | Workbench and Radio Workspace, Flask |
+| `frontend image-viewer` | Sequence viewer and media export, Flask |
+| `frontend image-composer` | Native Image Composer compatibility route |
+| `frontend bad-frame-review` | Radio frame review, Flask |
+| `frontend source-map` | Source Map preparation and ROI annotation, Flask |
+| `frontend dart-spectrogram` | DART spectrum controls, Streamlit |
+| `frontend roi-lightcurve` | Radio ROI light curves, Streamlit |
+| `frontend radio-composite` | Multi-frequency composite display, Streamlit |
+| `frontend aia-radio-composite` | AIA/radio/ROI/spectrum display, Streamlit |
+| `frontend source-trajectory` | Radio trajectory inspection, Streamlit |
+
+## 3. Dependency directions
+
+The application layer depends on the library; the library never depends on the
+application layer. Frontends reach shared behaviour through `solar_apps/ui`,
+`solar_apps/workflows` and `solar_apps/platform`, and `solar_apps/platform`
+never imports a concrete frontend or workflow. The diagram, and the two
+`-X->` arrows that are forbidden, are owned by
+[ARCHITECTURE.md](../ARCHITECTURE.md).
+
+## 4. Run and verify
+
+### Install
 
 Apps require Python 3.14, Miniforge, and `solarphysics_env_latest`. The public
 launchers are `Apps/run.ps1` on Windows and `Apps/run.sh` on macOS. The
@@ -56,7 +118,7 @@ group. Use `-EnvironmentName solarphysics_env` or
 `--environment-name solarphysics_env` only for a compatibility check. Child
 processes inherit the selected Miniforge interpreter.
 
-## Private paths and scientific configuration
+### Private paths and scientific configuration
 
 `admin init` creates the ignored runtime directories, copies
 [`paths.example.yaml`](configs/examples/paths.example.yaml) to
@@ -114,7 +176,7 @@ chosen workflow. There are no built-in observation presets; absent scientific
 configuration raises an explicit error. Other domains expose their own input
 options rather than a universal configuration format.
 
-## Commands and interfaces
+### Commands
 
 The command hierarchy is:
 
@@ -142,25 +204,6 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Apps\run.ps1 frontend 
 ./Apps/run.sh frontend app-v1
 ```
 
-It adapts existing workflows through typed forms and supervised workers. Open a
-particular page with `--module`, for example
-`frontend app-v1 --module image-composer`. The `app-v1-preview` ID is a
-compatibility alias to the same implementation. Retained interfaces are listed
-below; inspect their help for allowed-root, host, port and browser options.
-
-| Command | Interface |
-| --- | --- |
-| `frontend workbench` | Workbench and Radio Workspace, Flask |
-| `frontend image-viewer` | Sequence viewer and media export, Flask |
-| `frontend image-composer` | Native Image Composer compatibility route |
-| `frontend bad-frame-review` | Radio frame review, Flask |
-| `frontend source-map` | Source Map preparation and ROI annotation, Flask |
-| `frontend dart-spectrogram` | DART spectrum controls, Streamlit |
-| `frontend roi-lightcurve` | Radio ROI light curves, Streamlit |
-| `frontend radio-composite` | Multi-frequency composite display, Streamlit |
-| `frontend aia-radio-composite` | AIA/radio/ROI/spectrum display, Streamlit |
-| `frontend source-trajectory` | Radio trajectory inspection, Streamlit |
-
 The browser interfaces are deprecated compatibility surfaces. Browser servers
 bind to loopback by default; stop the supervising process with `Ctrl+C` when
 finished. Close native interfaces through their application window. Current
@@ -184,7 +227,7 @@ magnetogram is not a global radial boundary; follow the
 For composite input formats and controls, see the
 [AIA/radio guide](../docs/aia_radio_composite.md).
 
-## State, display and troubleshooting
+### State and display
 
 `StateStore` persists allow-listed current fields as versioned JSON. Corrupt or
 incompatible state is ignored. `RecentPathMemory` restores a usable directory
@@ -196,6 +239,8 @@ Dark Dimmed. Scientific arrays, colormaps, normalization and exports retain thei
 own settings. Spatial radio panels use `SpatialRadioDisplay`; its effective
 settings and cache signatures are described in the architecture guide.
 
+### Troubleshooting
+
 | Symptom | Check |
 | --- | --- |
 | Miniforge cannot be found | Set `SOLAR_MINIFORGE_ROOT` or pass the launcher's Miniforge-root option. |
@@ -205,7 +250,7 @@ settings and cache signatures are described in the architecture guide.
 | An optional import fails | Install both source partitions in the selected environment and inspect the command's dependency requirements. |
 | A browser port remains occupied | Stop the previous supervising process before restarting. |
 
-## Development and licenses
+## 5. Rules that must not be violated
 
 Build, checks, health reports and maintenance commands are documented in
 [Apps development](docs/development.md). Only code, tests, synthetic examples,
@@ -213,8 +258,41 @@ technical documentation and required notices belong in the public tree; keep
 observations, machine paths, state, logs, workspaces and generated products
 private.
 
+1. `Apps/run.ps1` and `Apps/run.sh` are the only public entry points; there is no
+   system-Python, virtual-environment or arbitrary-interpreter fallback.
+2. `solarphysics_env_latest` is the development environment. `solarphysics_env`
+   exists only for an explicitly selected compatibility check.
+3. Both source partitions stay installed in editable mode; standalone Apps wheel
+   installation is not a supported deployment path.
+4. `configs/examples/paths.example.yaml` is the only public configuration
+   template, and it ships fail-closed with an empty allowed-root list.
+5. Machine configuration and runtime files live in `Local/configs/paths.local.yaml`
+   and below `Local/`, or in an explicitly configured external private runtime
+   root. The repository root, its ancestors and drive roots are never allowed
+   roots.
+6. Path authorization never supplies scientific inputs. Callers provide
+   observation files, UTC ranges, regions and analysis choices, and there are no
+   built-in observation presets.
+7. Remembered paths and resolved destinations are revalidated before access;
+   memory is convenience state and never authorization.
+8. Scientific arrays, colormaps, normalization and exports keep their own
+   settings: theme state never enters a scientific sidecar or cache signature.
+
 The complete [repository license scope](../LICENSING.md) lists component
 exceptions. General Apps source is [MIT](LICENSE); App 1.0 source is
 [GPL-3.0-only](solar_apps/frontends/app_v1/LICENSE.md). The bundled Mediabunny
 asset is MPL-2.0 and includes its license and notice. PyQt6 is separately licensed
 by its publisher. Preserve these component notices when redistributing code.
+
+## 6. Related documents
+
+- [Apps architecture](docs/architecture.md) — interface ownership, formats, display contracts and compatibility entry points.
+- [Apps development](docs/development.md) — environment, checks, health reports and release stages.
+- [Library guide](../Python/README.md) — the reusable `solar_toolkit` surface.
+- [ARCHITECTURE.md](../ARCHITECTURE.md) — partitions, dependency directions and the source/runtime boundary.
+- [Environment guide](../environment/README.md) — platform locks and exact-environment replay.
+- [Synthetic examples](examples/README.md) — deterministic examples that compose these services.
+- [AIA/radio guide](../docs/aia_radio_composite.md) — composite input formats, controls and outputs.
+- [Magnetic models](../docs/magnetic_models.md) — PFSS and NLFFF command guidance.
+- [LICENSING.md](../LICENSING.md) — component license scope.
+- [CONTRIBUTING.md](../CONTRIBUTING.md) — contribution procedure.
